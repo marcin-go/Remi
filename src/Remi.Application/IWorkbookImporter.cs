@@ -40,6 +40,7 @@ public sealed record ImportedInvoice(
     string? ServiceGroup,
     string? ServiceGroupLevel2,
     string? ServiceDescription,
+    string? OrderChannel,
     string? DigitalMarketplaceServiceId,
     string? UnitOfMeasure,
     decimal? Quantity,

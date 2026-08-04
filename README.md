@@ -10,14 +10,20 @@ The first delivery is a Blazor web application designed to run as a portable Win
 - Contract and invoice progress based on reported invoice value
 - Import of the existing CCS/GCA MI `.xlsx` template structure
 - Duplicate, missing-contract, invalid-date and value validation
+- Direct contract and invoice entry with annual multi-line charge schedules
+- A generated, downloadable MI reporting card in the field order of the selected framework template
 - Monthly return status: draft, submitted or nil return
+- Versioned, approved MI workbook registration and review-copy export that preserves the workbook structure
+- Append-only audit trail for data intake, template approval, export, submissions and correction requests
 - A no-write migration validator for a whole `source-data` folder
-- Portable JSON, evidence and application-key storage under the data folder beside the executable
+- A Maintenance page that plans, validates and runs reviewed source-data imports
+- Portable SQLite tables for the whole register, plus evidence and application-key storage under the data folder beside the executable
 - An evidence archive that retains imported MI workbooks, contract documents, screenshots and guidance
 - Source path and SHA-256 checksum recorded for each archived evidence file
-- A remi-data.json.previous copy of the previous saved state
+- A local SQLite database with contracts and invoices kept as structured rows
+- Structured Serilog logs in `data\logs`, retained as rolling local files
 
-The application does not alter an imported workbook. Exporting an approved GCA template is deliberately the next delivery, after the current official template and its validation rules are captured.
+The application does not alter an imported workbook. A reviewer registers the approved official template and its guidance URL, then Remi generates a review copy by updating only its Contracts and Invoices Raised tables.
 
 ## Run it locally
 
@@ -29,7 +35,7 @@ Open the local address displayed in the terminal. Development data is written to
 
 ## Create the portable Windows folder
 
-    dotnet publish .\src\Remi.Web -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o .\publish\Remi
+Run `publish.bat` from the repository root. It creates `publish\Remi\Remi.exe` as a Windows x64 self-contained executable, so the recipient does not need a separate .NET installation. Run it again whenever you want to rebuild the portable folder.
 
 Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address and opens your default browser. Closing its command window stops Remi. No installer, service or registry configuration is used.
 
@@ -43,9 +49,17 @@ dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-d
 
 Once the findings have been reviewed, rerun without --validate and point it at the specific portable Remi folder you want to populate:
 
-    dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.json"
+    dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.db"
 
 The data folder will be created automatically. The migration retains every file beneath source-data except MI Reporting Ledger.xlsx: the 52 MI workbooks are imported as structured records and retained as originals; PDFs, screenshots and guidance are retained as evidence too. Each archived file has its original relative source path and SHA-256 checksum recorded in Remi. The preflight command does not need the --data argument because it does not write data.
+
+The portable app also exposes this workflow under **Maintenance**: use the browser-native folder chooser to select source data, create a source inventory, run the same no-write validation, review any findings, then explicitly confirm the import into SQLite. The selected files are temporarily staged with their folder hierarchy before processing.
+
+Remi is intentionally a clean-slate application: it does not upgrade earlier prototype data files in place. If a schema reset is required, validate the original source folder and use **Rebuild all data from source** in Maintenance. This replaces the local SQLite register and evidence archive after a second validation pass. The equivalent command-line operation is:
+
+```powershell
+dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.db" --repopulate
+```
 
 ## Design
 

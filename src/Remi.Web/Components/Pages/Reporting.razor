@@ -18,7 +18,7 @@
         <div class="form-grid">
             <label>
                 Framework
-                <select @bind="framework" @bind:after="LoadEvidenceAsync">
+                <select @bind="framework" @bind:after="LoadReportingPeriodAsync">
                     @foreach (var definition in Frameworks.All)
                     {
                         <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
@@ -27,12 +27,17 @@
             </label>
             <label>
                 Reporting month
-                <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:after="LoadEvidenceAsync" />
+                <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:after="LoadReportingPeriodAsync" />
             </label>
         </div>
+        <p class="return-context"><strong>@Frameworks.Get(framework).DisplayName</strong><span>@reportingMonth</span></p>
+        <label class="review-confirmation">
+            <input type="checkbox" @bind="importConfirmed" />
+            <span>I have checked the framework and reporting month. Selecting a workbook imports it and archives the original file.</span>
+        </label>
         <label class="file-picker">
-            <span>Select .xlsx workbook</span>
-            <InputFile OnChange="ImportWorkbookAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            <span>Choose .xlsx workbook to import</span>
+            <InputFile disabled="@(!importConfirmed || working)" OnChange="ImportWorkbookAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
         </label>
         <p class="caption">The report month is selected separately because the official workbook name does not contain it. The original workbook is not changed.</p>
 
@@ -50,17 +55,29 @@
         <p class="eyebrow">2 · Record the outcome</p>
         <h2>@Frameworks.Get(framework).DisplayName · @reportingMonth</h2>
         <p class="muted">Current status: <strong>@CurrentStatus</strong></p>
+        <div class="return-readiness">
+            <strong>Readiness</strong>
+            <span>@ReadinessMessage</span>
+        </div>
         <label>
             Portal submission reference <span class="optional">(optional)</span>
-            <input @bind="submissionReference" placeholder="e.g. portal confirmation or ticket ID" />
+            <input @bind="submissionReference" @bind:event="oninput" placeholder="e.g. portal confirmation or ticket ID" />
         </label>
         <div class="action-row">
-            <button class="button primary" disabled="@working" @onclick="MarkSubmittedAsync">Record as submitted</button>
-            <button class="button secondary" disabled="@working" @onclick="MarkNilReturnAsync">Record nil return</button>
+            <button class="button primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Record as submitted</button>
+            <button class="button secondary" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record nil return</button>
+        </div>
+        <label class="correction-reason">
+            Correction reason <span class="optional">(required to request review)</span>
+            <input @bind="correctionReason" @bind:event="oninput" placeholder="What needs to be corrected and why?" />
+        </label>
+        <div class="action-row">
+            <button class="button secondary" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
+            <a class="button secondary" href="templates">Template and audit trail</a>
         </div>
         @if (actionResult is not null)
         {
-            <p class="notice @(actionResult.Succeeded ? "success" : "error")">@actionResult.Message</p>
+            <p class="notice @(actionResult.Succeeded ? "success" : "error")" role="status">@actionResult.Message</p>
             @if (actionResult.Findings.Count != 0)
             {
                 <ul class="findings inline-findings">
@@ -105,6 +122,60 @@
     }
 </section>
 
+<section class="panel reporting-card-panel">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Reviewable reporting card</p>
+            <h2>Month-end MI staging</h2>
+        </div>
+        <a class="button secondary" href="@($"/reporting-card/{(int)framework}/{reportingMonth}")" target="_blank">Download text card</a>
+    </div>
+    @if (reportingCard is null || (reportingCard.Contracts.Count == 0 && reportingCard.Invoices.Count == 0))
+    {
+        <div class="empty-state compact"><p>No reportable activity has been recorded for this framework and month.</p></div>
+    }
+    else
+    {
+        <p class="caption">Review these fields against the contract and accounting invoice before generating the framework workbook.</p>
+        @if (reportingCard.Contracts.Count != 0)
+        {
+            <div class="reporting-card-section">
+                <h3>Contracts</h3>
+                @foreach (var item in reportingCard.Contracts)
+                {
+                    <article class="reporting-card-item">
+                        <h4>@item.Title</h4>
+                        <dl>
+                            @foreach (var field in item.Fields)
+                            {
+                                <div><dt>@field.Label</dt><dd>@field.Value</dd></div>
+                            }
+                        </dl>
+                    </article>
+                }
+            </div>
+        }
+        @if (reportingCard.Invoices.Count != 0)
+        {
+            <div class="reporting-card-section">
+                <h3>Invoices</h3>
+                @foreach (var item in reportingCard.Invoices)
+                {
+                    <article class="reporting-card-item">
+                        <h4>@item.Title</h4>
+                        <dl>
+                            @foreach (var field in item.Fields)
+                            {
+                                <div><dt>@field.Label</dt><dd>@field.Value</dd></div>
+                            }
+                        </dl>
+                    </article>
+                }
+            </div>
+        }
+    }
+</section>
+
 <section class="panel guidance-panel">
     <p class="eyebrow">What Remi checks today</p>
     <ul class="checklist">
@@ -113,7 +184,7 @@
         <li>Duplicate contract and invoice imports are held back instead of creating a second reportable entry.</li>
         <li>A nil return cannot be recorded for a month that contains imported activity.</li>
     </ul>
-    <p class="caption">Template export is deliberately a next step: it must use the current GCA-approved template without changing its layout or validation rules.</p>
+    <p class="caption">Generate a review copy from the active, approved workbook on the Templates &amp; audit page. Remi retains both the approved base and every generated return.</p>
 </section>
 
 @code {
@@ -123,14 +194,17 @@
     private string? submissionReference;
     private string? importMessage;
     private string? importError;
+    private string? correctionReason;
     private ReturnActionResult? actionResult;
     private IReadOnlyList<ReportingEvidence> evidence = [];
+    private ReportingCardModel? reportingCard;
     private bool working;
+    private bool importConfirmed;
 
     protected override async Task OnInitializedAsync()
     {
         model = await Workspace.GetDashboardAsync();
-        await LoadEvidenceAsync();
+        await LoadReportingPeriodAsync();
     }
 
     private string CurrentStatus =>
@@ -142,6 +216,25 @@
             ReturnStatus.CorrectionRequired => "Correction required",
             _ => "Not started",
         };
+
+    private bool HasActivity => reportingCard is not null
+        && (reportingCard.Contracts.Count != 0 || reportingCard.Invoices.Count != 0);
+
+    private bool HasEvidence => evidence.Count != 0;
+
+    private bool CanMarkSubmitted => HasActivity && HasEvidence && CurrentStatus is "Draft" or "Correction required";
+
+    private bool CanMarkNilReturn => !HasActivity && CurrentStatus is not "Submitted";
+
+    private bool CanRequestCorrection => CurrentStatus == "Submitted" && !string.IsNullOrWhiteSpace(correctionReason);
+
+    private string ReadinessMessage => CanMarkSubmitted
+        ? "Workbook evidence and reportable activity are ready for submission."
+        : HasActivity && !HasEvidence
+            ? "Import and archive the source workbook before recording submission."
+            : !HasActivity
+                ? "No reportable activity is present. You can record a nil return if this is correct."
+                : "Resolve the current return status before recording a new outcome.";
 
     private async Task ImportWorkbookAsync(InputFileChangeEventArgs args)
     {
@@ -161,7 +254,8 @@
             var result = await Workspace.ImportWorkbookAsync(framework, reportingMonth, workbook.Name, stream);
             importMessage = $"Imported {result.NewContracts} contract(s) and {result.NewInvoices} invoice(s). {result.ExistingContracts + result.ExistingInvoices} duplicate row(s) were already present. The original workbook was {(result.EvidenceArchived ? "archived" : "already archived")}.";
             model = await Workspace.GetDashboardAsync();
-            await LoadEvidenceAsync();
+            await LoadReportingPeriodAsync();
+            importConfirmed = false;
         }
         catch (Exception exception)
         {
@@ -189,15 +283,28 @@
         working = false;
     }
 
-    private async Task LoadEvidenceAsync()
+    private async Task RequestCorrectionAsync()
+    {
+        working = true;
+        actionResult = await Workspace.RequestCorrectionAsync(framework, reportingMonth, correctionReason ?? string.Empty);
+        model = await Workspace.GetDashboardAsync();
+        working = false;
+    }
+
+    private async Task LoadReportingPeriodAsync()
     {
         if (!DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _))
         {
             evidence = [];
+            reportingCard = null;
             return;
         }
 
-        evidence = await Workspace.GetReportingEvidenceAsync(framework, reportingMonth);
+        var evidenceTask = Workspace.GetReportingEvidenceAsync(framework, reportingMonth);
+        var cardTask = Workspace.GetReportingCardAsync(framework, reportingMonth);
+        await Task.WhenAll(evidenceTask, cardTask);
+        evidence = await evidenceTask;
+        reportingCard = await cardTask;
     }
 
     private static string CurrentReportingMonth() => DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");

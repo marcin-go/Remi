@@ -1,0 +1,36 @@
+@page "/evidence/{EvidenceId:guid}/view"
+@inject IRemiStore Store
+
+<PageTitle>Remi · PDF viewer</PageTitle>
+
+@if (evidence is null)
+{
+    <section class="empty-state"><p>The requested PDF was not found.</p></section>
+}
+else if (!IsPdf)
+{
+    <section class="empty-state"><p>This file is not a PDF.</p><a class="button secondary" href="@($"/evidence/{EvidenceId}/download")">Download file</a></section>
+}
+else
+{
+    <section class="page-heading pdf-viewer-heading">
+        <div>
+            <p class="eyebrow">Evidence viewer</p>
+            <h1>@evidence.FileName</h1>
+            <p class="lede">@evidence.OriginalRelativePath</p>
+        </div>
+        <a class="button primary" href="@($"/evidence/{EvidenceId}/download")">Download PDF</a>
+    </section>
+    <section class="pdf-viewer-panel">
+        <iframe title="PDF evidence: @evidence.FileName" src="@($"/evidence/{EvidenceId}/content")"></iframe>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid EvidenceId { get; set; }
+    private EvidenceRecord? evidence;
+    private bool IsPdf => evidence is not null && string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnParametersSetAsync() =>
+        evidence = await Store.ReadAsync(database => database.Evidence.SingleOrDefault(item => item.Id == EvidenceId));
+}

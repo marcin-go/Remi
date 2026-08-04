@@ -9,6 +9,7 @@ public static class ReportingRules
         var findings = new List<ValidationFinding>();
         ValidateContracts(database.Contracts, findings);
         ValidateInvoices(database, findings);
+        ValidateChargeSchedule(database, findings);
         return findings;
     }
 
@@ -51,10 +52,12 @@ public static class ReportingRules
                      .GroupBy(contract => (contract.Framework, Reference: NormaliseReference(contract.SupplierReference)))
                      .Where(group => group.Count() > 1))
         {
+            var first = duplicate.First();
             findings.Add(Error(
                 "DuplicateContractReference",
                 $"{Frameworks.Get(duplicate.Key.Framework).DisplayName}: {duplicate.Key.Reference} appears in more than one imported contract.",
-                "Contract"));
+                "Contract",
+                first.Id));
         }
     }
 
@@ -95,10 +98,46 @@ public static class ReportingRules
                          invoice.TotalCostExVat))
                      .Where(group => group.Count() > 1))
         {
+            var first = duplicate.First();
             findings.Add(Error(
                 "DuplicateInvoice",
                 $"{Frameworks.Get(duplicate.Key.Framework).DisplayName}: invoice {duplicate.Key.InvoiceNumber} for {duplicate.Key.Reference} has been imported more than once.",
-                "Invoice"));
+                "Invoice",
+                first.Id));
+        }
+    }
+
+    private static void ValidateChargeSchedule(RemiDatabase database, ICollection<ValidationFinding> findings)
+    {
+        var contractIds = database.Contracts.Select(contract => contract.Id).ToHashSet();
+        foreach (var item in database.ChargeScheduleItems)
+        {
+            if (!contractIds.Contains(item.ContractId))
+            {
+                findings.Add(Error(
+                    "ChargeScheduleContractNotFound",
+                    $"{item.Description}: the charge schedule item is not linked to a contract.",
+                    "ChargeSchedule",
+                    item.Id));
+            }
+
+            if (item.ContractYear < 1)
+            {
+                findings.Add(Error(
+                    "InvalidChargeScheduleYear",
+                    $"{item.Description}: the contract year must be at least 1.",
+                    "ChargeSchedule",
+                    item.Id));
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Description) || item.ValueExVat <= 0)
+            {
+                findings.Add(Error(
+                    "InvalidChargeScheduleItem",
+                    "Each charge schedule item needs a description and a positive ex-VAT value.",
+                    "ChargeSchedule",
+                    item.Id));
+            }
         }
     }
 

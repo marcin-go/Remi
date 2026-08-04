@@ -9,7 +9,7 @@ namespace Remi.Infrastructure;
 /// a directory structure below the archive root, with a hash prefix allowing later versions
 /// of the same source file to coexist.
 /// </summary>
-public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArchive
+public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArchive, IResettableEvidenceArchive
 {
     private readonly string archiveDirectory = Path.GetFullPath(archiveDirectory);
 
@@ -84,6 +84,20 @@ public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArch
             ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true)
             : null;
         return Task.FromResult(stream);
+    }
+
+    /// <summary>
+    /// Removes every archived file as part of an explicitly confirmed full repopulation.
+    /// </summary>
+    public Task ResetAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Directory.Exists(archiveDirectory))
+        {
+            Directory.Delete(archiveDirectory, recursive: true);
+        }
+
+        return Task.CompletedTask;
     }
 
     private static string NormaliseRelativePath(string originalRelativePath, string fileName)

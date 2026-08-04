@@ -18,18 +18,19 @@ Domain records and validation
 Storage / template / evidence adapters
 ```
 
-The current adapter stores JSON, original evidence files and application-protection keys under the data folder beside the executable; each data save keeps a one-generation remi-data.json.previous copy. Evidence filenames retain the original relative source-data path and a SHA-256 checksum, while the archive uses content-addressed copies so a later revision does not replace an earlier original. A hosted deployment replaces it with a database adapter and adds authentication; it does not replace the UI or the reporting rules.
+The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. Evidence filenames retain the original relative source-data path and a SHA-256 checksum, while the archive uses content-addressed copies so a later revision does not replace an earlier original. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
 
 ## Reporting workflow
 
 1. Create or select the framework and reporting month.
-2. Enter activity or import the official MI workbook for that framework/month.
-3. Validate the return before submission.
-4. Upload the current approved template to the GCA reporting portal.
-5. Record the portal confirmation in Remi and mark the return as submitted.
-6. Record a nil return explicitly where required—never infer one merely because no workbook is present.
+2. Select the existing contract when recording an accounting invoice, confirm its MI designation, then enter the invoice facts for that reporting month.
+3. Review the generated MI reporting card, which presents contract and invoice fields in the framework spreadsheet's order.
+4. Generate and validate the return before submission.
+5. Upload the current approved template to the GCA reporting portal.
+6. Record the portal confirmation in Remi and mark the return as submitted.
+7. Record a nil return explicitly where required—never infer one merely because no workbook is present.
 
-The ledger's `fully invoiced` and `partially invoiced` labels become a calculated view. Initially Remi compares the value of reported invoices with the contract value. The next data slice adds an invoice plan, allowing progress to use expected instalments instead.
+The ledger's `fully invoiced` and `partially invoiced` labels become a calculated view. Remi compares the value of reported invoices with the contract value until a structured annual charge schedule is recorded; it then uses the schedule total instead.
 
 ## Imported source-data baseline
 
@@ -56,10 +57,10 @@ These are exactly the sort of exceptions Remi should make visible. They should b
 | Framework | Agreement number, current reporting authority, template/version policy and deadline configuration |
 | Contract | Framework, supplier reference, customer/URN, dates, lot, service/order attributes, value and first reporting month |
 | Invoice | Framework, supplier reference, invoice number/date, service fields and ex-VAT value |
-| Invoice plan item | Expected amount/date; optional initially, required for instalment-accurate completion |
+| Charge schedule item | Contract year, description, expected amount/date; supports several positions per year for instalment-accurate completion |
 | Monthly return | Framework/month, draft/submitted/nil state, timestamp, portal reference and original workbook name |
 | Evidence | Immutable original MI workbooks, order forms, pricing/dates documents, screenshots and guidance; source path, checksum and optional contract link |
-| Audit event | Actor, time, field-level change and correction reason (next slice) |
+| Audit event | Append-only actor, time, action, summary and correction reason |
 
 The model deliberately retains the framework-specific fields instead of flattening everything into free text. G-Cloud needs service group and Digital Marketplace Service ID; VAS needs product/service and order-channel attributes.
 
@@ -75,19 +76,28 @@ The model deliberately retains the framework-specific fields instead of flatteni
 
 Deadlines are **not** hard-coded as a legal rule. They should be stored per agreement/template and confirmed against the current GCA guidance during the template-export delivery.
 
+## Delivered intake, template and review slice
+
+1. Contract and invoice entry is available alongside the workbook import, with supporting contract evidence archived against the supplier reference.
+2. Charge schedules retain multiple annual positions and feed the progress calculation.
+3. Each framework can have one active, versioned official workbook template. Registration requires an official guidance URL and archives the exact workbook.
+4. Generated `.xlsx` returns are copied from the registered template, then validated after only the Contracts and Invoices Raised table rows are replaced.
+5. Material actions append audit events; a reviewer can mark a return as requiring correction with an explicit reason.
+6. The Maintenance section plans a source-data migration, validates it with an in-memory register, and requires explicit review before it imports contracts, invoices and original evidence into SQLite.
+7. Remi deliberately does not perform in-place upgrades of earlier prototype databases. Maintenance can validate a source folder and, after a separate destructive confirmation, rebuild the complete local register and evidence archive from that source.
+
 ## Next delivery slice
 
-1. Add the contract/invoice entry form and an invoice-plan editor.
-2. Capture the latest approved GCA templates as versioned framework configuration.
-3. Generate and validate an untouched-format `.xlsx` return from a selected reporting period.
-4. Add immutable audit events and review/correction workflow.
+1. Add field-level record amendments with before/after values and a reviewer resolution step.
+2. Record the formal GCA submission deadline and template-specific validation policy for each registered version.
+3. Add automated coverage for representative G-Cloud and VAS template exports.
 
 ## Path to colleague access
 
 When the workflow and template export are proven locally:
 
 1. Host `Remi.Web` as an internal web app.
-2. Replace `IRemiStore`'s JSON implementation with PostgreSQL or SQL Server.
+2. Replace SQLite with PostgreSQL or SQL Server when concurrent colleague access requires it.
 3. Store evidence in a controlled file/blob store.
 4. Add Microsoft Entra ID and roles: preparer, reviewer, administrator.
 5. Retain the local mode for individual/offline preparation if useful.

@@ -53,21 +53,21 @@ else
             else
             {
                 <div class="progress-list">
-                    @foreach (var contract in model.ContractProgress.Take(6))
+                    @foreach (var contract in model.ContractProgress.OrderByDescending(IsOverrun).ThenBy(item => item.CompletionRatio).Take(6))
                     {
-                        <div class="progress-row">
+                        <div class="progress-row @(IsOverrun(contract) ? "overrun-progress" : null)">
                             <div class="progress-label">
-                                <strong>@contract.SupplierReference</strong>
+                                <strong><a href="@($"/contracts/{contract.ContractId}")">@contract.SupplierReference</a></strong>
                                 <span>@contract.CustomerName</span>
                             </div>
-                            <div class="progress-track" aria-label="@($"{contract.SupplierReference} is {Percentage(contract.CompletionRatio)} complete")">
-                                <span class="progress-fill" style="width: @Percentage(contract.CompletionRatio)"></span>
+                            <div class="progress-track" aria-label="@contract.SupplierReference">
+                                <span class="progress-fill @(IsOverrun(contract) ? "overrun" : null)" style="width: @ProgressWidth(contract.CompletionRatio)"></span>
                             </div>
                             <div class="progress-value">@Percentage(contract.CompletionRatio)</div>
                         </div>
                     }
                 </div>
-                <p class="caption">Progress compares reported invoices with the contract value until an invoice plan is added.</p>
+                    <p class="caption">Progress compares reported invoices with the contract value until an invoice plan is added. Values above 100% need review.</p>
             }
         </article>
 
@@ -86,11 +86,13 @@ else
             else
             {
                 <ul class="findings">
-                    @foreach (var finding in model.Findings.Take(6))
+                    @foreach (var attention in model.AttentionItems.Take(6))
                     {
-                        <li class="@finding.Severity.ToString().ToLowerInvariant()">
-                            <strong>@finding.Code</strong>
-                            <span>@finding.Message</span>
+                        <li class="@attention.Finding.Severity.ToString().ToLowerInvariant()">
+                            <a class="finding-link" href="@attention.Route">
+                                <strong>@FriendlyFinding(attention.Finding.Code)</strong>
+                                <span>@attention.Finding.Message</span>
+                            </a>
                         </li>
                     }
                 </ul>
@@ -113,5 +115,19 @@ else
         _ => "This month: not started",
     };
 
-    private static string Percentage(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+    private static bool IsOverrun(ContractProgress contract) => contract.ComparisonValueExVat > 0 && contract.ReportedInvoiceValueExVat > contract.ComparisonValueExVat;
+
+    private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
+
+    private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+
+    private static string FriendlyFinding(string code) => code switch
+    {
+        "ContractEndBeforeStart" => "Contract dates need correcting",
+        "InvoiceContractNotFound" => "Invoice needs a matching contract",
+        "ContractMissingSupplierReference" => "Contract is missing a supplier reference",
+        "ContractMissingCustomer" => "Contract is missing a customer",
+        "ContractMissingValue" => "Contract value needs correcting",
+        _ => "Data quality issue",
+    };
 }

@@ -20,6 +20,8 @@ public enum FindingSeverity
 public enum EvidenceKind
 {
     MonthlyMiWorkbook,
+    TemplateWorkbook,
+    GeneratedMiWorkbook,
     ContractDocument,
     SupportingDocument,
 }
@@ -55,6 +57,7 @@ public sealed record InvoiceRecord(
     string? ServiceGroup,
     string? ServiceGroupLevel2,
     string? ServiceDescription,
+    string? OrderChannel,
     string? DigitalMarketplaceServiceId,
     string? UnitOfMeasure,
     decimal? Quantity,
@@ -72,6 +75,19 @@ public sealed record InvoicePlanItem(
     string Label,
     DateOnly? ExpectedInvoiceDate,
     decimal ExpectedValueExVat);
+
+/// <summary>
+/// A chargeable position in a contract year. Several positions can be retained for a year,
+/// for example implementation, training and annual software licences.
+/// </summary>
+public sealed record ChargeScheduleItem(
+    Guid Id,
+    Guid ContractId,
+    int ContractYear,
+    string Description,
+    DateOnly? ExpectedInvoiceDate,
+    decimal ValueExVat,
+    DateTimeOffset CreatedAtUtc);
 
 public sealed record MonthlyReturn(
     Guid Id,
@@ -107,17 +123,48 @@ public sealed record EvidenceRecord(
     string? ContractReference,
     DateTimeOffset ArchivedAtUtc);
 
+/// <summary>
+/// A registered, approved official workbook used as the immutable base for a generated MI return.
+/// </summary>
+public sealed record MiTemplateConfiguration(
+    Guid Id,
+    FrameworkCode Framework,
+    string Version,
+    Guid EvidenceId,
+    string WorkbookName,
+    string GuidanceUrl,
+    string? Notes,
+    bool IsActive,
+    DateTimeOffset RegisteredAtUtc);
+
+/// <summary>
+/// An append-only record of material reporting actions and corrections.
+/// </summary>
+public sealed record AuditEvent(
+    Guid Id,
+    DateTimeOffset OccurredAtUtc,
+    string Action,
+    string EntityType,
+    Guid? EntityId,
+    string Summary,
+    string? Reason,
+    string Actor);
+
 public sealed class RemiDatabase
 {
-    public int SchemaVersion { get; init; } = 1;
-
     public List<ContractRecord> Contracts { get; init; } = [];
 
     public List<InvoiceRecord> Invoices { get; init; } = [];
 
     public List<InvoicePlanItem> InvoicePlanItems { get; init; } = [];
 
+    public List<ChargeScheduleItem> ChargeScheduleItems { get; init; } = [];
+
     public List<MonthlyReturn> MonthlyReturns { get; init; } = [];
 
     public List<EvidenceRecord> Evidence { get; init; } = [];
+
+    public List<MiTemplateConfiguration> MiTemplates { get; init; } = [];
+
+    public List<AuditEvent> AuditEvents { get; init; } = [];
 }

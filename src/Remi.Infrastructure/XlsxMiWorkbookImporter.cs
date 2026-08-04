@@ -189,6 +189,7 @@ public sealed class XlsxMiWorkbookImporter : IWorkbookImporter
             isVas ? Optional(row, "productservicegrouplevel1") : Optional(row, "servicegroup"),
             isVas ? Optional(row, "productservicegrouplevel2") : null,
             isVas ? Optional(row, "productservicedescription") : null,
+            isVas ? Optional(row, "orderchannel") : null,
             isVas ? null : Optional(row, "digitalmarketplaceserviceid"),
             isVas ? null : Optional(row, "unitofmeasure"),
             isVas ? null : ReadDecimal(Optional(row, "quantity")),

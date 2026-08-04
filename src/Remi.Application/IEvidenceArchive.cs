@@ -3,7 +3,7 @@ using Remi.Domain;
 namespace Remi.Application;
 
 /// <summary>
-/// Stores original evidence files outside the JSON register while keeping their metadata in it.
+/// Stores original evidence files outside the SQLite register while keeping their metadata in it.
 /// </summary>
 public interface IEvidenceArchive
 {

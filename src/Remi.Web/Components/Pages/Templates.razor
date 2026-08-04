@@ -1,0 +1,258 @@
+@page "/templates"
+@inject ReportingWorkspace Workspace
+@inject NavigationManager Navigation
+
+<PageTitle>Remi · Templates and audit</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Template control</p>
+        <h1>Generate from the approved workbook.</h1>
+        <p class="lede">Register the official MI workbook together with the GCA guidance used to approve it. Remi preserves that workbook’s structure and only fills the Contracts and Invoices Raised tables.</p>
+    </div>
+</section>
+
+<section class="two-column intake-layout">
+    <article class="panel">
+        <p class="eyebrow">1 · Register an approved template</p>
+        <div class="form-grid">
+            <label>
+                Framework
+                <select @bind="templateFramework">
+                    @foreach (var definition in Frameworks.All)
+                    {
+                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
+                    }
+                </select>
+            </label>
+            <label>Template version <input @bind="templateVersion" @bind:event="oninput" placeholder="e.g. v1.0" /></label>
+            <label class="wide-field">Official guidance URL <input type="url" @bind="guidanceUrl" @bind:event="oninput" placeholder="https://www.gca.gov.uk/..." /></label>
+            <label class="wide-field">Review notes <span class="optional">(optional)</span><input @bind="templateNotes" @bind:event="oninput" placeholder="Approval date, contact or qualification" /></label>
+        </div>
+        <label class="file-picker">
+            <span>Select approved .xlsx workbook</span>
+            <InputFile OnChange="RegisterTemplateAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+        </label>
+        <p class="caption">The workbook is retained as immutable evidence. Register a new version when GCA changes the official template; the prior version stays in the archive.</p>
+    </article>
+
+    <article class="panel">
+        <p class="eyebrow">2 · Generate a review copy</p>
+        <div class="form-grid">
+            <label>
+                Framework
+                <select @bind="exportFramework">
+                    @foreach (var definition in Frameworks.All)
+                    {
+                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
+                    }
+                </select>
+            </label>
+            <label>Reporting month <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="exportMonth" @bind:event="oninput" /></label>
+        </div>
+        <div class="action-row">
+            <button class="button primary" disabled="@(!CanGenerateReturn || working)" @onclick="ExportReturnAsync">Generate MI workbook</button>
+        </div>
+        <p class="caption">The generated workbook is archived, then downloaded for review and upload to the GCA reporting portal. It is not marked submitted automatically.</p>
+    </article>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <p class="notice @(succeeded ? "success" : "error")">@message</p>
+}
+@if (findings.Count != 0)
+{
+    <ul class="findings inline-findings">
+        @foreach (var finding in findings)
+        {
+            <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li>
+        }
+    </ul>
+}
+
+<section class="panel template-panel">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Approved template register</p>
+            <h2>Version history</h2>
+        </div>
+    </div>
+    @if (templates.Count == 0)
+    {
+        <div class="empty-state compact"><p>No approved MI template has been registered yet.</p></div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Framework</th><th>Version</th><th>Workbook</th><th>Guidance</th><th>Status</th><th>Registered</th></tr></thead>
+                <tbody>
+                    @foreach (var template in templates)
+                    {
+                        <tr>
+                            <td>@Frameworks.Get(template.Framework).DisplayName</td>
+                            <td><strong>@template.Version</strong></td>
+                            <td>@template.WorkbookName<span class="cell-secondary">@template.Notes</span></td>
+                            <td><a href="@template.GuidanceUrl" target="_blank" rel="noreferrer">Official guidance</a></td>
+                            <td>@(template.IsActive ? "Active" : "Superseded")</td>
+                            <td>@template.RegisteredAtUtc.LocalDateTime.ToString("dd MMM yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+<section class="panel audit-panel">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Review and correction trail</p>
+            <h2>Recent audit events</h2>
+        </div>
+    </div>
+    @if (auditEvents.Count == 0)
+    {
+        <div class="empty-state compact"><p>Material reporting actions will appear here.</p></div>
+    }
+    else
+    {
+        <div class="audit-controls">
+            <label>
+                Event type
+                <select @bind="auditActionFilter">
+                    <option value="">All activity</option>
+                    @foreach (var action in auditEvents.Select(item => item.Action).Distinct().OrderBy(item => item))
+                    {
+                        <option value="@action">@FriendlyAuditAction(action)</option>
+                    }
+                </select>
+            </label>
+            <span class="muted">Showing @VisibleAuditEvents.Count of @auditEvents.Count events</span>
+        </div>
+        <ol class="audit-list">
+            @foreach (var item in VisibleAuditEvents.Take(auditLimit))
+            {
+                <li>
+                    <time datetime="@item.OccurredAtUtc.ToString("O")">@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy HH:mm")</time>
+                    <div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div>
+                </li>
+            }
+        </ol>
+        @if (VisibleAuditEvents.Count > auditLimit)
+        {
+            <div class="action-row"><button class="button secondary" @onclick="ShowMoreAuditEvents">Show 15 more</button></div>
+        }
+    }
+</section>
+
+@code {
+    private FrameworkCode templateFramework = FrameworkCode.GCloud14;
+    private string templateVersion = "v1.0";
+    private string guidanceUrl = "https://www.gca.gov.uk/agreements/RM1557.14";
+    private string? templateNotes;
+    private FrameworkCode exportFramework = FrameworkCode.GCloud14;
+    private string exportMonth = CurrentReportingMonth();
+    private IReadOnlyList<TemplateConfigurationSummary> templates = [];
+    private IReadOnlyList<AuditEventSummary> auditEvents = [];
+    private IReadOnlyList<ValidationFinding> findings = [];
+    private string? message;
+    private bool succeeded;
+    private bool working;
+    private string auditActionFilter = string.Empty;
+    private int auditLimit = 15;
+
+    private bool CanGenerateReturn => DateOnly.TryParseExact($"{exportMonth}-01", "yyyy-MM-dd", out _)
+        && templates.Any(item => item.Framework == exportFramework && item.IsActive);
+
+    private IReadOnlyList<AuditEventSummary> VisibleAuditEvents => auditEvents
+        .Where(item => string.IsNullOrWhiteSpace(auditActionFilter) || item.Action == auditActionFilter)
+        .ToList();
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task RegisterTemplateAsync(InputFileChangeEventArgs args)
+    {
+        working = true;
+        message = null;
+        findings = [];
+        try
+        {
+            await using var stream = args.File.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+            var result = await Workspace.RegisterTemplateAsync(templateFramework, templateVersion, args.File.Name, guidanceUrl, templateNotes, stream);
+            succeeded = result.Succeeded;
+            message = result.Message;
+            findings = result.Findings;
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = $"The template could not be registered: {exception.Message}";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task ExportReturnAsync()
+    {
+        working = true;
+        message = null;
+        findings = [];
+        try
+        {
+            var exported = await Workspace.ExportReturnAsync(exportFramework, exportMonth);
+            if (exported is null)
+            {
+                succeeded = false;
+                message = "Register an active approved template for this framework before generating a return.";
+                return;
+            }
+
+            succeeded = true;
+            findings = exported.Findings;
+            message = $"Generated {exported.FileName} using template {exported.TemplateVersion}.";
+            await ReloadAsync();
+            Navigation.NavigateTo($"/evidence/{exported.EvidenceId}", forceLoad: true);
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = $"The MI workbook could not be generated: {exception.Message}";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        templates = await Workspace.GetTemplateConfigurationsAsync();
+        auditEvents = await Workspace.GetAuditEventsAsync();
+    }
+
+    private void ShowMoreAuditEvents() => auditLimit += 15;
+
+    private static string FriendlyAuditAction(string action) => action switch
+    {
+        "WorkbookImported" => "Workbook imported",
+        "ContractImported" => "Contract imported",
+        "InvoiceImported" => "Invoice imported",
+        "EvidenceArchived" => "Evidence archived",
+        "ContractCreated" => "Contract created",
+        "InvoiceRecorded" => "Invoice recorded",
+        "ChargeScheduled" => "Charge scheduled",
+        "TemplateRegistered" => "Template registered",
+        "ReturnExported" => "Review workbook generated",
+        "ReturnSubmitted" => "Return submitted",
+        "NilReturnRecorded" => "Nil return recorded",
+        "CorrectionRequested" => "Correction requested",
+        _ => action,
+    };
+
+    private static string CurrentReportingMonth() => DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
+}

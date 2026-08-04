@@ -5,8 +5,8 @@ namespace Remi.Infrastructure;
 /// </summary>
 public static class RemiDataPaths
 {
-    public static string DefaultDataFile =>
-        Path.Combine(AppContext.BaseDirectory, "data", "remi-data.json");
+    public static string DefaultDatabaseFile =>
+        Path.Combine(AppContext.BaseDirectory, "data", "remi-data.db");
 
     public static string EvidenceDirectoryFor(string dataFile) =>
         Path.Combine(
