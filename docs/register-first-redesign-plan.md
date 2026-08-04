@@ -8,9 +8,9 @@ The intended experience is **quiet assurance**: precise, calm, authoritative and
 
 ## Delivery status
 
-- **Completed:** plan documentation, global reporting-period context, shared design tokens and operational dashboard.
-- **Next:** simplify Contracts and Invoices into full-width registers with an on-demand selection experience.
-- **Pending:** consistent record-detail interactions and automated accessibility/visual regression coverage.
+- **Completed:** plan documentation, global reporting-period context, shared design tokens, operational dashboard and full-width Contracts/Invoices registers with on-demand selection drawers.
+- **Next:** align contract and invoice record-detail interactions.
+- **Pending:** automated accessibility and visual regression coverage.
 
 ## Product decisions
 

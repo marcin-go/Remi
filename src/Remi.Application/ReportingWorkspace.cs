@@ -1129,6 +1129,7 @@ public sealed class ReportingWorkspace(
                 contract.SupplierReference,
                 contract.CustomerName,
                 contract.CustomerUrn,
+                contract.ReportMonth,
                 contract.EndDate,
                 contract.LotNumber,
                 contract.ServiceGroup,

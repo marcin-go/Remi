@@ -2,6 +2,7 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>Remi · Contracts</PageTitle>
@@ -13,45 +14,28 @@
 else
 {
     <section class="register-page">
-        <nav class="register-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>Contract register</span></nav>
-
-        <header class="register-page-header">
+        <header class="register-page-header register-page-header-compact">
             <div>
-                <p class="eyebrow">Contract register</p>
-                <h1>Build the register from signed contracts</h1>
-                <p class="lede">Find each contract, check its supporting evidence and prepare a complete register before you create a monthly return.</p>
+                <p class="eyebrow">Working register</p>
+                <h1>Contracts</h1>
+                <p class="register-period-line">@DisplayPeriod(model.CurrentReportingMonth) <span aria-hidden="true">&middot;</span> @model.ContractProgress.Count contract records</p>
             </div>
             <div class="register-header-actions">
                 <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="button secondary" href="contracts/new">Register contract</a>
-                <a class="button secondary" href="reporting">Import a workbook</a>
-                <a class="button primary" href="reporting">Prepare return <span aria-hidden="true">→</span></a>
+                <a class="button secondary" href="@PeriodRoute(\"reporting\")">Import workbook</a>
+                <a class="button primary" href="@PeriodRoute(\"contracts/new\")">Register contract</a>
             </div>
         </header>
-
-        <section class="register-stepper" aria-label="Register progress">
-            <div class="step done"><span>✓</span><strong>Source data</strong></div>
-            <div class="step done"><span>✓</span><strong>Contracts</strong></div>
-            <div class="step current"><span>3</span><strong>Evidence</strong></div>
-            <div class="step"><span>4</span><strong>Review</strong></div>
-        </section>
-
-        <section class="register-context" aria-label="Current register context">
-            <div><span>Reporting month</span><strong>@model.CurrentReportingMonth</strong></div>
-            <div><span>Contract records</span><strong>@model.ContractProgress.Count</strong></div>
-            <div><span>Evidence linked</span><strong>@model.ContractProgress.Count(contract => contract.Evidence.Count > 0)</strong></div>
-            <a href="reporting">View return workspace <span aria-hidden="true">→</span></a>
-        </section>
 
         @if (!string.IsNullOrWhiteSpace(selectionNotice))
         {
             <p class="register-notice" role="status">@selectionNotice</p>
         }
 
-        <section class="register-workspace" id="contract-register">
+        <section class="register-workspace register-workspace-full" id="contract-register">
             <article class="register-card">
-                <header class="register-card-header">
-                    <div><h2>Find and check contracts</h2><p>Select the contracts to include. Evidence and invoice progress are visible before review.</p></div>
+                <header class="register-card-header register-card-header-compact">
+                    <div><h2>Find and check contracts</h2><p>Evidence and reported value are visible before review.</p></div>
                     <div class="register-result-count"><strong>@FilteredContracts.Count</strong><span>matching contracts</span></div>
                 </header>
 
@@ -66,12 +50,20 @@ else
                         <button class="@QuickButtonClass("available")" @onclick="@(() => SetQuickFilter("available"))">Evidence linked</button>
                         <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Evidence missing</button>
                         <button class="@QuickButtonClass("expiring")" @onclick="@(() => SetQuickFilter("expiring"))">Expiring soon</button>
+                        <button class="@QuickButtonClass("period")" @onclick="@(() => SetQuickFilter("period"))">Selected period</button>
                         <button class="@QuickButtonClass("selected")" @onclick="@(() => SetQuickFilter("selected"))">Selected</button>
                     </div>
                 </div>
 
                 <div class="register-table-toolbar">
-                    <strong>@SelectedContracts.Count selected</strong><span>from the current register</span>
+                    @if (SelectedContracts.Count > 0)
+                    {
+                        <strong>@SelectedContracts.Count selected</strong><span>from the current register</span>
+                    }
+                    else
+                    {
+                        <span>Select contracts to review them together.</span>
+                    }
                     <div><button @onclick="ToggleAllVisible" disabled="@(PagedContracts.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
                 </div>
 
@@ -85,14 +77,14 @@ else
                         }
                         @foreach (var contract in PagedContracts)
                         {
-                            <tr class="@(IsSelected(contract.ContractId) ? "selected-row" : null)">
-                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" aria-label="Select @contract.SupplierReference" /></td>
-                                <td><a class="register-reference" href="@($"/contracts/{contract.ContractId}")">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName@(string.IsNullOrWhiteSpace(contract.LotNumber) ? "" : $" · Lot {contract.LotNumber}")</span></td>
+                            <tr class="register-row-actionable @(IsSelected(contract.ContractId) ? "selected-row" : null)" tabindex="0" @onclick="@(() => OpenContract(contract.ContractId))" @onkeydown="@((KeyboardEventArgs args) => OpenContractOnKey(args, contract.ContractId))">
+                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true" aria-label="Select @contract.SupplierReference" /></td>
+                                <td><a class="register-reference" href="@ContractRoute(contract.ContractId)" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName@(string.IsNullOrWhiteSpace(contract.LotNumber) ? "" : $" · Lot {contract.LotNumber}")</span></td>
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
-                                <td>@DisplayDate(contract.EndDate)</td>
-                                <td><strong>@Currency(contract.TotalContractValueExVat)</strong><span>excl. VAT</span></td>
+                                <td class="register-date">@DisplayDate(contract.EndDate)</td>
+                                <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong><span>excl. VAT</span></td>
                                 <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
-                                <td><div class="register-progress"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong></div></td>
+                                <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
                             </tr>
                         }
                         </tbody>
@@ -105,9 +97,21 @@ else
                 </footer>
             </article>
 
-            <aside class="register-selection-card">
-                <span class="selection-count">@SelectedContracts.Count</span>
-                <h2>Selected contracts</h2>
+            @if (SelectedContracts.Count > 0)
+            {
+                <section class="register-selection-bar" aria-label="Selected contracts">
+                    <strong>@SelectedContracts.Count selected</strong>
+                    <span>@Currency(SelectedContracts.Sum(contract => contract.TotalContractValueExVat)) combined value</span>
+                    <span class="@(SelectedContracts.Any(contract => contract.Evidence.Count == 0) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedContracts.Count(contract => contract.Evidence.Count == 0) missing evidence</span>
+                    <div><button class="button secondary" @onclick="ToggleSelectionDrawer">Review selection</button><button class="clear-selection" @onclick="ClearSelection">Clear</button></div>
+                </section>
+            }
+
+            @if (selectionDrawerOpen && SelectedContracts.Count > 0)
+            {
+                <div class="register-drawer-backdrop" @onclick="CloseSelectionDrawer"></div>
+                <aside class="register-selection-drawer" role="dialog" aria-modal="true" aria-labelledby="selected-contracts-heading">
+                    <header><div><span class="selection-count">@SelectedContracts.Count</span><h2 id="selected-contracts-heading">Selected contracts</h2></div><button class="register-drawer-close" @onclick="CloseSelectionDrawer" aria-label="Close selected contracts">&#215;</button></header>
                 <p>Review the contracts that will form your reporting register.</p>
                 <dl class="register-selection-summary"><div><dt>Combined value</dt><dd>@Currency(SelectedContracts.Sum(contract => contract.TotalContractValueExVat))</dd></div><div><dt>Evidence missing</dt><dd class="warning-number">@SelectedContracts.Count(contract => contract.Evidence.Count == 0)</dd></div></dl>
                 @if (SelectedContracts.Any(contract => contract.Evidence.Count == 0))
@@ -122,7 +126,8 @@ else
                 </ul>
                 <button class="button primary selection-review" disabled="@(SelectedContracts.Count == 0)" @onclick="ReviewSelection">Review selected contracts <span aria-hidden="true">→</span></button>
                 @if (SelectedContracts.Count > 0) { <button class="clear-selection" @onclick="ClearSelection">Clear selection</button> }
-            </aside>
+                </aside>
+            }
         </section>
     </section>
 }
@@ -137,6 +142,7 @@ else
     private string progressFilter = string.Empty;
     private string quickFilter = string.Empty;
     private string? selectionNotice;
+    private bool selectionDrawerOpen;
     private int page = 1;
 
     protected override async Task OnInitializedAsync()
@@ -178,17 +184,21 @@ else
             && (string.IsNullOrWhiteSpace(frameworkFilter) || contract.Framework.ToString() == frameworkFilter)
             && (string.IsNullOrWhiteSpace(evidenceFilter) || (evidenceFilter == "available" && hasEvidence) || (evidenceFilter == "missing" && !hasEvidence))
             && (string.IsNullOrWhiteSpace(progressFilter) || (progressFilter == "not-started" && contract.CompletionRatio == 0) || (progressFilter == "in-progress" && contract.CompletionRatio > 0 && contract.CompletionRatio < 1) || (progressFilter == "complete" && contract.CompletionRatio >= 1))
-            && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "available" && hasEvidence) || (quickFilter == "missing" && !hasEvidence) || (quickFilter == "expiring" && contract.EndDate is not null && contract.EndDate <= today.AddDays(180)) || (quickFilter == "selected" && IsSelected(contract.ContractId)));
+            && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "available" && hasEvidence) || (quickFilter == "missing" && !hasEvidence) || (quickFilter == "expiring" && contract.EndDate is not null && contract.EndDate <= today.AddDays(180)) || (quickFilter == "period" && contract.ReportMonth == model?.CurrentReportingMonth) || (quickFilter == "selected" && IsSelected(contract.ContractId)));
     }
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
     private void ResetPage() { page = 1; selectionNotice = null; }
     private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = quickFilter = string.Empty; ResetPage(); }
     private bool IsSelected(Guid id) => selectedContractIds.Contains(id);
-    private void ToggleSelection(Guid id) { if (!selectedContractIds.Add(id)) selectedContractIds.Remove(id); selectionNotice = null; }
-    private void ToggleAllVisible() { var shouldSelect = !AllVisibleSelected; foreach (var contract in PagedContracts) { if (shouldSelect) selectedContractIds.Add(contract.ContractId); else selectedContractIds.Remove(contract.ContractId); } selectionNotice = null; }
-    private void ClearSelection() { selectedContractIds.Clear(); selectionNotice = null; }
-    private void ReviewSelection() => selectionNotice = $"{SelectedContracts.Count} contract record(s) are ready for review. Use Prepare return when you are ready to continue.";
+    private void ToggleSelection(Guid id) { if (!selectedContractIds.Add(id)) selectedContractIds.Remove(id); selectionNotice = null; if (SelectedContracts.Count == 0) selectionDrawerOpen = false; }
+    private void ToggleAllVisible() { var shouldSelect = !AllVisibleSelected; foreach (var contract in PagedContracts) { if (shouldSelect) selectedContractIds.Add(contract.ContractId); else selectedContractIds.Remove(contract.ContractId); } selectionNotice = null; if (SelectedContracts.Count == 0) selectionDrawerOpen = false; }
+    private void ClearSelection() { selectedContractIds.Clear(); selectionNotice = null; selectionDrawerOpen = false; }
+    private void ToggleSelectionDrawer() => selectionDrawerOpen = !selectionDrawerOpen;
+    private void CloseSelectionDrawer() => selectionDrawerOpen = false;
+    private void ReviewSelection() { selectionNotice = $"{SelectedContracts.Count} contract record(s) are ready for review. Open the reporting workspace to prepare the return."; selectionDrawerOpen = false; }
+    private void OpenContract(Guid contractId) => Navigation.NavigateTo(ContractRoute(contractId));
+    private void OpenContractOnKey(KeyboardEventArgs args, Guid contractId) { if (args.Key is "Enter" or " ") OpenContract(contractId); }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
     private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";
@@ -197,5 +207,10 @@ else
     private static string DisplayDate(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
     private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
     private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+    private static bool IsOverrun(ContractProgress contract) => contract.ComparisonValueExVat > 0 && contract.ReportedInvoiceValueExVat > contract.ComparisonValueExVat;
+    private static string ProgressSummary(ContractProgress contract) => IsOverrun(contract) ? $"{Percentage(contract.CompletionRatio)} reported. Reported invoice value exceeds the planned or contract value." : $"{Percentage(contract.CompletionRatio)} reported against the planned or contract value.";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+    private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
+    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
 }

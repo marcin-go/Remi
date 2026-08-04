@@ -39,6 +39,7 @@ public sealed record ContractProgress(
     string SupplierReference,
     string CustomerName,
     string? CustomerUrn,
+    string ReportMonth,
     DateOnly? EndDate,
     string? LotNumber,
     string? ServiceGroup,
