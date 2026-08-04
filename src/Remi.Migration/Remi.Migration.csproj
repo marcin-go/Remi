@@ -10,4 +10,9 @@
     <ProjectReference Include="..\Remi.Application\Remi.Application.csproj" />
     <ProjectReference Include="..\Remi.Infrastructure\Remi.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The migration executable writes directly to the portable SQLite register. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
 </Project>

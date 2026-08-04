@@ -1,6 +1,7 @@
 @page "/contracts/new"
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
 
 <PageTitle>Remi · Register contract</PageTitle>
 
@@ -65,6 +66,34 @@
                 </div>
             </div>
 
+            <section class="registration-section">
+                <h3>Payment schedule <span class="optional">optional</span></h3>
+                <p>Record the agreed contract term and its chargeable positions. Multiple positions can belong to one year, for example a software licence, data migration and training.</p>
+                <div class="form-grid payment-term-grid">
+                    <label>Base contract term (years) <span class="optional">optional</span><input type="number" min="1" step="1" @bind="baseTermYears" /></label>
+                    <label>Optional extension (years) <span class="optional">optional</span><input type="number" min="0" step="1" @bind="optionalExtensionYears" /></label>
+                </div>
+                <div class="payment-position-header"><div><h4>Annual payment positions</h4><p>Each row contributes to that year’s expected invoiced total, ex VAT.</p></div><button type="button" class="button secondary" @onclick="AddPaymentPosition">Add payment position</button></div>
+                @if (paymentPositions.Count == 0)
+                {
+                    <div class="contract-empty-inline"><strong>No payment positions added</strong><span>Add the agreed positions now, or register the contract without a payment schedule.</span></div>
+                }
+                else
+                {
+                    <div class="payment-position-list">
+                        @foreach (var position in paymentPositions)
+                        {
+                            <div class="payment-position-row" @key="position">
+                                <label>Contract year<input type="number" min="1" step="1" @bind="position.ContractYear" /></label>
+                                <label>Description<input @bind="position.Description" @bind:event="oninput" placeholder="e.g. Annual software licence" /></label>
+                                <label>Value, ex VAT<input type="number" min="0.01" step="0.01" @bind="position.ValueExVat" /></label>
+                                <button type="button" class="button secondary payment-position-remove" @onclick="@(() => RemovePaymentPosition(position))">Remove</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
             @if (IsGCloud)
             {
                 <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3><p>These fields appear in the G-Cloud reporting template.</p>
@@ -121,7 +150,7 @@
     private string supplierReference = string.Empty;
     private string customerName = string.Empty;
     private string customerUrn = string.Empty;
-    private string reportingMonth = DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
+    private string reportingMonth = string.Empty;
     private DateOnly? startDate;
     private DateOnly? endDate;
     private string lotNumber = string.Empty;
@@ -130,6 +159,9 @@
     private string digitalMarketplaceServiceId = string.Empty;
     private string serviceDescription = string.Empty;
     private string orderChannel = string.Empty;
+    private int? baseTermYears;
+    private int? optionalExtensionYears;
+    private readonly List<PaymentPositionInput> paymentPositions = [];
     private ReturnActionResult? submission;
     private bool working;
     private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
@@ -144,7 +176,11 @@
             ? MarketplaceCatalogues.ForStatMap(framework)
             : null;
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
+    private bool HasPaymentPlanInput => baseTermYears is not null || optionalExtensionYears is not null || paymentPositions.Count != 0;
+    private bool IsPaymentPlanComplete => !HasPaymentPlanInput || baseTermYears is > 0 && (optionalExtensionYears is null or >= 0) && paymentPositions.Count != 0 && paymentPositions.All(position => position.ContractYear > 0 && !string.IsNullOrWhiteSpace(position.Description) && position.ValueExVat > 0);
+    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && IsPaymentPlanComplete && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
+
+    protected override void OnInitialized() => reportingMonth = ReportingPeriod.SelectedPeriod;
 
     private void SelectFramework(FrameworkCode framework)
     {
@@ -182,7 +218,7 @@
         working = true;
         try
         {
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration"));
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", PaymentPlan()));
             if (submission.Succeeded) ResetForm();
         }
         finally { working = false; }
@@ -194,6 +230,8 @@
         urnSuggestions = [];
         startDate = endDate = null;
         contractValue = 0;
+        baseTermYears = optionalExtensionYears = null;
+        paymentPositions.Clear();
     }
 
     private void ApplyMarketplaceSuggestion(ChangeEventArgs args)
@@ -212,6 +250,32 @@
 
         digitalMarketplaceServiceId = suggestion.MarketplaceServiceId;
         serviceDescription = suggestion.ProductName;
+    }
+
+    private ContractPaymentPlanEntry? PaymentPlan() => !HasPaymentPlanInput || baseTermYears is not > 0
+        ? null
+        : new ContractPaymentPlanEntry(
+            baseTermYears.Value,
+            optionalExtensionYears ?? 0,
+            paymentPositions.Select(position => new ContractPaymentPositionEntry(position.ContractYear, position.Description, position.ValueExVat)).ToList());
+
+    private void AddPaymentPosition()
+    {
+        paymentPositions.Add(new PaymentPositionInput { ContractYear = 1 });
+    }
+
+    private void RemovePaymentPosition(PaymentPositionInput position)
+    {
+        paymentPositions.Remove(position);
+    }
+
+    private sealed class PaymentPositionInput
+    {
+        public int ContractYear { get; set; }
+
+        public string Description { get; set; } = string.Empty;
+
+        public decimal ValueExVat { get; set; }
     }
 
     private static string FrameworkFieldsSummary(FrameworkCode framework) => Frameworks.IsGCloud(framework) ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";

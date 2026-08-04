@@ -74,6 +74,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await DropRemiTablesAsync(connection, cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
+            await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
             initialized = true;
         }
         finally
@@ -103,6 +104,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
+            await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
             initialized = true;
         }
         finally
@@ -200,6 +202,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 description TEXT NOT NULL,
                 expected_invoice_date TEXT NULL,
                 value_ex_vat TEXT NOT NULL,
+                is_optional_extension INTEGER NOT NULL DEFAULT 0,
                 created_at_utc TEXT NOT NULL
             );
 
@@ -382,7 +385,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<ChargeScheduleItem>> LoadChargeScheduleItemsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, created_at_utc FROM charge_schedule_items ORDER BY contract_id, contract_year, expected_invoice_date, id;");
+        await using var command = CreateCommand(connection, "SELECT id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc FROM charge_schedule_items ORDER BY contract_id, contract_year, expected_invoice_date, id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var items = new List<ChargeScheduleItem>();
         while (await reader.ReadAsync(cancellationToken))
@@ -394,7 +397,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 reader.GetString(3),
                 NullableDate(reader, 4),
                 Number(reader.GetString(5)),
-                Timestamp(reader.GetString(6))));
+                reader.GetInt32(6) != 0,
+                Timestamp(reader.GetString(7))));
         }
 
         return items;
@@ -607,13 +611,14 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertChargeScheduleItemAsync(SqliteConnection connection, SqliteTransaction transaction, ChargeScheduleItem item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO charge_schedule_items (id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, created_at_utc) VALUES ($id, $contractId, $contractYear, $description, $expectedInvoiceDate, $value, $createdAtUtc);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO charge_schedule_items (id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc) VALUES ($id, $contractId, $contractYear, $description, $expectedInvoiceDate, $value, $isOptionalExtension, $createdAtUtc);");
         AddParameter(command, "$id", item.Id.ToString("D"));
         AddParameter(command, "$contractId", item.ContractId.ToString("D"));
         AddParameter(command, "$contractYear", item.ContractYear);
         AddParameter(command, "$description", item.Description);
         AddParameter(command, "$expectedInvoiceDate", Date(item.ExpectedInvoiceDate));
         AddParameter(command, "$value", Number(item.ValueExVat));
+        AddParameter(command, "$isOptionalExtension", item.IsOptionalExtension ? 1 : 0);
         AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -691,6 +696,33 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         var command = CreateCommand(connection, commandText);
         command.Transaction = transaction;
         return command;
+    }
+
+    /// <summary>
+    /// Adds the optional-extension marker introduced for payment-position presentation. This is a
+    /// narrow, backwards-compatible extension of Remi's current SQLite register rather than an
+    /// upgrade path for legacy prototypes.
+    /// </summary>
+    private static async Task EnsureChargeScheduleOptionalExtensionColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var exists = false;
+        {
+            await using var command = CreateCommand(connection, "PRAGMA table_info(charge_schedule_items);");
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "is_optional_extension", StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (!exists)
+        {
+            await ExecuteAsync(connection, null, "ALTER TABLE charge_schedule_items ADD COLUMN is_optional_extension INTEGER NOT NULL DEFAULT 0;", cancellationToken);
+        }
     }
 
     private static async Task<bool> TableExistsAsync(SqliteConnection connection, string name, CancellationToken cancellationToken)

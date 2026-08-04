@@ -15,6 +15,7 @@ else
             <h1>@details.Invoice.InvoiceNumber</h1>
             <p class="lede">@details.Invoice.SupplierReference · @details.Invoice.CustomerName</p>
         </div>
+        <button class="button secondary" @onclick="ToggleEditor">@(editing ? "Cancel editing" : "Edit invoice")</button>
         @if (details.Contract is not null)
         {
             <a class="button secondary" href="@($"/contracts/{details.Contract.Id}")">View contract</a>
@@ -33,6 +34,27 @@ else
                 <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li>
             }
         </ul></section>
+    }
+
+    @if (editing)
+    {
+        <section class="panel detail-panel invoice-entry-panel">
+            <p class="eyebrow">Edit record</p><h2>Invoice information</h2>
+            <div class="form-grid">
+                <label>Framework<select @bind="framework">@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label><label>Reporting month <span class="required">required</span><input required @bind="reportMonth" placeholder="YYYY-MM" /></label>
+                <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" /></label><label>Customer <span class="required">required</span><input required @bind="customerName" /></label>
+                <label>Customer URN<input @bind="customerUrn" /></label><label>Invoice date<input type="date" @bind="invoiceDate" /></label>
+                <label>Invoice / credit note number <span class="required">required</span><input required @bind="invoiceNumber" /></label><label>Lot<input @bind="lotNumber" /></label>
+                <label>Service group / level 1<input @bind="serviceGroup" /></label><label>Service group / level 2<input @bind="serviceGroupLevel2" /></label>
+                <label>Service description<input @bind="serviceDescription" /></label><label>Order channel<input @bind="orderChannel" /></label>
+                <label>Digital Marketplace service ID<input @bind="marketplaceServiceId" /></label><label>Unit of measure<input @bind="unitOfMeasure" /></label>
+                <label>Quantity<input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT<input type="number" step="0.01" @bind="pricePerUnitExVat" /></label>
+                <label>Total cost, ex VAT <span class="required">required</span><input type="number" step="0.01" @bind="totalCostExVat" /></label><label>Original vendor<input @bind="originalVendor" /></label>
+                <label>Subcontractor name<input @bind="subcontractorName" /></label>
+            </div>
+            <div class="action-row"><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save invoice")</button></div>
+            @if (submission is not null) { <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p> }
+        </section>
     }
 
     <section class="panel detail-panel">
@@ -84,8 +106,35 @@ else
 @code {
     [Parameter] public Guid InvoiceId { get; set; }
     private InvoiceDetailsModel? details;
+    private bool editing, saving;
+    private ReturnActionResult? submission;
+    private FrameworkCode framework;
+    private string supplierReference = string.Empty, customerName = string.Empty, customerUrn = string.Empty, invoiceNumber = string.Empty, lotNumber = string.Empty, serviceGroup = string.Empty, serviceGroupLevel2 = string.Empty, serviceDescription = string.Empty, orderChannel = string.Empty, marketplaceServiceId = string.Empty, unitOfMeasure = string.Empty, originalVendor = string.Empty, subcontractorName = string.Empty, reportMonth = string.Empty;
+    private DateOnly? invoiceDate;
+    private decimal? quantity, pricePerUnitExVat;
+    private decimal totalCostExVat;
+    private bool CanSave => details is not null && DateOnly.TryParseExact($"{reportMonth}-01", "yyyy-MM-dd", out _) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0;
 
-    protected override async Task OnParametersSetAsync() => details = await Workspace.GetInvoiceDetailsAsync(InvoiceId);
+    protected override async Task OnParametersSetAsync() { details = await Workspace.GetInvoiceDetailsAsync(InvoiceId); PopulateEditor(); }
+
+    private void ToggleEditor() { editing = !editing; submission = null; if (editing) PopulateEditor(); }
+    private void PopulateEditor()
+    {
+        if (details is null) return;
+        var invoice = details.Invoice;
+        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
+    }
+    private async Task SaveAsync()
+    {
+        if (!CanSave) return;
+        saving = true; submission = null;
+        try
+        {
+            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi"));
+            if (submission.Succeeded) { details = await Workspace.GetInvoiceDetailsAsync(InvoiceId); editing = false; PopulateEditor(); }
+        }
+        finally { saving = false; }
+    }
 
     private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;

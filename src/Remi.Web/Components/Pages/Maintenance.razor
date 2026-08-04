@@ -111,7 +111,7 @@
     <section class="panel maintenance-panel">
         <p class="eyebrow">3 · Validation report</p>
         <h2>No data has been written.</h2>
-        <p class="muted">The validation pass found @validation.ImportedContracts contract(s), @validation.ImportedInvoices invoice(s) and @validation.ArchivedEvidenceFiles evidence file(s) that the import would process.</p>
+        <p class="muted">The validation pass found @validation.ImportedContracts contract(s), @validation.ImportedInvoices invoice(s), @validation.LedgerPaymentPositions payment position(s) from the retired Ledger, and @validation.ArchivedEvidenceFiles evidence file(s) that the import would process. The Ledger itself is not archived.</p>
         @if (validation.Findings.Count == 0)
         {
             <p class="notice success">No validation findings were reported.</p>
@@ -155,6 +155,7 @@
             <div><dt>New invoices</dt><dd>@importReport.ImportedInvoices</dd></div>
             <div><dt>Existing invoices</dt><dd>@importReport.ExistingInvoices</dd></div>
             <div><dt>Evidence archived</dt><dd>@importReport.ArchivedEvidenceFiles</dd></div>
+            <div><dt>Ledger payment positions</dt><dd>@importReport.LedgerPaymentPositions</dd></div>
             <div><dt>Validation findings</dt><dd>@importReport.Findings.Count</dd></div>
         </dl>
         <a class="button secondary" href="/">Review contracts and findings</a>

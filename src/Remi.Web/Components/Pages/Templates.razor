@@ -1,6 +1,8 @@
 @page "/templates"
 @inject ReportingWorkspace Workspace
 @inject NavigationManager Navigation
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
 
 <PageTitle>Remi · Templates and audit</PageTitle>
 
@@ -153,7 +155,7 @@
     private string guidanceUrl = "https://www.gca.gov.uk/agreements/RM1557.14";
     private string? templateNotes;
     private FrameworkCode exportFramework = FrameworkCode.GCloud14;
-    private string exportMonth = CurrentReportingMonth();
+    private string exportMonth = string.Empty;
     private IReadOnlyList<TemplateConfigurationSummary> templates = [];
     private IReadOnlyList<AuditEventSummary> auditEvents = [];
     private IReadOnlyList<ValidationFinding> findings = [];
@@ -170,7 +172,20 @@
         .Where(item => string.IsNullOrWhiteSpace(auditActionFilter) || item.Action == auditActionFilter)
         .ToList();
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        exportMonth = ReportingPeriod.SelectedPeriod;
+        await ReloadAsync();
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    private void ReportingPeriodChanged()
+    {
+        exportMonth = ReportingPeriod.SelectedPeriod;
+        _ = InvokeAsync(StateHasChanged);
+    }
 
     private async Task RegisterTemplateAsync(InputFileChangeEventArgs args)
     {
@@ -254,5 +269,4 @@
         _ => action,
     };
 
-    private static string CurrentReportingMonth() => DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
 }

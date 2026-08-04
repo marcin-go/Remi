@@ -1,6 +1,8 @@
 @page "/contracts"
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
 
 <PageTitle>Remi · Contracts</PageTitle>
 
@@ -75,11 +77,11 @@ else
 
                 <div class="register-table-scroll">
                     <table class="register-table">
-                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible contracts" /></th><th>Reference &amp; framework</th><th>Customer</th><th>End date</th><th>Value</th><th>Evidence</th><th>Progress</th><th>Action</th></tr></thead>
+                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible contracts" /></th><th>Reference &amp; framework</th><th>Customer</th><th>End date</th><th>Value</th><th>Evidence</th><th>Progress</th></tr></thead>
                         <tbody>
                         @if (PagedContracts.Count == 0)
                         {
-                            <tr><td colspan="8" class="register-empty">No contracts match these filters.</td></tr>
+                            <tr><td colspan="7" class="register-empty">No contracts match these filters.</td></tr>
                         }
                         @foreach (var contract in PagedContracts)
                         {
@@ -91,7 +93,6 @@ else
                                 <td><strong>@Currency(contract.TotalContractValueExVat)</strong><span>excl. VAT</span></td>
                                 <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
                                 <td><div class="register-progress"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong></div></td>
-                                <td><a class="register-view" href="@($"/contracts/{contract.ContractId}")">View</a></td>
                             </tr>
                         }
                         </tbody>
@@ -138,7 +139,24 @@ else
     private string? selectionNotice;
     private int page = 1;
 
-    protected override async Task OnInitializedAsync() => model = await Workspace.GetDashboardAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        await ReloadAsync();
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    private async void ReportingPeriodChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
 
     private IReadOnlyList<ContractProgress> FilteredContracts => model?.ContractProgress
         .Where(MatchesFilters)

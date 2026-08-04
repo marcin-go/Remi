@@ -1,6 +1,8 @@
 @page "/invoices"
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
 
 <PageTitle>Remi · Invoices</PageTitle>
 
@@ -74,11 +76,11 @@ else
 
                 <div class="register-table-scroll">
                     <table class="register-table invoice-register-table">
-                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th><th>Invoice &amp; framework</th><th>Customer &amp; contract</th><th>Invoice date</th><th>Reporting month</th><th>Value</th><th>Checks</th><th>Action</th></tr></thead>
+                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th><th>Invoice &amp; framework</th><th>Customer &amp; contract</th><th>Invoice date</th><th>Reporting month</th><th>Value</th><th>Checks</th></tr></thead>
                         <tbody>
                         @if (PagedInvoices.Count == 0)
                         {
-                            <tr><td colspan="8" class="register-empty">No invoices match these filters.</td></tr>
+                            <tr><td colspan="7" class="register-empty">No invoices match these filters.</td></tr>
                         }
                         @foreach (var invoice in PagedInvoices)
                         {
@@ -90,7 +92,6 @@ else
                                 <td>@invoice.ReportMonth</td>
                                 <td><strong>@Currency(invoice.TotalCostExVat)</strong><span>excl. VAT</span></td>
                                 <td><span class="@(invoice.HasMatchingContract ? "register-status good" : "register-status warning")"><i aria-hidden="true"></i>@(invoice.HasMatchingContract ? "Contract matched" : "Contract missing")</span><span class="@(invoice.EvidenceCount > 0 ? "register-status good" : "register-status warning")"><i aria-hidden="true"></i>@(invoice.EvidenceCount > 0 ? "Evidence linked" : "Evidence missing")</span></td>
-                                <td><a class="register-view" href="@($"/invoices/{invoice.InvoiceId}")">View</a></td>
                             </tr>
                         }
                         </tbody>
@@ -140,8 +141,25 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        await ReloadAsync();
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    private async void ReportingPeriodChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task ReloadAsync()
+    {
         invoices = await Workspace.GetInvoiceRegisterAsync();
-        reportingMonth = invoices.Select(invoice => invoice.ReportMonth).OrderByDescending(month => month, StringComparer.Ordinal).FirstOrDefault() ?? "Not recorded";
+        reportingMonth = ReportingPeriod.SelectedPeriod;
     }
 
     private IReadOnlyList<InvoiceRegisterItem> FilteredInvoices => invoices?.Where(MatchesFilters).OrderByDescending(invoice => invoice.InvoiceDate).ThenBy(invoice => invoice.InvoiceNumber, StringComparer.OrdinalIgnoreCase).ToList() ?? [];

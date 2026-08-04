@@ -88,6 +88,7 @@ public sealed record ChargeScheduleItem(
     string Description,
     DateOnly? ExpectedInvoiceDate,
     decimal ValueExVat,
+    bool IsOptionalExtension,
     DateTimeOffset CreatedAtUtc);
 
 public sealed record MonthlyReturn(

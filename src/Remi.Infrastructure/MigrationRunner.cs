@@ -87,6 +87,8 @@ public sealed class MigrationRunner(
         var importedInvoices = 0;
         var existingInvoices = 0;
         var archivedFiles = 0;
+        var ledgerPaymentPositions = 0;
+        var ledgerFindings = new List<ValidationFinding>();
 
         foreach (var sourceFile in sourceFiles)
         {
@@ -122,6 +124,16 @@ public sealed class MigrationRunner(
             archivedFiles += wasArchived ? 1 : 0;
         }
 
+        var ledgerPath = FindLedgerPath(sourceDirectory);
+        if (ledgerPath is not null)
+        {
+            var ledger = new LedgerWorkbookReader().Read(ledgerPath);
+            ledgerFindings.AddRange(ledger.Findings);
+            var ledgerImport = await workspace.ImportLedgerSchedulesAsync(ledger.Entries, cancellationToken: cancellationToken);
+            importedContracts += ledgerImport.ContractsCreated;
+            ledgerPaymentPositions = ledgerImport.PaymentPositionsAdded;
+        }
+
         var dashboard = await workspace.GetDashboardAsync(cancellationToken);
         return new MigrationReport(
             plan,
@@ -132,7 +144,8 @@ public sealed class MigrationRunner(
             importedInvoices,
             existingInvoices,
             archivedFiles,
-            dashboard.Findings);
+            dashboard.Findings.Concat(ledgerFindings).ToList(),
+            ledgerPaymentPositions);
     }
 
     private static IReadOnlyList<SourceFile> ReadSourceFiles(string sourceDirectory, CancellationToken cancellationToken)
@@ -143,6 +156,7 @@ public sealed class MigrationRunner(
         }
 
         return Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories)
+            .Where(path => !Path.GetFileName(path).StartsWith("~$", StringComparison.Ordinal))
             .Where(path => !string.Equals(Path.GetFileName(path), "MI Reporting Ledger.xlsx", StringComparison.OrdinalIgnoreCase))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .Select(path =>
@@ -159,6 +173,12 @@ public sealed class MigrationRunner(
             })
             .ToList();
     }
+
+    private static string? FindLedgerPath(string sourceDirectory) =>
+        Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories)
+            .Where(path => string.Equals(Path.GetFileName(path), "MI Reporting Ledger.xlsx", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
 
     private static MigrationPlan BuildPlan(IReadOnlyList<SourceFile> sourceFiles, string sourceDirectory)
     {

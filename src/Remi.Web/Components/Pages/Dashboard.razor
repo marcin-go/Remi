@@ -1,9 +1,112 @@
 @page "/"
 @inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
 
 <PageTitle>Remi · Dashboard</PageTitle>
 
-@if (model is null)
+@if (model is not null)
+{
+    <section class="dashboard-page">
+        <header class="dashboard-header">
+            <div>
+                <p class="eyebrow">Monthly management information</p>
+                <h1>Reporting overview</h1>
+                <p class="lede">Review return readiness, resolve exceptions and retain a clear audit trail for <strong>@DisplayPeriod(model.CurrentReportingMonth)</strong>.</p>
+            </div>
+            <a class="button primary" href="@PeriodRoute("reporting")">Prepare return</a>
+        </header>
+
+        <section class="dashboard-period-summary" aria-label="Current reporting period">
+            <div class="dashboard-period-current"><span>Reporting period</span><strong>@DisplayPeriod(model.CurrentReportingMonth)</strong></div>
+            <dl class="dashboard-metrics">
+                <div><dt>Contracts</dt><dd>@model.FrameworkReadiness.Sum(item => item.ContractCount)</dd></div>
+                <div><dt>Invoices</dt><dd>@model.FrameworkReadiness.Sum(item => item.InvoiceCount)</dd></div>
+                <div><dt>Ready</dt><dd>@model.FrameworkReadiness.Count(IsReady)</dd></div>
+                <div class="@(model.Findings.Count == 0 ? null : "has-exceptions")"><dt>Exceptions</dt><dd>@model.Findings.Count</dd></div>
+            </dl>
+        </section>
+
+        <section class="dashboard-layout">
+            <article class="dashboard-readiness">
+                <header class="dashboard-section-heading">
+                    <div><p class="eyebrow">Return readiness</p><h2>Frameworks in this reporting period</h2></div>
+                </header>
+                <div class="dashboard-table-scroll">
+                    <table class="dashboard-table">
+                        <thead><tr><th>Framework</th><th>Contracts</th><th>Invoices</th><th>Readiness</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+                        <tbody>
+                            @foreach (var summary in model.FrameworkReadiness)
+                            {
+                                <tr>
+                                    <td><strong>@summary.Framework.DisplayName</strong><span>@summary.Framework.AgreementNumber</span></td>
+                                    <td>@summary.ContractCount</td>
+                                    <td>@summary.InvoiceCount</td>
+                                    <td><span class="@ReadinessClass(summary)">@ReadinessLabel(summary)</span></td>
+                                    <td><a class="dashboard-row-action" href="@PeriodRoute("reporting")">@ReadinessAction(summary)</a></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+
+            <div class="dashboard-secondary">
+                <article class="dashboard-attention">
+                    <header class="dashboard-section-heading">
+                        <div><p class="eyebrow">Needs attention</p><h2>Resolve exceptions before submission</h2></div>
+                    </header>
+                    @if (model.AttentionItems.Count == 0)
+                    {
+                        <p class="dashboard-empty">No validation issues have been found for this reporting period.</p>
+                    }
+                    else
+                    {
+                        @if (BlockingItems.Count != 0)
+                        {
+                            <section class="attention-group blocking"><h3>Blocking preparation</h3><ul>
+                                @foreach (var attention in BlockingItems)
+                                {
+                                    <li><a href="@PeriodRoute(attention.Route)"><strong>@FriendlyFinding(attention.Finding.Code)</strong><span>@attention.Finding.Message</span></a></li>
+                                }
+                            </ul></section>
+                        }
+                        @if (ReviewItems.Count != 0)
+                        {
+                            <section class="attention-group review"><h3>Review recommended</h3><ul>
+                                @foreach (var attention in ReviewItems)
+                                {
+                                    <li><a href="@PeriodRoute(attention.Route)"><strong>@FriendlyFinding(attention.Finding.Code)</strong><span>@attention.Finding.Message</span></a></li>
+                                }
+                            </ul></section>
+                        }
+                    }
+                </article>
+
+                <article class="dashboard-activity">
+                    <header class="dashboard-section-heading">
+                        <div><p class="eyebrow">Recent activity</p><h2>Audit trail</h2></div>
+                        <a href="@PeriodRoute("templates")">View audit</a>
+                    </header>
+                    @if (model.RecentActivity.Count == 0)
+                    {
+                        <p class="dashboard-empty">No material activity has been recorded yet.</p>
+                    }
+                    else
+                    {
+                        <ol class="dashboard-activity-list">
+                            @foreach (var activity in model.RecentActivity)
+                            {
+                                <li><time>@activity.OccurredAtUtc.LocalDateTime.ToString("dd MMM, HH:mm")</time><span><strong>@FriendlyActivity(activity.Action)</strong>@activity.Summary</span></li>
+                            }
+                        </ol>
+                    }
+                </article>
+            </div>
+        </section>
+    </section>
+}
+else if (model is null)
 {
     <p class="loading">Loading your reporting workspace…</p>
 }
@@ -104,7 +207,79 @@ else
 @code {
     private DashboardModel? model;
 
-    protected override async Task OnInitializedAsync() => model = await Workspace.GetDashboardAsync();
+    private IReadOnlyList<AttentionItem> BlockingItems => model?.AttentionItems
+        .Where(item => item.Finding.Severity == FindingSeverity.Error)
+        .ToList() ?? [];
+
+    private IReadOnlyList<AttentionItem> ReviewItems => model?.AttentionItems
+        .Where(item => item.Finding.Severity == FindingSeverity.Warning)
+        .ToList() ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        await ReloadAsync();
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    private async void ReportingPeriodChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
+
+    private string PeriodRoute(string path)
+    {
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{path}{separator}period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    }
+
+    private static bool IsReady(FrameworkReadiness summary) =>
+        summary.BlockingFindingCount == 0
+        && summary.ContractCount + summary.InvoiceCount > 0
+        && summary.ReturnStatus is not ReturnStatus.Submitted;
+
+    private static string ReadinessClass(FrameworkReadiness summary) =>
+        summary.BlockingFindingCount > 0 ? "readiness-status error"
+        : summary.ReviewFindingCount > 0 ? "readiness-status warning"
+        : summary.ReturnStatus == ReturnStatus.Submitted ? "readiness-status complete"
+        : summary.ContractCount + summary.InvoiceCount == 0 ? "readiness-status neutral"
+        : "readiness-status ready";
+
+    private static string ReadinessLabel(FrameworkReadiness summary)
+    {
+        if (summary.BlockingFindingCount > 0)
+        {
+            return $"{summary.BlockingFindingCount} blocking issue{(summary.BlockingFindingCount == 1 ? string.Empty : "s")}";
+        }
+
+        if (summary.ReviewFindingCount > 0)
+        {
+            return $"{summary.ReviewFindingCount} exception{(summary.ReviewFindingCount == 1 ? string.Empty : "s")}";
+        }
+
+        return summary.ReturnStatus switch
+        {
+            ReturnStatus.Submitted => "Submitted",
+            ReturnStatus.NilReturn => "Nil return recorded",
+            ReturnStatus.CorrectionRequired => "Correction required",
+            ReturnStatus.Draft => "In progress",
+            _ when summary.ContractCount + summary.InvoiceCount == 0 => "Not started",
+            _ => "Ready to review",
+        };
+    }
+
+    private static string ReadinessAction(FrameworkReadiness summary) =>
+        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review issues" : "Open return";
+
+    private static string DisplayPeriod(string period) =>
+        DateOnly.ParseExact($"{period}-01", "yyyy-MM-dd").ToString("MMMM yyyy");
 
     private static string ReturnLabel(ReturnStatus? status) => status switch
     {
@@ -129,5 +304,19 @@ else
         "ContractMissingCustomer" => "Contract is missing a customer",
         "ContractMissingValue" => "Contract value needs correcting",
         _ => "Data quality issue",
+    };
+
+    private static string FriendlyActivity(string action) => action switch
+    {
+        "ContractCreated" => "Contract registered",
+        "ContractUpdated" => "Contract updated",
+        "InvoiceImported" => "Invoice imported",
+        "InvoiceRecorded" => "Invoice registered",
+        "InvoiceUpdated" => "Invoice updated",
+        "ReturnExported" => "Review workbook generated",
+        "ReturnSubmitted" => "Return submitted",
+        "NilReturnRecorded" => "Nil return recorded",
+        "CorrectionRequested" => "Correction requested",
+        _ => action,
     };
 }

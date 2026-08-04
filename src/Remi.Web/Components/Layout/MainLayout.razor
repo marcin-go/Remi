@@ -1,24 +1,103 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
 
 <div class="app-shell">
     <header class="app-header">
-        <a class="brand" href="/" aria-label="Remi dashboard">
+        <a class="brand" href="@PeriodLink("/")" aria-label="Remi dashboard">
             <span class="brand-mark">R</span>
             <span>Remi</span>
         </a>
         <span class="brand-subtitle">Framework MI reporting</span>
         <nav class="navigation" aria-label="Primary navigation">
-            <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
-            <NavLink href="contracts">Contracts</NavLink>
-            <NavLink href="invoices">Invoices</NavLink>
-            <NavLink href="reporting">Monthly returns</NavLink>
-            <NavLink href="templates">Templates &amp; audit</NavLink>
-            <NavLink href="maintenance">Maintenance</NavLink>
+            <NavLink href="@PeriodLink("/")" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="@PeriodLink("contracts")">Contracts</NavLink>
+            <NavLink href="@PeriodLink("invoices")">Invoices</NavLink>
+            <NavLink href="@PeriodLink("reporting")">Monthly returns</NavLink>
+            <NavLink href="@PeriodLink("templates")">Templates &amp; audit</NavLink>
+            <NavLink href="@PeriodLink("maintenance")">Maintenance</NavLink>
         </nav>
         <div class="header-spacer"></div>
+        <label class="reporting-period-control">
+            <span>Reporting period</span>
+            <select value="@ReportingPeriod.SelectedPeriod" @onchange="ChangeReportingPeriod">
+                @foreach (var period in ReportingPeriod.AvailablePeriods)
+                {
+                    <option value="@period">@DisplayPeriod(period)</option>
+                }
+            </select>
+        </label>
         <div class="user-context"><span>Procurement team</span><span class="user-avatar" aria-hidden="true">PT</span></div>
     </header>
     <main>
         @Body
     </main>
 </div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        Navigation.LocationChanged += LocationChanged;
+        await SynchroniseReportingPeriodAsync();
+    }
+
+    public void Dispose()
+    {
+        ReportingPeriod.Changed -= ReportingPeriodChanged;
+        Navigation.LocationChanged -= LocationChanged;
+    }
+
+    private async void LocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        await InvokeAsync(async () =>
+        {
+            await SynchroniseReportingPeriodAsync(args.Location);
+            StateHasChanged();
+        });
+    }
+
+    private void ReportingPeriodChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task SynchroniseReportingPeriodAsync(string? location = null)
+    {
+        var periods = await Workspace.GetReportingPeriodsAsync();
+        ReportingPeriod.Synchronise(periods, PeriodFromLocation(location ?? Navigation.Uri));
+    }
+
+    private void ChangeReportingPeriod(ChangeEventArgs args)
+    {
+        if (args.Value is not string period || !ReportingPeriod.AvailablePeriods.Contains(period, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        Navigation.NavigateTo(PeriodLink(CurrentPath(), period));
+    }
+
+    private string PeriodLink(string path) => PeriodLink(path, ReportingPeriod.SelectedPeriod);
+
+    private static string PeriodLink(string path, string period)
+    {
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{path}{separator}period={Uri.EscapeDataString(period)}";
+    }
+
+    private string CurrentPath()
+    {
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var queryIndex = relative.IndexOf('?', StringComparison.Ordinal);
+        var path = queryIndex < 0 ? relative : relative[..queryIndex];
+        return string.IsNullOrWhiteSpace(path) ? "/" : path;
+    }
+
+    private static string? PeriodFromLocation(string location) =>
+        QueryHelpers.ParseQuery(new Uri(location).Query).TryGetValue("period", out var values)
+            ? values.FirstOrDefault()
+            : null;
+
+    private static string DisplayPeriod(string period) =>
+        DateOnly.ParseExact($"{period}-01", "yyyy-MM-dd").ToString("MMMM yyyy");
+}

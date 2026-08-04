@@ -1,5 +1,7 @@
 @page "/reporting"
 @inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
 
 <PageTitle>Remi · Monthly returns</PageTitle>
 
@@ -190,7 +192,7 @@
 @code {
     private DashboardModel? model;
     private FrameworkCode framework = FrameworkCode.GCloud14;
-    private string reportingMonth = CurrentReportingMonth();
+    private string reportingMonth = string.Empty;
     private string? submissionReference;
     private string? importMessage;
     private string? importError;
@@ -203,8 +205,23 @@
 
     protected override async Task OnInitializedAsync()
     {
-        model = await Workspace.GetDashboardAsync();
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        reportingMonth = ReportingPeriod.SelectedPeriod;
+        model = await Workspace.GetDashboardAsync(reportingMonth);
         await LoadReportingPeriodAsync();
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    private async void ReportingPeriodChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            reportingMonth = ReportingPeriod.SelectedPeriod;
+            model = await Workspace.GetDashboardAsync(reportingMonth);
+            await LoadReportingPeriodAsync();
+            StateHasChanged();
+        });
     }
 
     private string CurrentStatus =>
@@ -253,7 +270,8 @@
             await using var stream = workbook.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
             var result = await Workspace.ImportWorkbookAsync(framework, reportingMonth, workbook.Name, stream);
             importMessage = $"Imported {result.NewContracts} contract(s) and {result.NewInvoices} invoice(s). {result.ExistingContracts + result.ExistingInvoices} duplicate row(s) were already present. The original workbook was {(result.EvidenceArchived ? "archived" : "already archived")}.";
-            model = await Workspace.GetDashboardAsync();
+            model = await Workspace.GetDashboardAsync(reportingMonth);
+            ReportingPeriod.Synchronise(await Workspace.GetReportingPeriodsAsync(), reportingMonth);
             await LoadReportingPeriodAsync();
             importConfirmed = false;
         }
@@ -271,7 +289,7 @@
     {
         working = true;
         actionResult = await Workspace.MarkSubmittedAsync(framework, reportingMonth, submissionReference);
-        model = await Workspace.GetDashboardAsync();
+        model = await Workspace.GetDashboardAsync(reportingMonth);
         working = false;
     }
 
@@ -279,7 +297,7 @@
     {
         working = true;
         actionResult = await Workspace.MarkNilReturnAsync(framework, reportingMonth);
-        model = await Workspace.GetDashboardAsync();
+        model = await Workspace.GetDashboardAsync(reportingMonth);
         working = false;
     }
 
@@ -287,7 +305,7 @@
     {
         working = true;
         actionResult = await Workspace.RequestCorrectionAsync(framework, reportingMonth, correctionReason ?? string.Empty);
-        model = await Workspace.GetDashboardAsync();
+        model = await Workspace.GetDashboardAsync(reportingMonth);
         working = false;
     }
 
@@ -307,5 +325,4 @@
         reportingCard = await cardTask;
     }
 
-    private static string CurrentReportingMonth() => DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
 }

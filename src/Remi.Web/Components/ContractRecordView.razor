@@ -1,0 +1,323 @@
+@using Remi.Application
+@using Remi.Domain
+@inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
+
+@if (details is null)
+{
+    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="/contracts">Back to contracts</a></section>
+}
+else
+{
+    <section class="contract-record">
+        <nav class="contract-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>@details.Contract.SupplierReference</span></nav>
+
+        <header class="contract-hero">
+            <div>
+                <p class="eyebrow">Contract record</p>
+                <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status"><i aria-hidden="true"></i>Recorded</span></div>
+                <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
+            </div>
+            <div class="contract-hero-actions">
+                <button class="button secondary" @onclick="ToggleContractEditor">@(editingContract ? "Cancel editing" : "Edit contract")</button>
+                @if (SourceEvidence is not null)
+                {
+                    <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">↓ Download source</a>
+                }
+                <a class="button primary" href="/contracts">‹ Back to contracts</a>
+            </div>
+        </header>
+
+        <section class="contract-summary-grid" aria-label="Contract summary">
+            <div class="contract-summary-item"><span>Total contract value, ex VAT</span><strong>@Currency(details.Contract.TotalContractValueExVat)</strong><small>@LotAndFramework</small></div>
+            <div class="contract-summary-item"><span>Reported invoices</span><strong>@details.Invoices.Count</strong><small>Across @ReportingMonthCount reporting month@(ReportingMonthCount == 1 ? string.Empty : "s")</small></div>
+            <div class="contract-summary-item"><span>Value invoiced</span><strong>@Currency(InvoicedValue)</strong><div class="contract-summary-progress" aria-label="@InvoicePercent of contract value"><i style="width: @InvoiceProgressWidth"></i></div><small>@InvoicePercent of contract value</small></div>
+            <div class="contract-summary-item"><span>Contract term</span><strong>@ContractTerm</strong><small>@DateRange</small></div>
+        </section>
+
+        <section class="contract-tab-shell">
+            <div class="contract-tabs" role="tablist" aria-label="Contract sections">
+                <button class="@TabClass("overview")" role="tab" aria-selected="@(activeTab == "overview")" @onclick="@(() => SetTab("overview"))">Overview</button>
+                <button class="@TabClass("invoices")" role="tab" aria-selected="@(activeTab == "invoices")" @onclick="@(() => SetTab("invoices"))">Invoices <span>@details.Invoices.Count</span></button>
+                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Evidence <span>@details.Evidence.Count</span></button>
+                <button class="@TabClass("history")" role="tab" aria-selected="@(activeTab == "history")" @onclick="@(() => SetTab("history"))">Record history</button>
+            </div>
+
+            @if (activeTab == "overview")
+            {
+                <div class="contract-tab-panel" role="tabpanel">
+                    @if (details.Findings.Count != 0)
+                    {
+                        <section class="contract-findings"><p class="eyebrow">Needs attention</p><ul class="findings inline-findings">@foreach (var finding in details.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li> }</ul></section>
+                    }
+                    @if (editingContract)
+                    {
+                        <section class="contract-edit-panel">
+                            <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Contract information</h2></div></div>
+                            <div class="form-grid">
+                                <label>Framework<select @bind="editFramework">@foreach (var framework in Frameworks.All) { <option value="@framework.Code">@framework.DisplayName</option> }</select></label>
+                                <label>Reporting month <span class="required">required</span><input required @bind="editReportingMonth" placeholder="YYYY-MM" /></label>
+                                <label>Supplier reference <span class="required">required</span><input required @bind="editSupplierReference" /></label>
+                                <label>Customer <span class="required">required</span><input required @bind="editCustomerName" /></label>
+                                <label>Customer URN<input @bind="editCustomerUrn" /></label><label>Lot<input @bind="editLotNumber" /></label>
+                                <label>Start date<input type="date" @bind="editStartDate" /></label><label>End date<input type="date" @bind="editEndDate" /></label>
+                                <label>Total value, ex VAT <span class="required">required</span><input type="number" step="0.01" @bind="editContractValue" /></label><label>Digital Marketplace service ID<input @bind="editMarketplaceServiceId" /></label>
+                                <label>Service group / level 1<input @bind="editServiceGroup" /></label><label>Service group / level 2<input @bind="editServiceGroupLevel2" /></label>
+                                <label>Service description<input @bind="editServiceDescription" /></label><label>Order channel<input @bind="editOrderChannel" /></label>
+                            </div>
+                            <div class="action-row"><button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save contract")</button></div>
+                            @if (contractSubmission is not null) { <p class="notice @(contractSubmission.Succeeded ? "success" : "error")" role="status">@contractSubmission.Message</p> }
+                        </section>
+                    }
+                    <div class="contract-overview-layout">
+                        <article class="contract-content-card">
+                            <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Contract overview</h2><p>The signed-contract information used for monthly reporting.</p></div></header>
+                            <section class="contract-detail-section">
+                                <h3>▧ Framework and parties</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Framework</dt><dd>@Frameworks.Get(details.Contract.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div>
+                                    <div><dt>Supplier reference</dt><dd>@details.Contract.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Contract.CustomerName</dd></div>
+                                    <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Contract.CustomerUrn)">@Display(details.Contract.CustomerUrn)</dd></div><div><dt>Lot</dt><dd class="@NotRecordedClass(details.Contract.LotNumber)">@Display(details.Contract.LotNumber)</dd></div>
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>▣ Dates and commercial information</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Start date</dt><dd>@Display(details.Contract.StartDate)</dd></div><div><dt>End date</dt><dd>@Display(details.Contract.EndDate)</dd></div>
+                                    <div><dt>Total value, ex VAT</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Contract.DigitalMarketplaceServiceId)">@Display(details.Contract.DigitalMarketplaceServiceId)</dd></div>
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>≡ Service classification</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroup)">@Display(details.Contract.ServiceGroup)</dd></div><div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroupLevel2)">@Display(details.Contract.ServiceGroupLevel2)</dd></div>
+                                    <div><dt>Service description</dt><dd class="@NotRecordedClass(details.Contract.ServiceDescription)">@Display(details.Contract.ServiceDescription)</dd></div><div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Contract.OrderChannel)">@Display(details.Contract.OrderChannel)</dd></div>
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>▤ Annual payment positions</h3>
+                                <div class="contract-section-actions"><button class="button secondary" @onclick="ToggleScheduleEditor">@(editingSchedule ? "Cancel editing" : "Edit payment positions")</button></div>
+                                @if (editingSchedule)
+                                {
+                                    <div class="payment-position-editor">
+                                        @foreach (var position in editableSchedule)
+                                        {
+                                            <div class="payment-position-row">
+                                                <label>Year<input type="number" min="1" @bind="position.ContractYear" /></label><label>Description<input @bind="position.Description" /></label><label>Expected date<input type="date" @bind="position.ExpectedInvoiceDate" /></label><label>Value, ex VAT<input type="number" step="0.01" @bind="position.ValueExVat" /></label><label class="payment-optional"><input type="checkbox" @bind="position.IsOptionalExtension" /> Optional year</label>
+                                            </div>
+                                        }
+                                        <div class="action-row"><button class="button secondary" @onclick="AddSchedulePosition">Add payment position</button><button class="button primary" disabled="@(!CanSaveSchedule || scheduleWorking)" @onclick="SaveScheduleAsync">@(scheduleWorking ? "Saving…" : "Save payment positions")</button></div>
+                                        @if (scheduleSubmission is not null) { <p class="notice @(scheduleSubmission.Succeeded ? "success" : "error")" role="status">@scheduleSubmission.Message</p> }
+                                    </div>
+                                }
+                                @if (details.ChargeSchedule.Count == 0)
+                                {
+                                    <div class="contract-empty-inline"><strong>No charge schedule recorded</strong><span>This contract has no annual payment positions in the source register.</span></div>
+                                }
+                                else
+                                {
+                                    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Description</th><th>Expected date</th><th>Value, ex VAT</th></tr></thead><tbody>@foreach (var yearGroup in details.ChargeSchedule.GroupBy(item => item.ContractYear).OrderBy(group => group.Key)) { @foreach (var item in yearGroup) { <tr class="@(item.IsOptionalExtension ? "optional-payment-position" : null)"><td>@item.ContractYear</td><td>@item.Description</td><td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td></tr> } @if (yearGroup.Count() > 1) { <tr class="contract-payment-total @(yearGroup.Any(item => item.IsOptionalExtension) ? "optional-payment-position" : null)"><td colspan="3">Year @yearGroup.Key total</td><td>@Currency(yearGroup.Sum(item => item.ValueExVat))</td></tr> } }</tbody></table></div>
+                                }
+                            </section>
+                        </article>
+                        <aside class="contract-side-card">
+                            <section><h2>Record completeness</h2><ul class="contract-check-list"><li class="@(HasCoreDetails ? "complete" : "incomplete")"><i>@StatusMark(HasCoreDetails)</i><span>Core contract fields recorded</span></li><li class="@(HasCustomerUrn ? "complete" : "incomplete")"><i>@StatusMark(HasCustomerUrn)</i><span>@(HasCustomerUrn ? "Customer URN recorded" : "Customer URN not recorded")</span></li><li class="@(details.Evidence.Count != 0 ? "complete" : "incomplete")"><i>@StatusMark(details.Evidence.Count != 0)</i><span>@(details.Evidence.Count != 0 ? "Supporting evidence attached" : "Supporting evidence not attached")</span></li></ul></section>
+                            <section><h2>Record information</h2><dl class="contract-meta-list"><div><dt>Recorded</dt><dd>@details.Contract.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</dd></div><div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div><div><dt>Evidence</dt><dd>@details.Evidence.Count file@(details.Evidence.Count == 1 ? string.Empty : "s")</dd></div><div><dt>Invoices</dt><dd>@details.Invoices.Count record@(details.Invoices.Count == 1 ? string.Empty : "s")</dd></div></dl></section>
+                            <section><h2>Register source</h2>@if (SourceEvidence is not null) { <a class="contract-source-file" href="@($"/evidence/{SourceEvidence.Id}/download")"><span>▧</span><strong>@SourceEvidence.FileName<small>Imported source workbook</small></strong><b aria-hidden="true">↓</b></a> } else { <p class="muted">@details.Contract.SourceWorkbook<br />Source file is not in the local archive.</p> }</section>
+                        </aside>
+                    </div>
+                </div>
+            }
+            else if (activeTab == "invoices")
+            {
+                <div class="contract-tab-panel" role="tabpanel">
+                    <article class="contract-content-card">
+                        <header class="contract-card-head"><div><p class="eyebrow">Reported invoices</p><h2>Activity against this contract</h2><p>Invoices entered here inherit the reporting attributes recorded for this contract.</p></div><button class="button primary" @onclick="ShowInvoiceForm">@(showInvoiceForm ? "Hide invoice form" : "Register invoice")</button></header>
+                        @if (showInvoiceForm)
+                        {
+                            <section class="contract-invoice-form">
+                                <h3>Register an invoice</h3><div class="contract-invoice-context"><strong>@details.Contract.SupplierReference</strong><span>@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</span></div>
+                                <div class="form-grid"><label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" @bind:event="oninput" /></label><label>Invoice or credit note date <span class="required">required</span><input required type="date" @bind="invoiceDate" /></label><label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="invoiceReportingMonth" @bind:event="oninput" /></label><label>Total cost, ex VAT <span class="required">required</span><input required type="number" step="0.01" @bind="invoiceTotalExVat" /></label><label>Unit of measure <span class="optional">optional</span><input @bind="unitOfMeasure" @bind:event="oninput" placeholder="e.g. licence, day or each" /></label><label>Quantity <span class="optional">optional</span><input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT <span class="optional">optional</span><input type="number" step="0.01" @bind="pricePerUnitExVat" /></label><label>Original vendor <span class="optional">optional</span><input @bind="originalVendor" @bind:event="oninput" /></label><label>Subcontractor name <span class="optional">optional</span><input @bind="subcontractorName" @bind:event="oninput" /></label></div>
+                                <p class="caption">Use a negative total for a credit note. Service fields, lot, order channel and Marketplace ID are copied from the registered contract.</p><div class="action-row"><button class="button primary" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Recording…" : "Register invoice")</button></div>
+                                @if (invoiceSubmission is not null) { <p class="notice @(invoiceSubmission.Succeeded ? "success" : "error")" role="status">@invoiceSubmission.Message</p>@if (invoiceSubmission.Findings.Count != 0) { <ul class="findings inline-findings">@foreach (var finding in invoiceSubmission.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li> }</ul> } }
+                            </section>
+                        }
+                        <section class="contract-table-section">
+                            @if (details.Invoices.Count == 0)
+                            {
+                                <div class="contract-empty-inline"><strong>No invoices recorded</strong><span>Register the first invoice against this contract when the accounting record is available.</span></div>
+                            }
+                            else
+                            {
+                                <div class="table-wrap"><table><thead><tr><th>Invoice number</th><th>Invoice date</th><th>Reporting month</th><th>Total, ex VAT</th></tr></thead><tbody>@foreach (var invoice in details.Invoices.OrderByDescending(item => item.InvoiceDate)) { <tr><td><a class="contract-table-link" href="@($"/invoices/{invoice.Id}")">@invoice.InvoiceNumber</a></td><td>@Display(invoice.InvoiceDate)</td><td>@invoice.ReportMonth</td><td>@Currency(invoice.TotalCostExVat)</td></tr> }</tbody></table></div>
+                            }
+                        </section>
+                    </article>
+                </div>
+            }
+            else if (activeTab == "evidence")
+            {
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Evidence archive</p><h2>Original supporting files</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No evidence linked</strong><span>Archive signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+            }
+            else
+            {
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Audit trail</p><h2>Record history</h2><p>Material contract and invoice actions recorded by Remi.</p></div></header><section class="contract-history-list">@if (history.Count == 0) { <div class="contract-empty-inline"><strong>No history events are available</strong><span>The contract was registered without a matching local audit event.</span></div> } @foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div></article> }</section></article></div>
+            }
+        </section>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid ContractId { get; set; }
+    private ContractDetailsModel? details;
+    private IReadOnlyList<AuditEventSummary> history = [];
+    private string activeTab = "overview";
+    private bool showInvoiceForm;
+    private string invoiceNumber = string.Empty;
+    private DateOnly? invoiceDate;
+    private string invoiceReportingMonth = string.Empty;
+    private decimal invoiceTotalExVat;
+    private string unitOfMeasure = string.Empty;
+    private decimal? quantity;
+    private decimal? pricePerUnitExVat;
+    private string originalVendor = string.Empty;
+    private string subcontractorName = string.Empty;
+    private ReturnActionResult? invoiceSubmission;
+    private bool invoiceWorking;
+    private bool editingContract;
+    private bool contractWorking;
+    private ReturnActionResult? contractSubmission;
+    private FrameworkCode editFramework;
+    private string editSupplierReference = string.Empty, editCustomerName = string.Empty, editCustomerUrn = string.Empty, editLotNumber = string.Empty, editServiceGroup = string.Empty, editServiceGroupLevel2 = string.Empty, editServiceDescription = string.Empty, editOrderChannel = string.Empty, editMarketplaceServiceId = string.Empty, editReportingMonth = string.Empty;
+    private DateOnly? editStartDate, editEndDate;
+    private decimal editContractValue;
+    private bool editingSchedule;
+    private bool scheduleWorking;
+    private ReturnActionResult? scheduleSubmission;
+    private List<EditableSchedulePosition> editableSchedule = [];
+
+    private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
+    private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
+    private int ReportingMonthCount => details?.Invoices.Select(item => item.ReportMonth).Distinct(StringComparer.Ordinal).Count() ?? 0;
+    private decimal InvoiceRatio => details is null || details.Contract.TotalContractValueExVat <= 0 ? 0 : InvoicedValue / details.Contract.TotalContractValueExVat;
+    private string InvoiceProgressWidth => $"{Math.Clamp(InvoiceRatio * 100, 0, 100):0.##}%";
+    private string InvoicePercent => $"{InvoiceRatio * 100:0.#}%";
+    private string LotAndFramework => $"{(string.IsNullOrWhiteSpace(details!.Contract.LotNumber) ? "No lot recorded" : $"Lot {details.Contract.LotNumber}")} · {Frameworks.Get(details.Contract.Framework).DisplayName}";
+    private string ContractTerm => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Math.Max(0, (details.Contract.EndDate.Value.Year - details.Contract.StartDate.Value.Year) * 12 + details.Contract.EndDate.Value.Month - details.Contract.StartDate.Value.Month)} months" : "Not recorded";
+    private string DateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
+    private bool HasCustomerUrn => !string.IsNullOrWhiteSpace(details?.Contract.CustomerUrn);
+    private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference) && !string.IsNullOrWhiteSpace(details.Contract.CustomerName) && details.Contract.StartDate is not null && details.Contract.EndDate is not null && details.Contract.TotalContractValueExVat > 0;
+    private bool IsValidInvoiceReportingMonth => DateOnly.TryParseExact($"{invoiceReportingMonth}-01", "yyyy-MM-dd", out _);
+    private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat != 0;
+    private bool CanSaveContract => details is not null && DateOnly.TryParseExact($"{editReportingMonth}-01", "yyyy-MM-dd", out _) && !string.IsNullOrWhiteSpace(editSupplierReference) && !string.IsNullOrWhiteSpace(editCustomerName) && editContractValue > 0;
+    private bool CanSaveSchedule => editableSchedule.Count != 0 && editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ValueExVat > 0);
+
+    protected override void OnInitialized()
+    {
+        ReportingPeriod.Changed += ReportingPeriodChanged;
+        invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
+    }
+
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        activeTab = "overview";
+        showInvoiceForm = false;
+        details = await Workspace.GetContractDetailsAsync(ContractId);
+        history = await Workspace.GetContractAuditEventsAsync(ContractId);
+        PopulateEditors();
+    }
+
+    private void SetTab(string tab) => activeTab = tab;
+    private void ShowInvoiceForm() { showInvoiceForm = !showInvoiceForm; invoiceSubmission = null; }
+    private void ToggleContractEditor() { editingContract = !editingContract; contractSubmission = null; if (editingContract) PopulateContractEditor(); }
+    private void ToggleScheduleEditor() { editingSchedule = !editingSchedule; scheduleSubmission = null; if (editingSchedule) PopulateScheduleEditor(); }
+    private void AddSchedulePosition() => editableSchedule.Add(new EditableSchedulePosition());
+
+    private void PopulateEditors() { PopulateContractEditor(); PopulateScheduleEditor(); }
+    private void PopulateContractEditor()
+    {
+        if (details is null) return;
+        var contract = details.Contract;
+        editFramework = contract.Framework; editSupplierReference = contract.SupplierReference; editCustomerName = contract.CustomerName; editCustomerUrn = contract.CustomerUrn ?? string.Empty; editLotNumber = contract.LotNumber ?? string.Empty; editStartDate = contract.StartDate; editEndDate = contract.EndDate; editContractValue = contract.TotalContractValueExVat; editServiceGroup = contract.ServiceGroup ?? string.Empty; editServiceGroupLevel2 = contract.ServiceGroupLevel2 ?? string.Empty; editServiceDescription = contract.ServiceDescription ?? string.Empty; editOrderChannel = contract.OrderChannel ?? string.Empty; editMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty; editReportingMonth = contract.ReportMonth;
+    }
+    private void PopulateScheduleEditor() => editableSchedule = details?.ChargeSchedule.Select(item => new EditableSchedulePosition { Id = item.Id, ContractYear = item.ContractYear, Description = item.Description, ExpectedInvoiceDate = item.ExpectedInvoiceDate, ValueExVat = item.ValueExVat, IsOptionalExtension = item.IsOptionalExtension }).ToList() ?? [];
+
+    private async Task SaveContractAsync()
+    {
+        if (!CanSaveContract) return;
+        contractWorking = true; contractSubmission = null;
+        try
+        {
+            contractSubmission = await Workspace.UpdateContractAsync(ContractId, new ContractEntry(editFramework, editSupplierReference, editCustomerName, editCustomerUrn, editStartDate, editEndDate, editLotNumber, editServiceGroup, editServiceGroupLevel2, editServiceDescription, editOrderChannel, editMarketplaceServiceId, editContractValue, editReportingMonth, "Edited in Remi"));
+            if (contractSubmission.Succeeded) { details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingContract = false; PopulateEditors(); }
+        }
+        finally { contractWorking = false; }
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        if (!CanSaveSchedule) return;
+        scheduleWorking = true; scheduleSubmission = null;
+        try
+        {
+            foreach (var position in editableSchedule)
+            {
+                var entry = new ChargeScheduleEntry(ContractId, position.ContractYear, position.Description, position.ExpectedInvoiceDate, position.ValueExVat, position.IsOptionalExtension);
+                scheduleSubmission = position.Id is null ? await Workspace.AddChargeScheduleItemAsync(entry) : await Workspace.UpdateChargeScheduleItemAsync(position.Id.Value, entry);
+                if (!scheduleSubmission.Succeeded) return;
+            }
+            details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingSchedule = false; PopulateScheduleEditor();
+        }
+        finally { scheduleWorking = false; }
+    }
+
+    private async Task RecordInvoiceAsync()
+    {
+        if (!CanRecordInvoice || details is null) return;
+        var contract = details.Contract;
+        invoiceWorking = true;
+        invoiceSubmission = null;
+        try
+        {
+            invoiceSubmission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(contract.Framework, contract.SupplierReference, contract.CustomerName, contract.CustomerUrn, invoiceDate, invoiceNumber, contract.LotNumber, contract.ServiceGroup, contract.ServiceGroupLevel2, contract.ServiceDescription, contract.OrderChannel, contract.DigitalMarketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, invoiceTotalExVat, originalVendor, subcontractorName, invoiceReportingMonth, "Manual invoice registration"));
+            if (invoiceSubmission.Succeeded)
+            {
+                ResetInvoiceForm();
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+            }
+        }
+        finally { invoiceWorking = false; }
+    }
+
+    private void ResetInvoiceForm()
+    {
+        invoiceNumber = unitOfMeasure = originalVendor = subcontractorName = string.Empty;
+        invoiceDate = null;
+        invoiceTotalExVat = 0;
+        quantity = pricePerUnitExVat = null;
+        invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
+    }
+
+    private void ReportingPeriodChanged()
+    {
+        if (!showInvoiceForm)
+        {
+            invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
+    private static string StatusMark(bool complete) => complete ? "✓" : "!";
+    private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;
+    private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
+    private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", _ => action };
+    private sealed class EditableSchedulePosition { public Guid? Id { get; init; } public int ContractYear { get; set; } = 1; public string Description { get; set; } = "Annual licence and maintenance"; public DateOnly? ExpectedInvoiceDate { get; set; } public decimal ValueExVat { get; set; } public bool IsOptionalExtension { get; set; } }
+}

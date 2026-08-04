@@ -7,7 +7,9 @@ public sealed record DashboardModel(
     IReadOnlyList<ContractProgress> ContractProgress,
     IReadOnlyList<ValidationFinding> Findings,
     IReadOnlyList<AttentionItem> AttentionItems,
-    string CurrentReportingMonth);
+    string CurrentReportingMonth,
+    IReadOnlyList<FrameworkReadiness> FrameworkReadiness,
+    IReadOnlyList<AuditEventSummary> RecentActivity);
 
 public sealed record AttentionItem(ValidationFinding Finding, string Route);
 
@@ -19,6 +21,17 @@ public sealed record FrameworkSummary(
     int DraftReturnCount,
     int NilReturnCount,
     ReturnStatus? CurrentReturnStatus);
+
+/// <summary>
+/// The current reporting-period workload and validation state for one framework.
+/// </summary>
+public sealed record FrameworkReadiness(
+    FrameworkDefinition Framework,
+    int ContractCount,
+    int InvoiceCount,
+    ReturnStatus? ReturnStatus,
+    int BlockingFindingCount,
+    int ReviewFindingCount);
 
 public sealed record ContractProgress(
     Guid ContractId,
@@ -86,7 +99,48 @@ public sealed record ContractEntry(
     string? DigitalMarketplaceServiceId,
     decimal TotalContractValueExVat,
     string ReportMonth,
-    string SourceDescription);
+    string SourceDescription,
+    ContractPaymentPlanEntry? PaymentPlan = null);
+
+/// <summary>
+/// A structured annual payment plan captured during contract registration.
+/// </summary>
+public sealed record ContractPaymentPlanEntry(
+    int BaseTermYears,
+    int OptionalExtensionYears,
+    IReadOnlyList<ContractPaymentPositionEntry> Positions);
+
+public sealed record ContractPaymentPositionEntry(
+    int ContractYear,
+    string Description,
+    decimal ValueExVat);
+
+/// <summary>
+/// Contract data recovered from a Ledger contract cell and its Excel comment. The Ledger file is
+/// intentionally not retained as evidence; its source location and original notation are recorded
+/// in the contract audit trail instead.
+/// </summary>
+public sealed record LedgerContractScheduleEntry(
+    FrameworkCode Framework,
+    string SupplierReference,
+    string? CustomerName,
+    string? CustomerUrn,
+    DateOnly? StartDate,
+    DateOnly? EndDate,
+    string? LotNumber,
+    string? ServiceGroup,
+    string? DigitalMarketplaceServiceId,
+    decimal? TotalContractValueExVat,
+    string ReportingMonth,
+    string SheetName,
+    string CellAddress,
+    ContractPaymentSchedule PaymentSchedule);
+
+public sealed record LedgerScheduleImportResult(
+    int ContractsCreated,
+    int ContractsSupplemented,
+    int PaymentPositionsAdded,
+    IReadOnlyList<ValidationFinding> Findings);
 
 public sealed record InvoiceEntry(
     FrameworkCode Framework,
@@ -115,7 +169,8 @@ public sealed record ChargeScheduleEntry(
     int ContractYear,
     string Description,
     DateOnly? ExpectedInvoiceDate,
-    decimal ValueExVat);
+    decimal ValueExVat,
+    bool IsOptionalExtension = false);
 
 public sealed record TemplateConfigurationSummary(
     Guid Id,
@@ -225,4 +280,5 @@ public sealed record MigrationReport(
     int ImportedInvoices,
     int ExistingInvoices,
     int ArchivedEvidenceFiles,
-    IReadOnlyList<ValidationFinding> Findings);
+    IReadOnlyList<ValidationFinding> Findings,
+    int LedgerPaymentPositions);

@@ -48,6 +48,7 @@ builder.Services.AddSingleton<IMiWorkbookExporter, XlsxMiWorkbookExporter>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<MigrationRunner>();
 builder.Services.AddSingleton<Remi.Web.BrowserFolderStaging>();
+builder.Services.AddScoped<ReportingPeriodContext>();
 builder.Services.AddScoped<ReportingWorkspace>();
 
 var app = builder.Build();

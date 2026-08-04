@@ -12,7 +12,22 @@ public sealed class ReportingWorkspace(
     TimeProvider timeProvider)
 {
     public Task<DashboardModel> GetDashboardAsync(CancellationToken cancellationToken = default) =>
-        store.ReadAsync(database => BuildDashboard(database, Today()), cancellationToken);
+        GetDashboardAsync(null, cancellationToken);
+
+    public Task<DashboardModel> GetDashboardAsync(
+        string? reportingMonth,
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => BuildDashboard(database, Today(), reportingMonth), cancellationToken);
+
+    public Task<IReadOnlyList<string>> GetReportingPeriodsAsync(CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => (IReadOnlyList<string>)database.Contracts
+            .Select(contract => contract.ReportMonth)
+            .Concat(database.Invoices.Select(invoice => invoice.ReportMonth))
+            .Concat(database.MonthlyReturns.Select(monthlyReturn => monthlyReturn.ReportMonth))
+            .Where(IsValidReportingMonth)
+            .Distinct(StringComparer.Ordinal)
+            .OrderByDescending(month => month, StringComparer.Ordinal)
+            .ToList(), cancellationToken);
 
     public Task<CustomerUrnDirectoryStatus?> GetCustomerUrnDirectoryStatusAsync(
         CancellationToken cancellationToken = default) =>
@@ -75,7 +90,7 @@ public sealed class ReportingWorkspace(
             var chargeSchedule = database.ChargeScheduleItems
                 .Where(item => item.ContractId == contract.Id)
                 .OrderBy(item => item.ContractYear)
-                .ThenBy(item => item.ExpectedInvoiceDate)
+                .ThenByDescending(item => item.ValueExVat)
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var findings = ReportingRules.Validate(database)
@@ -315,6 +330,12 @@ public sealed class ReportingWorkspace(
                 []));
         }
 
+        var paymentPlanError = ValidatePaymentPlan(entry.PaymentPlan);
+        if (paymentPlanError is not null)
+        {
+            return Task.FromResult(new ReturnActionResult(false, paymentPlanError, []));
+        }
+
         return store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();
@@ -346,10 +367,110 @@ public sealed class ReportingWorkspace(
             }
 
             RecordAudit(database, now, "ContractCreated", "Contract", record.Id, $"Created contract {record.SupplierReference} for {record.CustomerName}.", null, actor);
+            if (entry.PaymentPlan is { } paymentPlan)
+            {
+                AddManualPaymentScheduleItems(database, record, paymentPlan, now);
+                RecordAudit(
+                    database,
+                    now,
+                    "ContractPaymentScheduleRecorded",
+                    "Contract",
+                    record.Id,
+                    $"Recorded {paymentPlan.Positions.Count} contract payment position(s) across a {PaymentPlanTerm(paymentPlan)} term.",
+                    PaymentPlanSummary(paymentPlan),
+                    actor);
+            }
+
             EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
             return new ReturnActionResult(true, "The contract has been added to the reporting register.", []);
         }, cancellationToken);
     }
+
+    /// <summary>
+    /// Supplements imported monthly-return contracts with Ledger contract details and payment
+    /// positions. The Ledger itself remains outside the evidence archive by design.
+    /// </summary>
+    public Task<LedgerScheduleImportResult> ImportLedgerSchedulesAsync(
+        IReadOnlyList<LedgerContractScheduleEntry> entries,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var now = timeProvider.GetUtcNow();
+            var created = 0;
+            var supplemented = 0;
+            var positionsAdded = 0;
+
+            foreach (var entry in entries)
+            {
+                var contract = database.Contracts.SingleOrDefault(item =>
+                    item.Framework == entry.Framework &&
+                    ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(entry.SupplierReference));
+
+                if (contract is null)
+                {
+                    if (string.IsNullOrWhiteSpace(entry.CustomerName) || entry.TotalContractValueExVat is not > 0)
+                    {
+                        continue;
+                    }
+
+                    contract = new ContractRecord(
+                        Guid.NewGuid(),
+                        entry.Framework,
+                        entry.SupplierReference.Trim(),
+                        entry.CustomerName.Trim(),
+                        NullIfWhiteSpace(entry.CustomerUrn),
+                        entry.StartDate,
+                        entry.EndDate,
+                        NullIfWhiteSpace(entry.LotNumber),
+                        NullIfWhiteSpace(entry.ServiceGroup),
+                        null,
+                        null,
+                        null,
+                        NullIfWhiteSpace(entry.DigitalMarketplaceServiceId),
+                        entry.TotalContractValueExVat.Value,
+                        entry.ReportingMonth,
+                        $"MI Reporting Ledger.xlsx ({entry.SheetName}!{entry.CellAddress})",
+                        now);
+                    database.Contracts.Add(contract);
+                    created++;
+                    RecordAudit(database, now, "ContractMigratedFromLedger", "Contract", contract.Id, $"Created contract {contract.SupplierReference} from MI Reporting Ledger.xlsx ({entry.SheetName}!{entry.CellAddress}).", null, actor);
+                }
+                else
+                {
+                    var supplementedContract = MergeLedgerContractDetails(contract, entry);
+                    if (supplementedContract != contract)
+                    {
+                        var index = database.Contracts.IndexOf(contract);
+                        database.Contracts[index] = supplementedContract;
+                        contract = supplementedContract;
+                        supplemented++;
+                    }
+                }
+
+                var scheduleUpdate = AddPaymentScheduleItems(database, contract, entry.PaymentSchedule, now);
+                if (scheduleUpdate.Added == 0 && scheduleUpdate.Relabelled == 0)
+                {
+                    continue;
+                }
+
+                positionsAdded += scheduleUpdate.Added;
+                var changeDescription = scheduleUpdate.Relabelled == 0
+                    ? $"Imported {scheduleUpdate.Added} payment position(s)"
+                    : $"Imported {scheduleUpdate.Added} payment position(s) and relabelled {scheduleUpdate.Relabelled}";
+                RecordAudit(
+                    database,
+                    now,
+                    "LedgerPaymentScheduleImported",
+                    "Contract",
+                    contract.Id,
+                    $"{changeDescription} from MI Reporting Ledger.xlsx ({entry.SheetName}!{entry.CellAddress}).",
+                    entry.PaymentSchedule.Notation,
+                    actor);
+            }
+
+            return new LedgerScheduleImportResult(created, supplemented, positionsAdded, ReportingRules.Validate(database));
+        }, cancellationToken);
 
     public Task<ReturnActionResult> RecordInvoiceAsync(
         InvoiceEntry entry,
@@ -399,6 +520,70 @@ public sealed class ReportingWorkspace(
         }, cancellationToken);
     }
 
+    public Task<ReturnActionResult> UpdateContractAsync(
+        Guid contractId,
+        ContractEntry entry,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateReportingMonth(entry.ReportMonth);
+        return store.UpdateAsync(database =>
+        {
+            var existing = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (existing is null)
+            {
+                return new ReturnActionResult(false, "The selected contract no longer exists.", []);
+            }
+
+            var updated = new ContractRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.StartDate, entry.EndDate, NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), entry.TotalContractValueExVat, entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
+            var index = database.Contracts.IndexOf(existing);
+            database.Contracts[index] = updated;
+            var findings = ReportingRules.Validate(database);
+            var duplicate = database.Contracts.Any(contract => contract.Id != contractId && contract.Framework == updated.Framework && ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(updated.SupplierReference));
+            var errors = findings.Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == contractId).ToList();
+            if (errors.Count != 0 || duplicate)
+            {
+                database.Contracts[index] = existing;
+                return new ReturnActionResult(false, "The contract was not updated. Resolve the highlighted fields first.", errors);
+            }
+
+            RecordAudit(database, timeProvider.GetUtcNow(), "ContractUpdated", "Contract", contractId, $"Updated contract {updated.SupplierReference}.", null, actor);
+            return new ReturnActionResult(true, "The contract has been updated.", []);
+        }, cancellationToken);
+    }
+
+    public Task<ReturnActionResult> UpdateInvoiceAsync(
+        Guid invoiceId,
+        InvoiceEntry entry,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateReportingMonth(entry.ReportMonth);
+        return store.UpdateAsync(database =>
+        {
+            var existing = database.Invoices.SingleOrDefault(item => item.Id == invoiceId);
+            if (existing is null)
+            {
+                return new ReturnActionResult(false, "The selected invoice no longer exists.", []);
+            }
+
+            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure), entry.Quantity, entry.PricePerUnitExVat, entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor), NullIfWhiteSpace(entry.SubcontractorName), entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
+            var index = database.Invoices.IndexOf(existing);
+            database.Invoices[index] = updated;
+            var findings = ReportingRules.Validate(database);
+            var duplicate = database.Invoices.Any(invoice => invoice.Id != invoiceId && InvoiceKey(invoice.Framework, invoice.SupplierReference, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.TotalCostExVat) == InvoiceKey(updated.Framework, updated.SupplierReference, updated.InvoiceNumber, updated.InvoiceDate, updated.TotalCostExVat));
+            var errors = findings.Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == invoiceId).ToList();
+            if (errors.Count != 0 || duplicate)
+            {
+                database.Invoices[index] = existing;
+                return new ReturnActionResult(false, "The invoice was not updated. It must match a contract and not duplicate an existing invoice.", errors);
+            }
+
+            RecordAudit(database, timeProvider.GetUtcNow(), "InvoiceUpdated", "Invoice", invoiceId, $"Updated invoice {updated.InvoiceNumber} for {updated.SupplierReference}.", null, actor);
+            return new ReturnActionResult(true, "The invoice has been updated.", []);
+        }, cancellationToken);
+    }
+
     public Task<ReturnActionResult> AddChargeScheduleItemAsync(
         ChargeScheduleEntry entry,
         string? actor = null,
@@ -419,6 +604,7 @@ public sealed class ReportingWorkspace(
                 entry.Description.Trim(),
                 entry.ExpectedInvoiceDate,
                 entry.ValueExVat,
+                entry.IsOptionalExtension,
                 now);
             database.ChargeScheduleItems.Add(item);
             var findings = ReportingRules.Validate(database);
@@ -431,6 +617,40 @@ public sealed class ReportingWorkspace(
 
             RecordAudit(database, now, "ChargeScheduled", "ChargeSchedule", item.Id, $"Added contract-year {item.ContractYear} charge: {item.Description}.", null, actor);
             return new ReturnActionResult(true, "The charge schedule item has been added.", []);
+        }, cancellationToken);
+
+    public Task<ReturnActionResult> UpdateChargeScheduleItemAsync(
+        Guid scheduleItemId,
+        ChargeScheduleEntry entry,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var existing = database.ChargeScheduleItems.SingleOrDefault(item => item.Id == scheduleItemId);
+            if (existing is null || existing.ContractId != entry.ContractId)
+            {
+                return new ReturnActionResult(false, "The selected payment position no longer exists.", []);
+            }
+
+            var updated = existing with
+            {
+                ContractYear = entry.ContractYear,
+                Description = entry.Description.Trim(),
+                ExpectedInvoiceDate = entry.ExpectedInvoiceDate,
+                ValueExVat = entry.ValueExVat,
+                IsOptionalExtension = entry.IsOptionalExtension,
+            };
+            var index = database.ChargeScheduleItems.IndexOf(existing);
+            database.ChargeScheduleItems[index] = updated;
+            var errors = ReportingRules.Validate(database).Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == scheduleItemId).ToList();
+            if (errors.Count != 0)
+            {
+                database.ChargeScheduleItems[index] = existing;
+                return new ReturnActionResult(false, "The payment position was not updated. Check its year, description and value.", errors);
+            }
+
+            RecordAudit(database, timeProvider.GetUtcNow(), "ChargeScheduleUpdated", "ChargeSchedule", scheduleItemId, $"Updated contract-year {updated.ContractYear} charge: {updated.Description}.", null, actor);
+            return new ReturnActionResult(true, "The payment position has been updated.", []);
         }, cancellationToken);
 
     public Task<IReadOnlyList<ReportingEvidence>> GetReportingEvidenceAsync(
@@ -625,6 +845,33 @@ public sealed class ReportingWorkspace(
             .Take(Math.Clamp(maximum, 1, 500))
             .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor))
             .ToList(), cancellationToken);
+
+    public Task<IReadOnlyList<AuditEventSummary>> GetContractAuditEventsAsync(
+        Guid contractId,
+        int maximum = 100,
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (contract is null)
+            {
+                return (IReadOnlyList<AuditEventSummary>)[];
+            }
+
+            var relatedInvoiceIds = database.Invoices
+                .Where(item => item.Framework == contract.Framework &&
+                    ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
+                .Select(item => item.Id)
+                .ToHashSet();
+            return (IReadOnlyList<AuditEventSummary>)database.AuditEvents
+                .Where(item =>
+                    (item.EntityType == "Contract" && item.EntityId == contractId) ||
+                    (item.EntityType == "Invoice" && item.EntityId is Guid invoiceId && relatedInvoiceIds.Contains(invoiceId)))
+                .OrderByDescending(item => item.OccurredAtUtc)
+                .Take(Math.Clamp(maximum, 1, 500))
+                .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor))
+                .ToList();
+        }, cancellationToken);
 
     public Task<ReturnActionResult> MarkSubmittedAsync(
         FrameworkCode framework,
@@ -824,9 +1071,14 @@ public sealed class ReportingWorkspace(
         }
     }
 
-    private DashboardModel BuildDashboard(RemiDatabase database, DateOnly today)
+    private DashboardModel BuildDashboard(RemiDatabase database, DateOnly today, string? reportingMonth)
     {
-        var currentReportingMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
+        var defaultReportingMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
+        var currentReportingMonth = IsValidReportingMonth(reportingMonth) ? reportingMonth! : defaultReportingMonth;
+        var allFindings = ReportingRules.Validate(database);
+        var findings = allFindings
+            .Where(finding => Frameworks.All.Any(framework => IsInReportingPeriod(database, finding, framework.Code, currentReportingMonth)))
+            .ToList();
         var summaries = Frameworks.All.Select(framework => new FrameworkSummary(
             framework,
             database.Contracts.Count(contract => contract.Framework == framework.Code),
@@ -835,6 +1087,19 @@ public sealed class ReportingWorkspace(
             database.MonthlyReturns.Count(item => item.Framework == framework.Code && item.Status == ReturnStatus.Draft),
             database.MonthlyReturns.Count(item => item.Framework == framework.Code && item.Status == ReturnStatus.NilReturn),
             database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework.Code && item.ReportMonth == currentReportingMonth)?.Status)).ToList();
+        var readiness = Frameworks.All.Select(framework =>
+        {
+            var frameworkFindings = findings
+                .Where(finding => IsInReportingPeriod(database, finding, framework.Code, currentReportingMonth))
+                .ToList();
+            return new FrameworkReadiness(
+                framework,
+                database.Contracts.Count(contract => contract.Framework == framework.Code && contract.ReportMonth == currentReportingMonth),
+                database.Invoices.Count(invoice => invoice.Framework == framework.Code && invoice.ReportMonth == currentReportingMonth),
+                database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework.Code && item.ReportMonth == currentReportingMonth)?.Status,
+                frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Error),
+                frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Warning));
+        }).ToList();
 
         var progress = database.Contracts.Select(contract =>
         {
@@ -884,11 +1149,15 @@ public sealed class ReportingWorkspace(
         .ThenBy(item => item.EndDate)
         .ToList();
 
-        var findings = ReportingRules.Validate(database);
         var attentionItems = findings
             .Select(finding => new AttentionItem(finding, AttentionRoute(database, finding)))
             .ToList();
-        return new DashboardModel(summaries, progress, findings, attentionItems, currentReportingMonth);
+        var recentActivity = database.AuditEvents
+            .OrderByDescending(item => item.OccurredAtUtc)
+            .Take(5)
+            .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor))
+            .ToList();
+        return new DashboardModel(summaries, progress, findings, attentionItems, currentReportingMonth, readiness, recentActivity);
     }
 
     private MonthlyReturn EnsureReturn(
@@ -981,6 +1250,158 @@ public sealed class ReportingWorkspace(
             .Select(ToEvidenceLink)
             .ToList();
 
+    private static PaymentScheduleUpdate AddPaymentScheduleItems(
+        RemiDatabase database,
+        ContractRecord contract,
+        ContractPaymentSchedule schedule,
+        DateTimeOffset now)
+    {
+        var added = 0;
+        var relabelled = 0;
+        var existing = database.ChargeScheduleItems
+            .Where(item => item.ContractId == contract.Id)
+            .ToList();
+        var consumed = new HashSet<Guid>();
+
+        foreach (var position in schedule.Positions.OrderBy(item => item.ContractYear).ThenBy(item => item.PositionInYear))
+        {
+            var description = PaymentPositionDescription(position);
+            var matching = existing.FirstOrDefault(item =>
+                !consumed.Contains(item.Id) &&
+                item.ContractYear == position.ContractYear &&
+                item.ValueExVat == position.ValueExVat &&
+                string.Equals(item.Description, description, StringComparison.Ordinal));
+            if (matching is not null)
+            {
+                if (matching.IsOptionalExtension != position.IsOptionalExtension)
+                {
+                    var databaseIndex = database.ChargeScheduleItems.IndexOf(matching);
+                    var updatedItem = matching with { IsOptionalExtension = position.IsOptionalExtension };
+                    database.ChargeScheduleItems[databaseIndex] = updatedItem;
+                    existing[existing.IndexOf(matching)] = updatedItem;
+                    relabelled++;
+                }
+
+                consumed.Add(matching.Id);
+                continue;
+            }
+
+            var legacyLabel = existing.FirstOrDefault(item =>
+                !consumed.Contains(item.Id) &&
+                item.ContractYear == position.ContractYear &&
+                item.ValueExVat == position.ValueExVat &&
+                string.Equals(item.Description, "Annual licence and maintenance", StringComparison.Ordinal));
+            if (legacyLabel is not null)
+            {
+                var databaseIndex = database.ChargeScheduleItems.IndexOf(legacyLabel);
+                var relabelledItem = legacyLabel with { Description = description, IsOptionalExtension = position.IsOptionalExtension };
+                database.ChargeScheduleItems[databaseIndex] = relabelledItem;
+                existing[existing.IndexOf(legacyLabel)] = relabelledItem;
+                consumed.Add(legacyLabel.Id);
+                relabelled++;
+                continue;
+            }
+
+            var created = new ChargeScheduleItem(
+                Guid.NewGuid(),
+                contract.Id,
+                position.ContractYear,
+                description,
+                null,
+                position.ValueExVat,
+                position.IsOptionalExtension,
+                now);
+            database.ChargeScheduleItems.Add(created);
+            existing.Add(created);
+            consumed.Add(created.Id);
+            added++;
+        }
+
+        return new PaymentScheduleUpdate(added, relabelled);
+    }
+
+    private static void AddManualPaymentScheduleItems(
+        RemiDatabase database,
+        ContractRecord contract,
+        ContractPaymentPlanEntry paymentPlan,
+        DateTimeOffset now)
+    {
+        foreach (var position in paymentPlan.Positions)
+        {
+            var term = position.ContractYear > paymentPlan.BaseTermYears ? "optional extension" : "base term";
+            database.ChargeScheduleItems.Add(new ChargeScheduleItem(
+                Guid.NewGuid(),
+                contract.Id,
+                position.ContractYear,
+                $"Year {position.ContractYear} · {term} · {position.Description.Trim()}",
+                null,
+                position.ValueExVat,
+                position.ContractYear > paymentPlan.BaseTermYears,
+                now));
+        }
+    }
+
+    private static string? ValidatePaymentPlan(ContractPaymentPlanEntry? paymentPlan)
+    {
+        if (paymentPlan is null)
+        {
+            return null;
+        }
+
+        if (paymentPlan.BaseTermYears < 1 || paymentPlan.OptionalExtensionYears < 0)
+        {
+            return "Enter at least one base-contract year and zero or more optional extension years.";
+        }
+
+        if (paymentPlan.Positions.Count == 0)
+        {
+            return "Add at least one payment position, or clear the payment-plan fields.";
+        }
+
+        var maximumYear = paymentPlan.BaseTermYears + paymentPlan.OptionalExtensionYears;
+        if (paymentPlan.Positions.Any(position => position.ContractYear < 1 || position.ContractYear > maximumYear || string.IsNullOrWhiteSpace(position.Description) || position.ValueExVat <= 0))
+        {
+            return "Each payment position needs a year within the contract term, a description and a positive ex-VAT value.";
+        }
+
+        return null;
+    }
+
+    private static string PaymentPlanTerm(ContractPaymentPlanEntry paymentPlan) =>
+        paymentPlan.OptionalExtensionYears == 0
+            ? $"{paymentPlan.BaseTermYears}-year"
+            : $"{paymentPlan.BaseTermYears}+{paymentPlan.OptionalExtensionYears}-year";
+
+    private static string PaymentPlanSummary(ContractPaymentPlanEntry paymentPlan) =>
+        $"{PaymentPlanTerm(paymentPlan)} term; {string.Join(" + ", paymentPlan.Positions.OrderBy(position => position.ContractYear).ThenBy(position => position.Description, StringComparer.OrdinalIgnoreCase).Select(position => $"Y{position.ContractYear} {position.Description}: {position.ValueExVat:0.00}"))}";
+
+    private static string PaymentPositionDescription(ContractPaymentPosition position) =>
+        position.ContractYear == 1 && position.PositionsInYear > 1
+            ? position.PositionInYear switch
+            {
+                1 => "Annual licence and maintenance",
+                2 => "Data Migration",
+                3 => "Training",
+                _ => "Other",
+            }
+            : "Annual licence and maintenance";
+
+    private static ContractRecord MergeLedgerContractDetails(ContractRecord contract, LedgerContractScheduleEntry ledger) =>
+        contract with
+        {
+            CustomerName = Coalesce(ledger.CustomerName, contract.CustomerName) ?? contract.CustomerName,
+            CustomerUrn = Coalesce(ledger.CustomerUrn, contract.CustomerUrn),
+            StartDate = ledger.StartDate ?? contract.StartDate,
+            EndDate = ledger.EndDate ?? contract.EndDate,
+            LotNumber = Coalesce(ledger.LotNumber, contract.LotNumber),
+            ServiceGroup = Coalesce(ledger.ServiceGroup, contract.ServiceGroup),
+            DigitalMarketplaceServiceId = Coalesce(ledger.DigitalMarketplaceServiceId, contract.DigitalMarketplaceServiceId),
+            TotalContractValueExVat = ledger.TotalContractValueExVat is > 0 ? ledger.TotalContractValueExVat.Value : contract.TotalContractValueExVat,
+        };
+
+    private static string? Coalesce(string? preferred, string? fallback) =>
+        string.IsNullOrWhiteSpace(preferred) ? fallback : preferred.Trim();
+
     private static string AttentionRoute(RemiDatabase database, ValidationFinding finding) => finding.EntityType switch
     {
         "Contract" when finding.EntityId is Guid id => $"/contracts/{id}",
@@ -1028,15 +1449,21 @@ public sealed class ReportingWorkspace(
 
     private static void ValidateReportingMonth(string reportingMonth)
     {
-        if (!DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _))
+        if (!IsValidReportingMonth(reportingMonth))
         {
             throw new ArgumentException("Reporting month must use the yyyy-MM format.", nameof(reportingMonth));
         }
     }
+
+    private static bool IsValidReportingMonth(string? reportingMonth) =>
+        !string.IsNullOrWhiteSpace(reportingMonth)
+        && DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
 
     private sealed record ExportContext(
         MiTemplateConfiguration? Template,
         EvidenceRecord? TemplateEvidence,
         IReadOnlyList<ContractRecord> Contracts,
         IReadOnlyList<InvoiceRecord> Invoices);
+
+    private sealed record PaymentScheduleUpdate(int Added, int Relabelled);
 }
