@@ -11,8 +11,11 @@ namespace Remi.Infrastructure;
 public sealed class MigrationRunner(
     IWorkbookImporter workbookImporter,
     IMiWorkbookExporter workbookExporter,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ICustomerUrnDirectory? customerUrnDirectory = null)
 {
+    private readonly ICustomerUrnDirectory urnDirectory = customerUrnDirectory ?? UnavailableCustomerUrnDirectory.Instance;
+
     public Task<MigrationPlan> PlanAsync(string sourceDirectory, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -78,7 +81,7 @@ public sealed class MigrationRunner(
     {
         var sourceFiles = ReadSourceFiles(sourceDirectory, cancellationToken);
         var plan = BuildPlan(sourceFiles, sourceDirectory);
-        var workspace = new ReportingWorkspace(store, workbookImporter, workbookExporter, archive, timeProvider);
+        var workspace = new ReportingWorkspace(store, workbookImporter, workbookExporter, archive, urnDirectory, timeProvider);
         var importedContracts = 0;
         var existingContracts = 0;
         var importedInvoices = 0;
@@ -261,5 +264,25 @@ public sealed class MigrationRunner(
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult<Stream?>(null);
         }
+    }
+
+    private sealed class UnavailableCustomerUrnDirectory : ICustomerUrnDirectory
+    {
+        public static readonly UnavailableCustomerUrnDirectory Instance = new();
+
+        public Task<CustomerUrnDirectoryStatus?> GetStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<CustomerUrnDirectoryStatus?>(null);
+
+        public Task<IReadOnlyList<CustomerUrnSuggestion>> SearchAsync(
+            string query,
+            int maximumResults = 8,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CustomerUrnSuggestion>>([]);
+
+        public Task<CustomerUrnDirectoryRefresh> RefreshAsync(
+            Guid evidenceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<CustomerUrnDirectoryRefresh>(new InvalidOperationException(
+                "Customer URN data is unavailable while a migration is running."));
     }
 }

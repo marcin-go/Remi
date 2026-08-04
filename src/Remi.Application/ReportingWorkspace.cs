@@ -8,10 +8,54 @@ public sealed class ReportingWorkspace(
     IWorkbookImporter workbookImporter,
     IMiWorkbookExporter workbookExporter,
     IEvidenceArchive evidenceArchive,
+    ICustomerUrnDirectory customerUrnDirectory,
     TimeProvider timeProvider)
 {
     public Task<DashboardModel> GetDashboardAsync(CancellationToken cancellationToken = default) =>
         store.ReadAsync(database => BuildDashboard(database, Today()), cancellationToken);
+
+    public Task<CustomerUrnDirectoryStatus?> GetCustomerUrnDirectoryStatusAsync(
+        CancellationToken cancellationToken = default) =>
+        customerUrnDirectory.GetStatusAsync(cancellationToken);
+
+    public Task<IReadOnlyList<CustomerUrnSuggestion>> SearchCustomerUrnsAsync(
+        string query,
+        CancellationToken cancellationToken = default) =>
+        customerUrnDirectory.SearchAsync(query, cancellationToken: cancellationToken);
+
+    public async Task<CustomerUrnDirectoryStatus> RefreshCustomerUrnDirectoryAsync(
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var evidenceId = Guid.NewGuid();
+        var refreshed = await customerUrnDirectory.RefreshAsync(evidenceId, cancellationToken);
+        return await store.UpdateAsync(database =>
+        {
+            database.Evidence.Add(new EvidenceRecord(
+                evidenceId,
+                EvidenceKind.CustomerUrnList,
+                null,
+                null,
+                refreshed.Status.FileName,
+                refreshed.OriginalRelativePath,
+                refreshed.ArchivedFile.StoredRelativePath,
+                "application/vnd.oasis.opendocument.spreadsheet",
+                refreshed.ArchivedFile.FileSizeBytes,
+                refreshed.ArchivedFile.Sha256,
+                null,
+                refreshed.Status.DownloadedAtUtc));
+            RecordAudit(
+                database,
+                refreshed.Status.DownloadedAtUtc,
+                "CustomerUrnListRefreshed",
+                "CustomerUrnList",
+                evidenceId,
+                $"Refreshed the customer URN list with {refreshed.Status.OrganisationCount:N0} organisation(s).",
+                $"Source page: {refreshed.Status.SourcePageUrl}; resolved ODS: {refreshed.Status.ResolvedDownloadUrl}.",
+                actor);
+            return refreshed.Status;
+        }, cancellationToken);
+    }
 
     public Task<ContractDetailsModel?> GetContractDetailsAsync(Guid contractId, CancellationToken cancellationToken = default) =>
         store.ReadAsync(database =>
@@ -263,6 +307,14 @@ public sealed class ReportingWorkspace(
         CancellationToken cancellationToken = default)
     {
         ValidateReportingMonth(entry.ReportMonth);
+        if (!Frameworks.AllowsNewContracts(entry.Framework))
+        {
+            return Task.FromResult(new ReturnActionResult(
+                false,
+                $"{Frameworks.Get(entry.Framework).DisplayName} is reporting-only and cannot accept a new contract record.",
+                []));
+        }
+
         return store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();

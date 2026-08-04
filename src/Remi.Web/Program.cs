@@ -34,6 +34,15 @@ builder.Services.AddDataProtection()
     .SetApplicationName("Remi");
 builder.Services.AddSingleton<IRemiStore>(_ => new SqliteRemiStore(dataPath));
 builder.Services.AddSingleton<IEvidenceArchive>(_ => new FileEvidenceArchive(RemiDataPaths.EvidenceDirectoryFor(dataPath)));
+builder.Services.AddHttpClient("GcaCustomerUrnSource", client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Remi/1.0");
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+builder.Services.AddSingleton<ICustomerUrnDirectory>(services => new GcaCustomerUrnDirectory(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("GcaCustomerUrnSource"),
+    services.GetRequiredService<IEvidenceArchive>(),
+    RemiDataPaths.CustomerUrnDirectoryIndexFileFor(dataPath)));
 builder.Services.AddSingleton<IWorkbookImporter, XlsxMiWorkbookImporter>();
 builder.Services.AddSingleton<IMiWorkbookExporter, XlsxMiWorkbookExporter>();
 builder.Services.AddSingleton(TimeProvider.System);

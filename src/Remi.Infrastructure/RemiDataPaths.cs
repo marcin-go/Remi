@@ -13,4 +13,11 @@ public static class RemiDataPaths
             Path.GetDirectoryName(Path.GetFullPath(dataFile))
                 ?? throw new ArgumentException("The Remi data path has no parent directory.", nameof(dataFile)),
             "evidence");
+
+    public static string CustomerUrnDirectoryIndexFileFor(string dataFile) =>
+        Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(dataFile))
+                ?? throw new ArgumentException("The Remi data path has no parent directory.", nameof(dataFile)),
+            "reference-data",
+            "customer-urn-directory.json");
 }

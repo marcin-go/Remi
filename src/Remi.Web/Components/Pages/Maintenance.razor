@@ -3,6 +3,7 @@
 @inject Remi.Infrastructure.MigrationRunner MigrationRunner
 @inject IRemiStore Store
 @inject IEvidenceArchive EvidenceArchive
+@inject ReportingWorkspace Workspace
 @inject Remi.Web.BrowserFolderStaging FolderStaging
 @inject Microsoft.JSInterop.IJSRuntime JavaScript
 
@@ -14,6 +15,31 @@
         <h1>Plan and control data migrations.</h1>
         <p class="lede">Review a source-data folder before it is brought into Remi. Validation uses a temporary in-memory register; only the reviewed import writes to the local SQLite database and evidence archive.</p>
     </div>
+</section>
+
+<section class="panel maintenance-panel">
+    <p class="eyebrow">Reference data</p>
+    <h2>Customer URN list</h2>
+    <p>Refresh from the stable GOV.UK guidance page when you need current customer/URN suggestions during contract registration. Remi resolves the dated ODS file linked there, archives that exact source locally, and records its provenance.</p>
+    @if (urnDirectoryStatus is null)
+    {
+        <p class="muted">No customer URN list has been downloaded yet.</p>
+    }
+    else
+    {
+        <dl class="migration-metrics">
+            <div><dt>Customer organisations</dt><dd>@urnDirectoryStatus.OrganisationCount.ToString("N0")</dd></div>
+            <div><dt>Downloaded</dt><dd>@urnDirectoryStatus.DownloadedAtUtc.LocalDateTime.ToString("dd MMM yyyy HH:mm")</dd></div>
+        </dl>
+        <p class="caption">Evidence: <a href="/evidence/@urnDirectoryStatus.EvidenceId/download">@urnDirectoryStatus.FileName</a>. The official list is linked from <a href="@urnDirectoryStatus.SourcePageUrl" target="_blank" rel="noreferrer">GOV.UK guidance</a>.</p>
+    }
+    <div class="action-row">
+        <button class="button secondary" disabled="@working" @onclick="RefreshCustomerUrnListAsync">@(urnRefreshing ? "Refreshing…" : "Refresh customer URN list")</button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(urnMessage))
+    {
+        <p class="notice @(urnRefreshSucceeded ? "success" : "error")" role="status">@urnMessage</p>
+    }
 </section>
 
 <section class="panel maintenance-panel">
@@ -144,8 +170,12 @@
     private MigrationReport? importReport;
     private string? validatedSourceDirectory;
     private string? message;
+    private CustomerUrnDirectoryStatus? urnDirectoryStatus;
+    private string? urnMessage;
     private bool succeeded;
     private bool working;
+    private bool urnRefreshing;
+    private bool urnRefreshSucceeded;
     private bool validationReviewed;
     private bool repopulationReviewed;
 
@@ -159,6 +189,37 @@
         string.Equals(SourceDirectoryForProcessing, validatedSourceDirectory, StringComparison.OrdinalIgnoreCase);
 
     private bool CanRepopulate => CanImport && repopulationReviewed;
+
+    protected override async Task OnInitializedAsync() =>
+        urnDirectoryStatus = await Workspace.GetCustomerUrnDirectoryStatusAsync();
+
+    private async Task RefreshCustomerUrnListAsync()
+    {
+        if (working)
+        {
+            return;
+        }
+
+        working = true;
+        urnRefreshing = true;
+        urnMessage = null;
+        try
+        {
+            urnDirectoryStatus = await Workspace.RefreshCustomerUrnDirectoryAsync();
+            urnRefreshSucceeded = true;
+            urnMessage = $"Customer URN list refreshed: {urnDirectoryStatus.OrganisationCount:N0} organisations from {urnDirectoryStatus.FileName}.";
+        }
+        catch (Exception exception)
+        {
+            urnRefreshSucceeded = false;
+            urnMessage = $"Customer URN refresh stopped: {exception.Message}";
+        }
+        finally
+        {
+            urnRefreshing = false;
+            working = false;
+        }
+    }
 
     private async Task ManualSourceChangedAsync(ChangeEventArgs args)
     {

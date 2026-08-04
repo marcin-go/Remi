@@ -6,7 +6,7 @@ The first delivery is a Blazor web application designed to run as a portable Win
 
 ## What works now
 
-- Dashboard for G-Cloud 13, G-Cloud 14 and Vertical Application Solutions (VAS)
+- Dashboard for G-Cloud 13, G-Cloud 14, G-Cloud 15 and Vertical Application Solutions (VAS)
 - Contract and invoice progress based on reported invoice value
 - Import of the existing CCS/GCA MI `.xlsx` template structure
 - Duplicate, missing-contract, invalid-date and value validation
@@ -20,6 +20,7 @@ The first delivery is a Blazor web application designed to run as a portable Win
 - Portable SQLite tables for the whole register, plus evidence and application-key storage under the data folder beside the executable
 - An evidence archive that retains imported MI workbooks, contract documents, screenshots and guidance
 - Source path and SHA-256 checksum recorded for each archived evidence file
+- Customer organisation/URN suggestions from the current official GCA list, with the exact dated ODS retained locally as evidence
 - A local SQLite database with contracts and invoices kept as structured rows
 - Structured Serilog logs in `data\logs`, retained as rolling local files
 
@@ -38,6 +39,8 @@ Open the local address displayed in the terminal. Development data is written to
 Run `publish.bat` from the repository root. It creates `publish\Remi\Remi.exe` as a Windows x64 self-contained executable, so the recipient does not need a separate .NET installation. Run it again whenever you want to rebuild the portable folder.
 
 Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address and opens your default browser. Closing its command window stops Remi. No installer, service or registry configuration is used.
+
+In **Maintenance**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. No customer data is sent from Remi.
 
 ## Validate and migrate the existing history
 

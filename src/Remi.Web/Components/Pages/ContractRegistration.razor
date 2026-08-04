@@ -17,9 +17,9 @@
         <section class="framework-choice-panel" aria-labelledby="choose-framework">
             <p class="eyebrow">Step 1 of 2</p>
             <h2 id="choose-framework">Which framework is this contract for?</h2>
-            <p>Choose the agreement shown on the signed contract to load the right set of fields.</p>
+            <p>Choose an agreement that is open to new contracts to load the right set of fields. Reporting-only frameworks remain available for invoices against existing contract records.</p>
             <div class="framework-choice-grid">
-                @foreach (var definition in Frameworks.All)
+                @foreach (var definition in availableFrameworks)
                 {
                     <button class="framework-choice" @onclick="@(() => SelectFramework(definition.Code))">
                         <span>@definition.AgreementNumber</span><strong>@definition.DisplayName</strong><small>@FrameworkFieldsSummary(definition.Code)</small><b>Continue <span aria-hidden="true">→</span></b>
@@ -44,7 +44,18 @@
             <div class="registration-section"><h3>Shared register details</h3><p>These fields are held consistently for every framework.</p>
                 <div class="form-grid">
                     <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" @bind:event="oninput" placeholder="e.g. ABC_202608_GMS" /></label>
-                    <label>Customer organisation <span class="required">required</span><input required @bind="customerName" @bind:event="oninput" /></label>
+                    <div class="urn-customer-field">
+                        <label>Customer organisation <span class="required">required</span><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" /></label>
+                        @if (urnSuggestions.Count != 0)
+                        {
+                            <div id="customer-urn-suggestions" class="urn-suggestions" role="listbox" aria-label="Customer URN suggestions">
+                                @foreach (var suggestion in urnSuggestions)
+                                {
+                                    <button type="button" role="option" @onclick="@(() => UseCustomerUrnSuggestion(suggestion))"><strong>@suggestion.OrganisationName</strong><span>URN @suggestion.Urn</span></button>
+                                }
+                            </div>
+                        }
+                    </div>
                     <label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:event="oninput" /></label>
                     <label>Customer URN <span class="optional">optional</span><input @bind="customerUrn" @bind:event="oninput" /></label>
                     <label>Contract start date <span class="required">required</span><input required type="date" @bind="startDate" /></label>
@@ -57,9 +68,36 @@
             @if (IsGCloud)
             {
                 <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3><p>These fields appear in the G-Cloud reporting template.</p>
+                    @if (catalogueState is not null && catalogueState.PublicationStatus == MarketplaceCataloguePublicationStatus.PendingPublication)
+                    {
+                        <div class="catalogue-notice pending">
+                            <strong>StatMap G-Cloud 15 catalogue pending</strong>
+                            <span>@catalogueState.Notes</span>
+                        </div>
+                    }
+                    else if (marketplaceSuggestions.Count != 0)
+                    {
+                        <div class="catalogue-notice">
+                            <strong>StatMap Marketplace suggestions</strong>
+                            <span>Choose a product to fill its framework-specific Marketplace ID. The list was checked @catalogueState?.CheckedOn.ToString("dd MMM yyyy"); IDs from another G-Cloud version are never reused.</span>
+                        </div>
+                    }
                     <div class="form-grid">
+                        @if (marketplaceSuggestions.Count != 0)
+                        {
+                            <label>StatMap product suggestion <span class="optional">optional</span>
+                                <select @onchange="ApplyMarketplaceSuggestion">
+                                    <option value="">Choose a published product</option>
+                                    @foreach (var suggestion in marketplaceSuggestions)
+                                    {
+                                        <option value="@suggestion.MarketplaceServiceId">@suggestion.ProductName · @suggestion.MarketplaceServiceId</option>
+                                    }
+                                </select>
+                            </label>
+                        }
                         <label>Service group <span class="required">required</span><input required @bind="serviceGroup" @bind:event="oninput" /></label>
                         <label>Digital Marketplace service ID <span class="required">required</span><input required @bind="digitalMarketplaceServiceId" @bind:event="oninput" /></label>
+                        <label>Product or service name <span class="optional">reference only</span><input @bind="serviceDescription" @bind:event="oninput" placeholder="e.g. eVO Gazetteer Management System" /></label>
                     </div>
                 </section>
             }
@@ -94,20 +132,57 @@
     private string orderChannel = string.Empty;
     private ReturnActionResult? submission;
     private bool working;
+    private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
 
-    private bool IsGCloud => selectedFramework is FrameworkCode.GCloud13 or FrameworkCode.GCloud14;
+    private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
+    private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
+        Frameworks.All.Where(item => item.AllowsNewContracts).ToList();
+    private IReadOnlyList<MarketplaceServiceSuggestion> marketplaceSuggestions =>
+        selectedFramework is FrameworkCode framework ? MarketplaceCatalogues.ForFramework(framework) : [];
+    private MarketplaceCatalogueState? catalogueState =>
+        selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework)
+            ? MarketplaceCatalogues.ForStatMap(framework)
+            : null;
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private bool CanCreate => selectedFramework is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
+    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
 
-    private void SelectFramework(FrameworkCode framework) { selectedFramework = framework; submission = null; }
+    private void SelectFramework(FrameworkCode framework)
+    {
+        if (!Frameworks.AllowsNewContracts(framework))
+        {
+            return;
+        }
+
+        selectedFramework = framework;
+        submission = null;
+    }
     private void ChooseAnotherFramework() { selectedFramework = null; submission = null; }
+
+    private async Task SearchCustomerUrnsAsync()
+    {
+        if (customerName.Trim().Length < 3)
+        {
+            urnSuggestions = [];
+            return;
+        }
+
+        urnSuggestions = await Workspace.SearchCustomerUrnsAsync(customerName);
+    }
+
+    private void UseCustomerUrnSuggestion(CustomerUrnSuggestion suggestion)
+    {
+        customerName = suggestion.OrganisationName;
+        customerUrn = suggestion.Urn;
+        urnSuggestions = [];
+    }
+
     private async Task CreateContractAsync()
     {
         if (!CanCreate || selectedFramework is null) return;
         working = true;
         try
         {
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration"));
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration"));
             if (submission.Succeeded) ResetForm();
         }
         finally { working = false; }
@@ -116,9 +191,28 @@
     private void ResetForm()
     {
         supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
+        urnSuggestions = [];
         startDate = endDate = null;
         contractValue = 0;
     }
 
-    private static string FrameworkFieldsSummary(FrameworkCode framework) => framework is FrameworkCode.GCloud13 or FrameworkCode.GCloud14 ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";
+    private void ApplyMarketplaceSuggestion(ChangeEventArgs args)
+    {
+        if (selectedFramework is not FrameworkCode framework || args.Value is not string marketplaceServiceId)
+        {
+            return;
+        }
+
+        var suggestion = MarketplaceCatalogues.ForFramework(framework)
+            .SingleOrDefault(item => item.MarketplaceServiceId == marketplaceServiceId);
+        if (suggestion is null)
+        {
+            return;
+        }
+
+        digitalMarketplaceServiceId = suggestion.MarketplaceServiceId;
+        serviceDescription = suggestion.ProductName;
+    }
+
+    private static string FrameworkFieldsSummary(FrameworkCode framework) => Frameworks.IsGCloud(framework) ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";
 }

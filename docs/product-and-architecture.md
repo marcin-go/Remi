@@ -18,7 +18,7 @@ Domain records and validation
 Storage / template / evidence adapters
 ```
 
-The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. Evidence filenames retain the original relative source-data path and a SHA-256 checksum, while the archive uses content-addressed copies so a later revision does not replace an earlier original. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
+The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. Evidence filenames retain the original relative source-data path and a SHA-256 checksum, while the archive uses content-addressed copies so a later revision does not replace an earlier original. The customer-URN reference index also stays in that portable data folder: it is rebuilt from the dated ODS linked by the stable GOV.UK guidance page and retains that exact ODS as evidence. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
 
 ## Reporting workflow
 
@@ -85,6 +85,7 @@ Deadlines are **not** hard-coded as a legal rule. They should be stored per agre
 5. Material actions append audit events; a reviewer can mark a return as requiring correction with an explicit reason.
 6. The Maintenance section plans a source-data migration, validates it with an in-memory register, and requires explicit review before it imports contracts, invoices and original evidence into SQLite.
 7. Remi deliberately does not perform in-place upgrades of earlier prototype databases. Maintenance can validate a source folder and, after a separate destructive confirmation, rebuild the complete local register and evidence archive from that source.
+8. Maintenance can refresh the customer-URN directory. Contract intake then offers local organisation/URN suggestions, while the downloaded source ODS, URL and checksum remain reviewable evidence.
 
 ## Next delivery slice
 

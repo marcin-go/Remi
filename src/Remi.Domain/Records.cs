@@ -24,6 +24,7 @@ public enum EvidenceKind
     GeneratedMiWorkbook,
     ContractDocument,
     SupportingDocument,
+    CustomerUrnList,
 }
 
 public sealed record ContractRecord(
