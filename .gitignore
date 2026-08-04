@@ -1,0 +1,18 @@
+# Build and test outputs
+bin/
+obj/
+.remi-build/
+TestResults/
+publish/
+
+# Local runtime state for the portable application
+data/
+appsettings.Development.json
+
+# User-provided reporting evidence; never commit source workbooks or documents
+source-data/
+
+# IDE and user-specific settings
+.vs/
+*.user
+*.suo

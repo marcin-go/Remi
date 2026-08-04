@@ -1,0 +1,19 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="app-header">
+        <a class="brand" href="/" aria-label="Remi dashboard">
+            <span class="brand-mark">R</span>
+            <span>Remi</span>
+        </a>
+        <span class="brand-subtitle">Framework MI reporting</span>
+    </header>
+    <nav class="navigation" aria-label="Primary navigation">
+        <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
+        <NavLink href="contracts">Contracts</NavLink>
+        <NavLink href="reporting">Monthly returns</NavLink>
+    </nav>
+    <main>
+        @Body
+    </main>
+</div>

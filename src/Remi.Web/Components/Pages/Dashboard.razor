@@ -1,0 +1,117 @@
+@page "/"
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Dashboard</PageTitle>
+
+@if (model is null)
+{
+    <p class="loading">Loading your reporting workspace…</p>
+}
+else
+{
+    <section class="page-heading">
+        <div>
+            <p class="eyebrow">Monthly management information</p>
+            <h1>Keep every return defensible.</h1>
+            <p class="lede">Remi keeps the contract, invoice and submission trail together. The current reporting month is <strong>@model.CurrentReportingMonth</strong>.</p>
+        </div>
+        <a class="button primary" href="reporting">Prepare a return</a>
+    </section>
+
+    <section class="framework-grid" aria-label="Framework reporting summary">
+        @foreach (var summary in model.Frameworks)
+        {
+            <article class="framework-card">
+                <p class="eyebrow">@summary.Framework.AgreementNumber</p>
+                <h2>@summary.Framework.DisplayName</h2>
+                <p class="muted">@ReturnLabel(summary.CurrentReturnStatus)</p>
+                <dl class="metric-list">
+                    <div><dt>Contracts</dt><dd>@summary.ContractCount</dd></div>
+                    <div><dt>Invoices</dt><dd>@summary.InvoiceCount</dd></div>
+                    <div><dt>Submitted</dt><dd>@summary.SubmittedReturnCount</dd></div>
+                </dl>
+            </article>
+        }
+    </section>
+
+    <section class="two-column">
+        <article class="panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Contract progress</p>
+                    <h2>Reported invoicing</h2>
+                </div>
+                <a href="contracts">View all contracts</a>
+            </div>
+            @if (model.ContractProgress.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>No contract data yet.</p>
+                    <a class="button secondary" href="reporting">Import a monthly MI workbook</a>
+                </div>
+            }
+            else
+            {
+                <div class="progress-list">
+                    @foreach (var contract in model.ContractProgress.Take(6))
+                    {
+                        <div class="progress-row">
+                            <div class="progress-label">
+                                <strong>@contract.SupplierReference</strong>
+                                <span>@contract.CustomerName</span>
+                            </div>
+                            <div class="progress-track" aria-label="@($"{contract.SupplierReference} is {Percentage(contract.CompletionRatio)} complete")">
+                                <span class="progress-fill" style="width: @Percentage(contract.CompletionRatio)"></span>
+                            </div>
+                            <div class="progress-value">@Percentage(contract.CompletionRatio)</div>
+                        </div>
+                    }
+                </div>
+                <p class="caption">Progress compares reported invoices with the contract value until an invoice plan is added.</p>
+            }
+        </article>
+
+        <article class="panel findings-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Data quality</p>
+                    <h2>Needs attention</h2>
+                </div>
+                <a href="reporting">Review returns</a>
+            </div>
+            @if (model.Findings.Count == 0)
+            {
+                <div class="empty-state compact"><p>No validation issues have been found.</p></div>
+            }
+            else
+            {
+                <ul class="findings">
+                    @foreach (var finding in model.Findings.Take(6))
+                    {
+                        <li class="@finding.Severity.ToString().ToLowerInvariant()">
+                            <strong>@finding.Code</strong>
+                            <span>@finding.Message</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </article>
+    </section>
+}
+
+@code {
+    private DashboardModel? model;
+
+    protected override async Task OnInitializedAsync() => model = await Workspace.GetDashboardAsync();
+
+    private static string ReturnLabel(ReturnStatus? status) => status switch
+    {
+        ReturnStatus.Draft => "This month: draft return",
+        ReturnStatus.Submitted => "This month: submitted",
+        ReturnStatus.NilReturn => "This month: nil return recorded",
+        ReturnStatus.CorrectionRequired => "This month: correction required",
+        _ => "This month: not started",
+    };
+
+    private static string Percentage(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+}

@@ -1,0 +1,97 @@
+@page "/contracts"
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Contracts</PageTitle>
+
+@if (model is null)
+{
+    <p class="loading">Loading contracts…</p>
+}
+else
+{
+    <section class="page-heading">
+        <div>
+            <p class="eyebrow">Contract register</p>
+            <h1>Contract reporting progress</h1>
+            <p class="lede">This view shows the amount reported through invoices. Add an invoice plan in a later iteration when you want completion to follow a staged billing schedule.</p>
+        </div>
+        <a class="button primary" href="reporting">Import a return</a>
+    </section>
+
+    <section class="panel table-panel">
+        @if (model.ContractProgress.Count == 0)
+        {
+            <div class="empty-state">
+                <p>Import a monthly MI workbook to create the initial contract register.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Framework</th>
+                            <th scope="col">Reference</th>
+                            <th scope="col">Customer</th>
+                            <th scope="col">End date</th>
+                            <th scope="col">Reported / comparison value</th>
+                            <th scope="col">Progress</th>
+                            <th scope="col">Evidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var contract in model.ContractProgress)
+                        {
+                            <tr>
+                                <td>@Frameworks.Get(contract.Framework).DisplayName</td>
+                                <td><strong>@contract.SupplierReference</strong></td>
+                                <td>@contract.CustomerName</td>
+                                <td>@(contract.EndDate?.ToString("dd MMM yyyy") ?? "Not recorded")</td>
+                                <td>
+                                    <strong>@Currency(contract.ReportedInvoiceValueExVat)</strong>
+                                    <span class="cell-secondary">of @Currency(contract.ComparisonValueExVat)</span>
+                                </td>
+                                <td>
+                                    <div class="table-progress">
+                                        <div class="progress-track">
+                                            <span class="progress-fill" style="width: @Percentage(contract.CompletionRatio)"></span>
+                                        </div>
+                                        <span>@Percentage(contract.CompletionRatio)</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (contract.Evidence.Count == 0)
+                                    {
+                                        <span class="cell-secondary">None archived</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="evidence-links">
+                                            @foreach (var evidence in contract.Evidence)
+                                            {
+                                                <a href="@($"/evidence/{evidence.Id}")" target="_blank" title="@evidence.OriginalRelativePath">
+                                                    @evidence.FileName
+                                                </a>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private DashboardModel? model;
+
+    protected override async Task OnInitializedAsync() => model = await Workspace.GetDashboardAsync();
+
+    private static string Percentage(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+
+    private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}

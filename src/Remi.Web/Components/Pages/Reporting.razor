@@ -1,0 +1,204 @@
+@page "/reporting"
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Monthly returns</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Monthly returns</p>
+        <h1>Build the audit trail as you report.</h1>
+        <p class="lede">Import the exact MI workbook used for one framework and one month. Remi keeps the source fields, links activities to the reporting period, and checks the data before you record submission.</p>
+    </div>
+</section>
+
+<section class="two-column reporting-layout">
+    <article class="panel import-panel">
+        <p class="eyebrow">1 · Import the source</p>
+        <h2>Monthly MI workbook</h2>
+        <div class="form-grid">
+            <label>
+                Framework
+                <select @bind="framework" @bind:after="LoadEvidenceAsync">
+                    @foreach (var definition in Frameworks.All)
+                    {
+                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
+                    }
+                </select>
+            </label>
+            <label>
+                Reporting month
+                <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:after="LoadEvidenceAsync" />
+            </label>
+        </div>
+        <label class="file-picker">
+            <span>Select .xlsx workbook</span>
+            <InputFile OnChange="ImportWorkbookAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+        </label>
+        <p class="caption">The report month is selected separately because the official workbook name does not contain it. The original workbook is not changed.</p>
+
+        @if (!string.IsNullOrWhiteSpace(importMessage))
+        {
+            <p class="notice success">@importMessage</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(importError))
+        {
+            <p class="notice error">@importError</p>
+        }
+    </article>
+
+    <article class="panel">
+        <p class="eyebrow">2 · Record the outcome</p>
+        <h2>@Frameworks.Get(framework).DisplayName · @reportingMonth</h2>
+        <p class="muted">Current status: <strong>@CurrentStatus</strong></p>
+        <label>
+            Portal submission reference <span class="optional">(optional)</span>
+            <input @bind="submissionReference" placeholder="e.g. portal confirmation or ticket ID" />
+        </label>
+        <div class="action-row">
+            <button class="button primary" disabled="@working" @onclick="MarkSubmittedAsync">Record as submitted</button>
+            <button class="button secondary" disabled="@working" @onclick="MarkNilReturnAsync">Record nil return</button>
+        </div>
+        @if (actionResult is not null)
+        {
+            <p class="notice @(actionResult.Succeeded ? "success" : "error")">@actionResult.Message</p>
+            @if (actionResult.Findings.Count != 0)
+            {
+                <ul class="findings inline-findings">
+                    @foreach (var finding in actionResult.Findings)
+                    {
+                        <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li>
+                    }
+                </ul>
+            }
+        }
+    </article>
+</section>
+
+<section class="panel evidence-panel">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Evidence archive</p>
+            <h2>Original files for this return</h2>
+        </div>
+        <span class="muted">@evidence.Count file(s) retained</span>
+    </div>
+    @if (evidence.Count == 0)
+    {
+        <div class="empty-state compact">
+            <p>No files are archived for the selected framework and month yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="evidence-list">
+            @foreach (var item in evidence)
+            {
+                <a class="evidence-item" href="@($"/evidence/{item.Id}")" target="_blank">
+                    <span>
+                        <strong>@item.FileName</strong>
+                        <span class="cell-secondary">@item.OriginalRelativePath</span>
+                    </span>
+                    <span class="muted">@item.FileSizeBytes.ToString("N0") bytes</span>
+                </a>
+            }
+        </div>
+    }
+</section>
+
+<section class="panel guidance-panel">
+    <p class="eyebrow">What Remi checks today</p>
+    <ul class="checklist">
+        <li>Every contract has a supplier reference, customer, valid dates and a positive total value.</li>
+        <li>Every invoice is linked to an imported contract in the same framework.</li>
+        <li>Duplicate contract and invoice imports are held back instead of creating a second reportable entry.</li>
+        <li>A nil return cannot be recorded for a month that contains imported activity.</li>
+    </ul>
+    <p class="caption">Template export is deliberately a next step: it must use the current GCA-approved template without changing its layout or validation rules.</p>
+</section>
+
+@code {
+    private DashboardModel? model;
+    private FrameworkCode framework = FrameworkCode.GCloud14;
+    private string reportingMonth = CurrentReportingMonth();
+    private string? submissionReference;
+    private string? importMessage;
+    private string? importError;
+    private ReturnActionResult? actionResult;
+    private IReadOnlyList<ReportingEvidence> evidence = [];
+    private bool working;
+
+    protected override async Task OnInitializedAsync()
+    {
+        model = await Workspace.GetDashboardAsync();
+        await LoadEvidenceAsync();
+    }
+
+    private string CurrentStatus =>
+        model?.Frameworks.Single(summary => summary.Framework.Code == framework).CurrentReturnStatus switch
+        {
+            ReturnStatus.Draft => "Draft",
+            ReturnStatus.Submitted => "Submitted",
+            ReturnStatus.NilReturn => "Nil return recorded",
+            ReturnStatus.CorrectionRequired => "Correction required",
+            _ => "Not started",
+        };
+
+    private async Task ImportWorkbookAsync(InputFileChangeEventArgs args)
+    {
+        var workbook = args.File;
+        if (workbook is null)
+        {
+            return;
+        }
+
+        working = true;
+        importMessage = null;
+        importError = null;
+        actionResult = null;
+        try
+        {
+            await using var stream = workbook.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            var result = await Workspace.ImportWorkbookAsync(framework, reportingMonth, workbook.Name, stream);
+            importMessage = $"Imported {result.NewContracts} contract(s) and {result.NewInvoices} invoice(s). {result.ExistingContracts + result.ExistingInvoices} duplicate row(s) were already present. The original workbook was {(result.EvidenceArchived ? "archived" : "already archived")}.";
+            model = await Workspace.GetDashboardAsync();
+            await LoadEvidenceAsync();
+        }
+        catch (Exception exception)
+        {
+            importError = $"The workbook could not be imported: {exception.Message}";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task MarkSubmittedAsync()
+    {
+        working = true;
+        actionResult = await Workspace.MarkSubmittedAsync(framework, reportingMonth, submissionReference);
+        model = await Workspace.GetDashboardAsync();
+        working = false;
+    }
+
+    private async Task MarkNilReturnAsync()
+    {
+        working = true;
+        actionResult = await Workspace.MarkNilReturnAsync(framework, reportingMonth);
+        model = await Workspace.GetDashboardAsync();
+        working = false;
+    }
+
+    private async Task LoadEvidenceAsync()
+    {
+        if (!DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _))
+        {
+            evidence = [];
+            return;
+        }
+
+        evidence = await Workspace.GetReportingEvidenceAsync(framework, reportingMonth);
+    }
+
+    private static string CurrentReportingMonth() => DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
+}
