@@ -315,6 +315,11 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .register-drawer-close { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; color: #466575; background: #f3f7f8; border: 1px solid #d5e2e6; border-radius: 0.45rem; font-size: 1.3rem; line-height: 1; cursor: pointer; }
 .register-drawer-close:hover, .register-drawer-close:focus-visible { color: #183c50; background: #e6f2f3; outline: none; }
 
+/* Contract and invoice records share the same full-page detail hierarchy. */
+.contract-status.warning { color: #9b6210; background: #fff4dc; }
+.contract-summary-grid, .contract-tab-shell { box-shadow: none; }
+.invoice-record .contract-summary-item:nth-child(2) > strong { font-size: 1.15rem; }
+
 @media (min-width: 761px) {
     .register-table th.checkbox-cell, .register-table td.checkbox-cell { position: sticky; left: 0; }
     .register-table th:nth-child(2), .register-table td:nth-child(2) { position: sticky; left: 38px; }

@@ -1,0 +1,192 @@
+@using Remi.Application
+@using Remi.Domain
+@inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+@implements IDisposable
+
+@if (details is null)
+{
+    <section class="empty-state"><p>The requested invoice was not found.</p><a class="button secondary" href="@PeriodRoute("invoices")">Back to invoices</a></section>
+}
+else
+{
+    <section class="contract-record invoice-record">
+        <nav class="contract-breadcrumbs" aria-label="Breadcrumb"><a href="@PeriodRoute("invoices")">Invoices</a><span aria-hidden="true">›</span><span>@details.Invoice.InvoiceNumber</span></nav>
+
+        <header class="contract-hero">
+            <div>
+                <p class="eyebrow">Invoice record</p>
+                <div class="contract-title-line"><h1>@details.Invoice.InvoiceNumber</h1><span class="contract-status @(details.Contract is null ? "warning" : string.Empty)"><i aria-hidden="true"></i>@(details.Contract is null ? "Needs contract" : "Contract matched")</span></div>
+                <p class="lede">@details.Invoice.SupplierReference · @details.Invoice.CustomerName</p>
+            </div>
+            <div class="contract-hero-actions">
+                <button class="button secondary" @onclick="ToggleEditor">@(editing ? "Cancel editing" : "Edit invoice")</button>
+                @if (details.Contract is not null) { <a class="button secondary" href="@ContractRoute(details.Contract.Id)">View contract</a> }
+                <a class="button primary" href="@PeriodRoute("invoices")">‹ Back to invoices</a>
+            </div>
+        </header>
+
+        <section class="contract-summary-grid" aria-label="Invoice summary">
+            <div class="contract-summary-item"><span>Total cost, ex VAT</span><strong>@Currency(details.Invoice.TotalCostExVat)</strong><small>@(IsCreditNote ? "Credit note" : "Invoice")</small></div>
+            <div class="contract-summary-item"><span>Reporting month</span><strong>@DisplayPeriod(details.Invoice.ReportMonth)</strong><small>@Frameworks.Get(details.Invoice.Framework).DisplayName</small></div>
+            <div class="contract-summary-item"><span>Supporting evidence</span><strong>@details.Evidence.Count</strong><small>file@(details.Evidence.Count == 1 ? string.Empty : "s") archived</small></div>
+            <div class="contract-summary-item"><span>Invoice date</span><strong>@Display(details.Invoice.InvoiceDate)</strong><small>@(details.Contract is null ? "Contract link required" : details.Contract.SupplierReference)</small></div>
+        </section>
+
+        <section class="contract-tab-shell">
+            <div class="contract-tabs" role="tablist" aria-label="Invoice sections">
+                <button class="@TabClass("overview")" role="tab" aria-selected="@(activeTab == "overview")" @onclick="@(() => SetTab("overview"))">Overview</button>
+                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Evidence <span>@details.Evidence.Count</span></button>
+                <button class="@TabClass("history")" role="tab" aria-selected="@(activeTab == "history")" @onclick="@(() => SetTab("history"))">Record history</button>
+            </div>
+
+            @if (activeTab == "overview")
+            {
+                <div class="contract-tab-panel" role="tabpanel">
+                    @if (details.Findings.Count != 0)
+                    {
+                        <section class="contract-findings"><p class="eyebrow">Needs attention</p><ul class="findings inline-findings">@foreach (var finding in details.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li> }</ul></section>
+                    }
+
+                    @if (editing)
+                    {
+                        <section class="contract-edit-panel">
+                            <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Invoice information</h2></div></div>
+                            <div class="form-grid">
+                                <label>Framework<select @bind="framework">@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
+                                <label>Reporting month <span class="required">required</span><input required @bind="reportMonth" placeholder="YYYY-MM" /></label>
+                                <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" /></label>
+                                <label>Customer <span class="required">required</span><input required @bind="customerName" /></label>
+                                <label>Customer URN<input @bind="customerUrn" /></label><label>Invoice date<input type="date" @bind="invoiceDate" /></label>
+                                <label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" /></label><label>Lot<input @bind="lotNumber" /></label>
+                                <label>Service group / level 1<input @bind="serviceGroup" /></label><label>Service group / level 2<input @bind="serviceGroupLevel2" /></label>
+                                <label>Service description<input @bind="serviceDescription" /></label><label>Order channel<input @bind="orderChannel" /></label>
+                                <label>Digital Marketplace service ID<input @bind="marketplaceServiceId" /></label><label>Unit of measure<input @bind="unitOfMeasure" /></label>
+                                <label>Quantity<input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT<input type="number" step="0.01" @bind="pricePerUnitExVat" /></label>
+                                <label>Total cost, ex VAT <span class="required">required</span><input type="number" step="0.01" @bind="totalCostExVat" /></label><label>Original vendor<input @bind="originalVendor" /></label>
+                                <label>Subcontractor name<input @bind="subcontractorName" /></label>
+                            </div>
+                            <div class="action-row"><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save invoice")</button></div>
+                            @if (submission is not null) { <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p> }
+                        </section>
+                    }
+
+                    <div class="contract-overview-layout">
+                        <article class="contract-content-card">
+                            <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Invoice overview</h2><p>Accounting facts and reporting attributes held for this record.</p></div></header>
+                            <section class="contract-detail-section">
+                                <h3>Invoice and parties</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Framework</dt><dd>@Frameworks.Get(details.Invoice.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div>
+                                    <div><dt>Supplier reference</dt><dd>@details.Invoice.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Invoice.CustomerName</dd></div>
+                                    <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Invoice.CustomerUrn)">@Display(details.Invoice.CustomerUrn)</dd></div><div><dt>Invoice date</dt><dd>@Display(details.Invoice.InvoiceDate)</dd></div>
+                                    <div><dt>Invoice number</dt><dd>@details.Invoice.InvoiceNumber</dd></div>
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>Cost and quantity</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd class="@NotRecordedClass(details.Invoice.UnitOfMeasure)">@Display(details.Invoice.UnitOfMeasure)</dd></div>
+                                    <div><dt>Quantity</dt><dd class="@NotRecordedClass(details.Invoice.Quantity)">@Display(details.Invoice.Quantity)</dd></div><div><dt>Price per unit, ex VAT</dt><dd class="@NotRecordedClass(details.Invoice.PricePerUnitExVat)">@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>Service classification</h3>
+                                <dl class="contract-definition-grid">
+                                    <div><dt>Lot</dt><dd class="@NotRecordedClass(details.Invoice.LotNumber)">@Display(details.Invoice.LotNumber)</dd></div><div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroup)">@Display(details.Invoice.ServiceGroup)</dd></div>
+                                    <div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroupLevel2)">@Display(details.Invoice.ServiceGroupLevel2)</dd></div><div><dt>Service description</dt><dd class="@NotRecordedClass(details.Invoice.ServiceDescription)">@Display(details.Invoice.ServiceDescription)</dd></div>
+                                    <div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Invoice.OrderChannel)">@Display(details.Invoice.OrderChannel)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Invoice.DigitalMarketplaceServiceId)">@Display(details.Invoice.DigitalMarketplaceServiceId)</dd></div>
+                                    <div><dt>Original vendor</dt><dd class="@NotRecordedClass(details.Invoice.OriginalVendor)">@Display(details.Invoice.OriginalVendor)</dd></div><div><dt>Subcontractor name</dt><dd class="@NotRecordedClass(details.Invoice.SubcontractorName)">@Display(details.Invoice.SubcontractorName)</dd></div>
+                                </dl>
+                            </section>
+                        </article>
+                        <aside class="contract-side-card">
+                            <section><h2>Record completeness</h2><ul class="contract-check-list"><li class="@(HasCoreDetails ? "complete" : "incomplete")"><i>@StatusMark(HasCoreDetails)</i><span>Core invoice fields recorded</span></li><li class="@(details.Contract is not null ? "complete" : "incomplete")"><i>@StatusMark(details.Contract is not null)</i><span>@(details.Contract is null ? "Matching contract not found" : "Matching contract linked")</span></li><li class="@(details.Evidence.Count != 0 ? "complete" : "incomplete")"><i>@StatusMark(details.Evidence.Count != 0)</i><span>@(details.Evidence.Count == 0 ? "Supporting evidence not attached" : "Supporting evidence attached")</span></li></ul></section>
+                            <section><h2>Record information</h2><dl class="contract-meta-list"><div><dt>Recorded</dt><dd>@details.Invoice.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</dd></div><div><dt>Register source</dt><dd>@details.Invoice.SourceWorkbook</dd></div><div><dt>Evidence</dt><dd>@details.Evidence.Count file@(details.Evidence.Count == 1 ? string.Empty : "s")</dd></div></dl></section>
+                            <section><h2>Related contract</h2>@if (details.Contract is not null) { <a class="contract-source-file" href="@ContractRoute(details.Contract.Id)"><span>▧</span><strong>@details.Contract.SupplierReference<small>@details.Contract.CustomerName</small></strong><b aria-hidden="true">›</b></a> } else { <p class="muted">No registered contract matches this invoice reference.</p> }</section>
+                        </aside>
+                    </div>
+                </div>
+            }
+            else if (activeTab == "evidence")
+            {
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Evidence archive</p><h2>Original supporting files</h2><p>Immutable copies retained alongside this invoice record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No evidence linked</strong><span>Archive invoice copies, credit notes and supporting documents against this record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+            }
+            else
+            {
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Audit trail</p><h2>Record history</h2><p>Material invoice and related contract actions recorded by Remi.</p></div></header><section class="contract-history-list">@if (history.Count == 0) { <div class="contract-empty-inline"><strong>No history events are available</strong><span>The invoice was registered without a matching local audit event.</span></div> } @foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div></article> }</section></article></div>
+            }
+        </section>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid InvoiceId { get; set; }
+
+    private InvoiceDetailsModel? details;
+    private IReadOnlyList<AuditEventSummary> history = [];
+    private string activeTab = "overview";
+    private bool editing;
+    private bool saving;
+    private ReturnActionResult? submission;
+    private FrameworkCode framework;
+    private string supplierReference = string.Empty, customerName = string.Empty, customerUrn = string.Empty, invoiceNumber = string.Empty, lotNumber = string.Empty, serviceGroup = string.Empty, serviceGroupLevel2 = string.Empty, serviceDescription = string.Empty, orderChannel = string.Empty, marketplaceServiceId = string.Empty, unitOfMeasure = string.Empty, originalVendor = string.Empty, subcontractorName = string.Empty, reportMonth = string.Empty;
+    private DateOnly? invoiceDate;
+    private decimal? quantity, pricePerUnitExVat;
+    private decimal totalCostExVat;
+
+    private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
+    private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
+    private bool CanSave => details is not null && IsValidReportingMonth(reportMonth) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0;
+
+    protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;
+    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+
+    protected override async Task OnParametersSetAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        details = await Workspace.GetInvoiceDetailsAsync(InvoiceId);
+        history = details is null ? [] : await Workspace.GetInvoiceAuditEventsAsync(InvoiceId);
+        PopulateEditor();
+    }
+
+    private async void ReportingPeriodChanged() => await InvokeAsync(StateHasChanged);
+    private void SetTab(string tab) => activeTab = tab;
+    private void ToggleEditor() { editing = !editing; submission = null; if (editing) PopulateEditor(); }
+    private void PopulateEditor()
+    {
+        if (details is null) return;
+        var invoice = details.Invoice;
+        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!CanSave || details is null) return;
+        saving = true;
+        submission = null;
+        try
+        {
+            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi"));
+            if (submission.Succeeded) { await ReloadAsync(); editing = false; }
+        }
+        finally { saving = false; }
+    }
+
+    private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
+    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
+    private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
+    private static string StatusMark(bool complete) => complete ? "✓" : "!";
+    private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;
+    private static string NotRecordedClass(decimal? value) => value is null ? "not-recorded" : string.Empty;
+    private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
+    private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Display(decimal? value) => value?.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("en-GB")) ?? "Not recorded";
+    private static string DisplayCurrency(decimal? value) => value is null ? "Not recorded" : Currency(value.Value);
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+    private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", _ => action };
+}

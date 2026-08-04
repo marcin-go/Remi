@@ -873,6 +873,30 @@ public sealed class ReportingWorkspace(
                 .ToList();
         }, cancellationToken);
 
+    public Task<IReadOnlyList<AuditEventSummary>> GetInvoiceAuditEventsAsync(
+        Guid invoiceId,
+        int maximum = 100,
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database =>
+        {
+            var invoice = database.Invoices.SingleOrDefault(item => item.Id == invoiceId);
+            if (invoice is null)
+            {
+                return (IReadOnlyList<AuditEventSummary>)[];
+            }
+
+            var contract = database.Contracts.SingleOrDefault(item => item.Framework == invoice.Framework &&
+                ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference));
+            return (IReadOnlyList<AuditEventSummary>)database.AuditEvents
+                .Where(item =>
+                    (item.EntityType == "Invoice" && item.EntityId == invoiceId) ||
+                    (contract is not null && item.EntityType == "Contract" && item.EntityId == contract.Id))
+                .OrderByDescending(item => item.OccurredAtUtc)
+                .Take(Math.Clamp(maximum, 1, 500))
+                .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor))
+                .ToList();
+        }, cancellationToken);
+
     public Task<ReturnActionResult> MarkSubmittedAsync(
         FrameworkCode framework,
         string reportingMonth,

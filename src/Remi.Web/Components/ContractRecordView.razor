@@ -6,12 +6,12 @@
 
 @if (details is null)
 {
-    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="/contracts">Back to contracts</a></section>
+    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back to contracts</a></section>
 }
 else
 {
     <section class="contract-record">
-        <nav class="contract-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>@details.Contract.SupplierReference</span></nav>
+        <nav class="contract-breadcrumbs" aria-label="Breadcrumb"><a href="@PeriodRoute("contracts")">Contracts</a><span aria-hidden="true">›</span><span>@details.Contract.SupplierReference</span></nav>
 
         <header class="contract-hero">
             <div>
@@ -25,7 +25,7 @@ else
                 {
                     <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">↓ Download source</a>
                 }
-                <a class="button primary" href="/contracts">‹ Back to contracts</a>
+                <a class="button primary" href="@PeriodRoute("contracts")">‹ Back to contracts</a>
             </div>
         </header>
 
@@ -150,7 +150,7 @@ else
                             }
                             else
                             {
-                                <div class="table-wrap"><table><thead><tr><th>Invoice number</th><th>Invoice date</th><th>Reporting month</th><th>Total, ex VAT</th></tr></thead><tbody>@foreach (var invoice in details.Invoices.OrderByDescending(item => item.InvoiceDate)) { <tr><td><a class="contract-table-link" href="@($"/invoices/{invoice.Id}")">@invoice.InvoiceNumber</a></td><td>@Display(invoice.InvoiceDate)</td><td>@invoice.ReportMonth</td><td>@Currency(invoice.TotalCostExVat)</td></tr> }</tbody></table></div>
+                                <div class="table-wrap"><table><thead><tr><th>Invoice number</th><th>Invoice date</th><th>Reporting month</th><th>Total, ex VAT</th></tr></thead><tbody>@foreach (var invoice in details.Invoices.OrderByDescending(item => item.InvoiceDate)) { <tr><td><a class="contract-table-link" href="@InvoiceRoute(invoice.Id)">@invoice.InvoiceNumber</a></td><td>@Display(invoice.InvoiceDate)</td><td>@invoice.ReportMonth</td><td>@Currency(invoice.TotalCostExVat)</td></tr> }</tbody></table></div>
                             }
                         </section>
                     </article>
@@ -208,9 +208,9 @@ else
     private string DateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
     private bool HasCustomerUrn => !string.IsNullOrWhiteSpace(details?.Contract.CustomerUrn);
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference) && !string.IsNullOrWhiteSpace(details.Contract.CustomerName) && details.Contract.StartDate is not null && details.Contract.EndDate is not null && details.Contract.TotalContractValueExVat > 0;
-    private bool IsValidInvoiceReportingMonth => DateOnly.TryParseExact($"{invoiceReportingMonth}-01", "yyyy-MM-dd", out _);
+    private bool IsValidInvoiceReportingMonth => IsValidReportingMonth(invoiceReportingMonth);
     private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat != 0;
-    private bool CanSaveContract => details is not null && DateOnly.TryParseExact($"{editReportingMonth}-01", "yyyy-MM-dd", out _) && !string.IsNullOrWhiteSpace(editSupplierReference) && !string.IsNullOrWhiteSpace(editCustomerName) && editContractValue > 0;
+    private bool CanSaveContract => details is not null && IsValidReportingMonth(editReportingMonth) && !string.IsNullOrWhiteSpace(editSupplierReference) && !string.IsNullOrWhiteSpace(editCustomerName) && editContractValue > 0;
     private bool CanSaveSchedule => editableSchedule.Count != 0 && editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ValueExVat > 0);
 
     protected override void OnInitialized()
@@ -312,6 +312,9 @@ else
     }
 
     private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
+    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private string InvoiceRoute(Guid invoiceId) => PeriodRoute($"invoices/{invoiceId}");
+    private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
     private static string StatusMark(bool complete) => complete ? "✓" : "!";
     private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;
     private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
