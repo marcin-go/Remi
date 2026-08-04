@@ -1,0 +1,124 @@
+@page "/contracts/new"
+@using Remi.Domain
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Register contract</PageTitle>
+
+<section class="registration-page">
+    <nav class="register-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>Register contract</span></nav>
+
+    <header class="registration-heading">
+        <div><p class="eyebrow">Contract intake</p><h1>Register a signed contract</h1><p class="lede">Start with the framework. Remi will then show only the information needed for that framework, alongside the shared register fields.</p></div>
+        <a class="button secondary" href="/contracts">Back to contracts</a>
+    </header>
+
+    @if (selectedFramework is null)
+    {
+        <section class="framework-choice-panel" aria-labelledby="choose-framework">
+            <p class="eyebrow">Step 1 of 2</p>
+            <h2 id="choose-framework">Which framework is this contract for?</h2>
+            <p>Choose the agreement shown on the signed contract to load the right set of fields.</p>
+            <div class="framework-choice-grid">
+                @foreach (var definition in Frameworks.All)
+                {
+                    <button class="framework-choice" @onclick="@(() => SelectFramework(definition.Code))">
+                        <span>@definition.AgreementNumber</span><strong>@definition.DisplayName</strong><small>@FrameworkFieldsSummary(definition.Code)</small><b>Continue <span aria-hidden="true">→</span></b>
+                    </button>
+                }
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="registration-framework-context">
+            <span>Framework</span><strong>@Frameworks.Get(selectedFramework.Value).DisplayName (@Frameworks.Get(selectedFramework.Value).AgreementNumber)</strong><button @onclick="ChooseAnotherFramework">Change framework</button>
+        </section>
+
+        @if (submission is not null)
+        {
+            <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
+        }
+
+        <section class="registration-form-panel">
+            <header><p class="eyebrow">Step 2 of 2</p><h2>Contract information</h2><p>Fields marked required are needed to create a usable contract record for this framework.</p></header>
+            <div class="registration-section"><h3>Shared register details</h3><p>These fields are held consistently for every framework.</p>
+                <div class="form-grid">
+                    <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" @bind:event="oninput" placeholder="e.g. ABC_202608_GMS" /></label>
+                    <label>Customer organisation <span class="required">required</span><input required @bind="customerName" @bind:event="oninput" /></label>
+                    <label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:event="oninput" /></label>
+                    <label>Customer URN <span class="optional">optional</span><input @bind="customerUrn" @bind:event="oninput" /></label>
+                    <label>Contract start date <span class="required">required</span><input required type="date" @bind="startDate" /></label>
+                    <label>Contract end date <span class="required">required</span><input required type="date" @bind="endDate" /></label>
+                    <label>Lot number <span class="optional">optional</span><input @bind="lotNumber" @bind:event="oninput" /></label>
+                    <label>Contract value, ex VAT <span class="required">required</span><input required type="number" min="0.01" step="0.01" @bind="contractValue" /></label>
+                </div>
+            </div>
+
+            @if (IsGCloud)
+            {
+                <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3><p>These fields appear in the G-Cloud reporting template.</p>
+                    <div class="form-grid">
+                        <label>Service group <span class="required">required</span><input required @bind="serviceGroup" @bind:event="oninput" /></label>
+                        <label>Digital Marketplace service ID <span class="required">required</span><input required @bind="digitalMarketplaceServiceId" @bind:event="oninput" /></label>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <section class="registration-section framework-fields"><h3>VAS contract details</h3><p>These fields replace the G-Cloud service fields in the VAS reporting template.</p>
+                    <div class="form-grid">
+                        <label>Product or service description <span class="required">required</span><input required @bind="serviceDescription" @bind:event="oninput" /></label>
+                        <label>Order channel <span class="required">required</span><input required @bind="orderChannel" @bind:event="oninput" /></label>
+                    </div>
+                </section>
+            }
+
+            <div class="action-row"><button class="button primary" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Registering…" : "Register contract")</button><a class="button secondary" href="/contracts">Cancel</a></div>
+        </section>
+    }
+</section>
+
+@code {
+    private FrameworkCode? selectedFramework;
+    private string supplierReference = string.Empty;
+    private string customerName = string.Empty;
+    private string customerUrn = string.Empty;
+    private string reportingMonth = DateOnly.FromDateTime(DateTime.Today).AddMonths(-1).ToString("yyyy-MM");
+    private DateOnly? startDate;
+    private DateOnly? endDate;
+    private string lotNumber = string.Empty;
+    private decimal contractValue;
+    private string serviceGroup = string.Empty;
+    private string digitalMarketplaceServiceId = string.Empty;
+    private string serviceDescription = string.Empty;
+    private string orderChannel = string.Empty;
+    private ReturnActionResult? submission;
+    private bool working;
+
+    private bool IsGCloud => selectedFramework is FrameworkCode.GCloud13 or FrameworkCode.GCloud14;
+    private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
+    private bool CanCreate => selectedFramework is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
+
+    private void SelectFramework(FrameworkCode framework) { selectedFramework = framework; submission = null; }
+    private void ChooseAnotherFramework() { selectedFramework = null; submission = null; }
+    private async Task CreateContractAsync()
+    {
+        if (!CanCreate || selectedFramework is null) return;
+        working = true;
+        try
+        {
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration"));
+            if (submission.Succeeded) ResetForm();
+        }
+        finally { working = false; }
+    }
+
+    private void ResetForm()
+    {
+        supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
+        startDate = endDate = null;
+        contractValue = 0;
+    }
+
+    private static string FrameworkFieldsSummary(FrameworkCode framework) => framework is FrameworkCode.GCloud13 or FrameworkCode.GCloud14 ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";
+}

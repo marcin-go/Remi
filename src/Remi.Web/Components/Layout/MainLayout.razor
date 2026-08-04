@@ -7,12 +7,17 @@
             <span>Remi</span>
         </a>
         <span class="brand-subtitle">Framework MI reporting</span>
+        <nav class="navigation" aria-label="Primary navigation">
+            <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="contracts">Contracts</NavLink>
+            <NavLink href="invoices">Invoices</NavLink>
+            <NavLink href="reporting">Monthly returns</NavLink>
+            <NavLink href="templates">Templates &amp; audit</NavLink>
+            <NavLink href="maintenance">Maintenance</NavLink>
+        </nav>
+        <div class="header-spacer"></div>
+        <div class="user-context"><span>Procurement team</span><span class="user-avatar" aria-hidden="true">PT</span></div>
     </header>
-    <nav class="navigation" aria-label="Primary navigation">
-        <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
-        <NavLink href="contracts">Contracts</NavLink>
-        <NavLink href="reporting">Monthly returns</NavLink>
-    </nav>
     <main>
         @Body
     </main>

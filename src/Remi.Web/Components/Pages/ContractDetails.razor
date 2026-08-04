@@ -1,0 +1,119 @@
+@page "/contracts/{ContractId:guid}"
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Contract</PageTitle>
+
+@if (details is null)
+{
+    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="/contracts">Back to contracts</a></section>
+}
+else
+{
+    <section class="page-heading record-heading">
+        <div>
+            <p class="eyebrow">Contract record</p>
+            <h1>@details.Contract.SupplierReference</h1>
+            <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
+        </div>
+        <a class="button secondary" href="/contracts">Back to contracts</a>
+    </section>
+
+    @if (details.Findings.Count != 0)
+    {
+        <section class="panel detail-panel">
+            <p class="eyebrow">Needs attention</p>
+            <ul class="findings inline-findings">
+                @foreach (var finding in details.Findings)
+                {
+                    <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li>
+                }
+            </ul>
+        </section>
+    }
+
+    <section class="panel detail-panel">
+        <p class="eyebrow">Registered information</p>
+        <h2>Contract details</h2>
+        <dl class="record-grid">
+            <div><dt>Framework</dt><dd>@Frameworks.Get(details.Contract.Framework).DisplayName</dd></div>
+            <div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div>
+            <div><dt>Supplier reference</dt><dd>@details.Contract.SupplierReference</dd></div>
+            <div><dt>Customer</dt><dd>@details.Contract.CustomerName</dd></div>
+            <div><dt>Customer URN</dt><dd>@Display(details.Contract.CustomerUrn)</dd></div>
+            <div><dt>Lot</dt><dd>@Display(details.Contract.LotNumber)</dd></div>
+            <div><dt>Start date</dt><dd>@Display(details.Contract.StartDate)</dd></div>
+            <div><dt>End date</dt><dd>@Display(details.Contract.EndDate)</dd></div>
+            <div><dt>Service group / level 1</dt><dd>@Display(details.Contract.ServiceGroup)</dd></div>
+            <div><dt>Service group / level 2</dt><dd>@Display(details.Contract.ServiceGroupLevel2)</dd></div>
+            <div><dt>Service description</dt><dd>@Display(details.Contract.ServiceDescription)</dd></div>
+            <div><dt>Order channel</dt><dd>@Display(details.Contract.OrderChannel)</dd></div>
+            <div><dt>Digital Marketplace service ID</dt><dd>@Display(details.Contract.DigitalMarketplaceServiceId)</dd></div>
+            <div><dt>Total value, ex VAT</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div>
+            <div><dt>Register source</dt><dd>@details.Contract.SourceWorkbook</dd></div>
+            <div><dt>Recorded</dt><dd>@details.Contract.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy HH:mm")</dd></div>
+        </dl>
+    </section>
+
+    <section class="panel detail-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Charge schedule</p><h2>Annual payment positions</h2></div></div>
+        @if (details.ChargeSchedule.Count == 0)
+        {
+            <p class="muted">No charge schedule has been recorded for this contract.</p>
+        }
+        else
+        {
+            <div class="table-wrap"><table><thead><tr><th>Year</th><th>Description</th><th>Expected date</th><th>Value, ex VAT</th></tr></thead><tbody>
+                @foreach (var item in details.ChargeSchedule)
+                {
+                    <tr><td>@item.ContractYear</td><td>@item.Description</td><td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td></tr>
+                }
+            </tbody></table></div>
+        }
+    </section>
+
+    <section class="panel detail-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Reported invoices</p><h2>Activity against this contract</h2></div><span class="muted">@details.Invoices.Count invoice(s)</span></div>
+        @if (details.Invoices.Count == 0)
+        {
+            <p class="muted">No invoices have been recorded against this contract.</p>
+        }
+        else
+        {
+            <div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice number</th><th>Total, ex VAT</th><th>Reporting month</th></tr></thead><tbody>
+                @foreach (var invoice in details.Invoices)
+                {
+                    <tr><td>@Display(invoice.InvoiceDate)</td><td><a href="@($"/invoices/{invoice.Id}")">@invoice.InvoiceNumber</a></td><td>@Currency(invoice.TotalCostExVat)</td><td>@invoice.ReportMonth</td></tr>
+                }
+            </tbody></table></div>
+        }
+    </section>
+
+    <section class="panel detail-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Evidence</p><h2>Original supporting files</h2></div><span class="muted">@details.Evidence.Count file(s)</span></div>
+        @if (details.Evidence.Count == 0)
+        {
+            <p class="muted">No archived evidence is linked to this contract.</p>
+        }
+        else
+        {
+            <div class="evidence-list">
+                @foreach (var evidence in details.Evidence)
+                {
+                    <a class="evidence-item" href="@($"/evidence/{evidence.Id}")" target="_blank"><span><strong>@evidence.FileName</strong><span class="cell-secondary">@evidence.OriginalRelativePath</span></span><span class="muted">@(IsPdf(evidence) ? "View PDF" : "Download")</span></a>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid ContractId { get; set; }
+    private ContractDetailsModel? details;
+
+    protected override async Task OnParametersSetAsync() => details = await Workspace.GetContractDetailsAsync(ContractId);
+
+    private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
+    private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}

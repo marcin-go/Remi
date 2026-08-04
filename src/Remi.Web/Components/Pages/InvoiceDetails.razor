@@ -1,0 +1,96 @@
+@page "/invoices/{InvoiceId:guid}"
+@inject ReportingWorkspace Workspace
+
+<PageTitle>Remi · Invoice</PageTitle>
+
+@if (details is null)
+{
+    <section class="empty-state"><p>The requested invoice was not found.</p><a class="button secondary" href="/invoices">Back to invoices</a></section>
+}
+else
+{
+    <section class="page-heading record-heading">
+        <div>
+            <p class="eyebrow">Invoice record</p>
+            <h1>@details.Invoice.InvoiceNumber</h1>
+            <p class="lede">@details.Invoice.SupplierReference · @details.Invoice.CustomerName</p>
+        </div>
+        @if (details.Contract is not null)
+        {
+            <a class="button secondary" href="@($"/contracts/{details.Contract.Id}")">View contract</a>
+        }
+        else
+        {
+            <a class="button secondary" href="/invoices">Back to invoices</a>
+        }
+    </section>
+
+    @if (details.Findings.Count != 0)
+    {
+        <section class="panel detail-panel"><p class="eyebrow">Needs attention</p><ul class="findings inline-findings">
+            @foreach (var finding in details.Findings)
+            {
+                <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li>
+            }
+        </ul></section>
+    }
+
+    <section class="panel detail-panel">
+        <p class="eyebrow">Registered information</p>
+        <h2>Invoice details</h2>
+        <dl class="record-grid">
+            <div><dt>Framework</dt><dd>@Frameworks.Get(details.Invoice.Framework).DisplayName</dd></div>
+            <div><dt>Reporting month</dt><dd>@details.Invoice.ReportMonth</dd></div>
+            <div><dt>Supplier reference</dt><dd>@details.Invoice.SupplierReference</dd></div>
+            <div><dt>Customer</dt><dd>@details.Invoice.CustomerName</dd></div>
+            <div><dt>Customer URN</dt><dd>@Display(details.Invoice.CustomerUrn)</dd></div>
+            <div><dt>Invoice / credit note date</dt><dd>@Display(details.Invoice.InvoiceDate)</dd></div>
+            <div><dt>Invoice / credit note number</dt><dd>@details.Invoice.InvoiceNumber</dd></div>
+            <div><dt>Lot</dt><dd>@Display(details.Invoice.LotNumber)</dd></div>
+            <div><dt>Service group / level 1</dt><dd>@Display(details.Invoice.ServiceGroup)</dd></div>
+            <div><dt>Service group / level 2</dt><dd>@Display(details.Invoice.ServiceGroupLevel2)</dd></div>
+            <div><dt>Service description</dt><dd>@Display(details.Invoice.ServiceDescription)</dd></div>
+            <div><dt>Order channel</dt><dd>@Display(details.Invoice.OrderChannel)</dd></div>
+            <div><dt>Digital Marketplace service ID</dt><dd>@Display(details.Invoice.DigitalMarketplaceServiceId)</dd></div>
+            <div><dt>Unit of measure</dt><dd>@Display(details.Invoice.UnitOfMeasure)</dd></div>
+            <div><dt>Quantity</dt><dd>@Display(details.Invoice.Quantity)</dd></div>
+            <div><dt>Price per unit, ex VAT</dt><dd>@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
+            <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div>
+            <div><dt>Original vendor</dt><dd>@Display(details.Invoice.OriginalVendor)</dd></div>
+            <div><dt>Subcontractor name</dt><dd>@Display(details.Invoice.SubcontractorName)</dd></div>
+            <div><dt>Register source</dt><dd>@details.Invoice.SourceWorkbook</dd></div>
+            <div><dt>Recorded</dt><dd>@details.Invoice.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy HH:mm")</dd></div>
+        </dl>
+    </section>
+
+    <section class="panel detail-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Evidence</p><h2>Original supporting files</h2></div><span class="muted">@details.Evidence.Count file(s)</span></div>
+        @if (details.Evidence.Count == 0)
+        {
+            <p class="muted">No archived evidence is linked to this invoice.</p>
+        }
+        else
+        {
+            <div class="evidence-list">
+                @foreach (var evidence in details.Evidence)
+                {
+                    <a class="evidence-item" href="@($"/evidence/{evidence.Id}")" target="_blank"><span><strong>@evidence.FileName</strong><span class="cell-secondary">@evidence.OriginalRelativePath</span></span><span class="muted">@(IsPdf(evidence) ? "View PDF" : "Download")</span></a>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid InvoiceId { get; set; }
+    private InvoiceDetailsModel? details;
+
+    protected override async Task OnParametersSetAsync() => details = await Workspace.GetInvoiceDetailsAsync(InvoiceId);
+
+    private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
+    private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
+    private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Display(decimal? value) => value?.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("en-GB")) ?? "Not recorded";
+    private static string DisplayCurrency(decimal? value) => value is null ? "Not recorded" : Currency(value.Value);
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}

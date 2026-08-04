@@ -1,97 +1,183 @@
 @page "/contracts"
+@using Remi.Domain
 @inject ReportingWorkspace Workspace
 
 <PageTitle>Remi · Contracts</PageTitle>
 
 @if (model is null)
 {
-    <p class="loading">Loading contracts…</p>
+    <p class="loading">Loading contract register…</p>
 }
 else
 {
-    <section class="page-heading">
-        <div>
-            <p class="eyebrow">Contract register</p>
-            <h1>Contract reporting progress</h1>
-            <p class="lede">This view shows the amount reported through invoices. Add an invoice plan in a later iteration when you want completion to follow a staged billing schedule.</p>
-        </div>
-        <a class="button primary" href="reporting">Import a return</a>
-    </section>
+    <section class="register-page">
+        <nav class="register-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>Contract register</span></nav>
 
-    <section class="panel table-panel">
-        @if (model.ContractProgress.Count == 0)
-        {
-            <div class="empty-state">
-                <p>Import a monthly MI workbook to create the initial contract register.</p>
+        <header class="register-page-header">
+            <div>
+                <p class="eyebrow">Contract register</p>
+                <h1>Build the register from signed contracts</h1>
+                <p class="lede">Find each contract, check its supporting evidence and prepare a complete register before you create a monthly return.</p>
             </div>
-        }
-        else
+            <div class="register-header-actions">
+                <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
+                <a class="button secondary" href="contracts/new">Register contract</a>
+                <a class="button secondary" href="reporting">Import a workbook</a>
+                <a class="button primary" href="reporting">Prepare return <span aria-hidden="true">→</span></a>
+            </div>
+        </header>
+
+        <section class="register-stepper" aria-label="Register progress">
+            <div class="step done"><span>✓</span><strong>Source data</strong></div>
+            <div class="step done"><span>✓</span><strong>Contracts</strong></div>
+            <div class="step current"><span>3</span><strong>Evidence</strong></div>
+            <div class="step"><span>4</span><strong>Review</strong></div>
+        </section>
+
+        <section class="register-context" aria-label="Current register context">
+            <div><span>Reporting month</span><strong>@model.CurrentReportingMonth</strong></div>
+            <div><span>Contract records</span><strong>@model.ContractProgress.Count</strong></div>
+            <div><span>Evidence linked</span><strong>@model.ContractProgress.Count(contract => contract.Evidence.Count > 0)</strong></div>
+            <a href="reporting">View return workspace <span aria-hidden="true">→</span></a>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(selectionNotice))
         {
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th scope="col">Framework</th>
-                            <th scope="col">Reference</th>
-                            <th scope="col">Customer</th>
-                            <th scope="col">End date</th>
-                            <th scope="col">Reported / comparison value</th>
-                            <th scope="col">Progress</th>
-                            <th scope="col">Evidence</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var contract in model.ContractProgress)
+            <p class="register-notice" role="status">@selectionNotice</p>
+        }
+
+        <section class="register-workspace" id="contract-register">
+            <article class="register-card">
+                <header class="register-card-header">
+                    <div><h2>Find and check contracts</h2><p>Select the contracts to include. Evidence and invoice progress are visible before review.</p></div>
+                    <div class="register-result-count"><strong>@FilteredContracts.Count</strong><span>matching contracts</span></div>
+                </header>
+
+                <div class="register-filters">
+                    <label class="register-search">Search contracts<input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Reference, customer or supplier" /></label>
+                    <label>Framework<select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
+                    <label>Evidence<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All evidence</option><option value="available">Evidence linked</option><option value="missing">Evidence missing</option></select></label>
+                    <label>Progress<select @bind="progressFilter" @bind:after="ResetPage"><option value="">Any progress</option><option value="not-started">Not started</option><option value="in-progress">In progress</option><option value="complete">Complete</option></select></label>
+                    <button class="button secondary register-reset" @onclick="ResetFilters">Reset</button>
+                    <div class="quick-filters" aria-label="Quick filters">
+                        <span>Quick filters</span>
+                        <button class="@QuickButtonClass("available")" @onclick="@(() => SetQuickFilter("available"))">Evidence linked</button>
+                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Evidence missing</button>
+                        <button class="@QuickButtonClass("expiring")" @onclick="@(() => SetQuickFilter("expiring"))">Expiring soon</button>
+                        <button class="@QuickButtonClass("selected")" @onclick="@(() => SetQuickFilter("selected"))">Selected</button>
+                    </div>
+                </div>
+
+                <div class="register-table-toolbar">
+                    <strong>@SelectedContracts.Count selected</strong><span>from the current register</span>
+                    <div><button @onclick="ToggleAllVisible" disabled="@(PagedContracts.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
+                </div>
+
+                <div class="register-table-scroll">
+                    <table class="register-table">
+                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible contracts" /></th><th>Reference &amp; framework</th><th>Customer</th><th>End date</th><th>Value</th><th>Evidence</th><th>Progress</th><th>Action</th></tr></thead>
+                        <tbody>
+                        @if (PagedContracts.Count == 0)
                         {
-                            <tr>
-                                <td>@Frameworks.Get(contract.Framework).DisplayName</td>
-                                <td><strong>@contract.SupplierReference</strong></td>
-                                <td>@contract.CustomerName</td>
-                                <td>@(contract.EndDate?.ToString("dd MMM yyyy") ?? "Not recorded")</td>
-                                <td>
-                                    <strong>@Currency(contract.ReportedInvoiceValueExVat)</strong>
-                                    <span class="cell-secondary">of @Currency(contract.ComparisonValueExVat)</span>
-                                </td>
-                                <td>
-                                    <div class="table-progress">
-                                        <div class="progress-track">
-                                            <span class="progress-fill" style="width: @Percentage(contract.CompletionRatio)"></span>
-                                        </div>
-                                        <span>@Percentage(contract.CompletionRatio)</span>
-                                    </div>
-                                </td>
-                                <td>
-                                    @if (contract.Evidence.Count == 0)
-                                    {
-                                        <span class="cell-secondary">None archived</span>
-                                    }
-                                    else
-                                    {
-                                        <div class="evidence-links">
-                                            @foreach (var evidence in contract.Evidence)
-                                            {
-                                                <a href="@($"/evidence/{evidence.Id}")" target="_blank" title="@evidence.OriginalRelativePath">
-                                                    @evidence.FileName
-                                                </a>
-                                            }
-                                        </div>
-                                    }
-                                </td>
+                            <tr><td colspan="8" class="register-empty">No contracts match these filters.</td></tr>
+                        }
+                        @foreach (var contract in PagedContracts)
+                        {
+                            <tr class="@(IsSelected(contract.ContractId) ? "selected-row" : null)">
+                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" aria-label="Select @contract.SupplierReference" /></td>
+                                <td><a class="register-reference" href="@($"/contracts/{contract.ContractId}")">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName@(string.IsNullOrWhiteSpace(contract.LotNumber) ? "" : $" · Lot {contract.LotNumber}")</span></td>
+                                <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
+                                <td>@DisplayDate(contract.EndDate)</td>
+                                <td><strong>@Currency(contract.TotalContractValueExVat)</strong><span>excl. VAT</span></td>
+                                <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
+                                <td><div class="register-progress"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong></div></td>
+                                <td><a class="register-view" href="@($"/contracts/{contract.ContractId}")">View</a></td>
                             </tr>
                         }
-                    </tbody>
-                </table>
-            </div>
-        }
+                        </tbody>
+                    </table>
+                </div>
+
+                <footer class="register-pagination">
+                    <span>Showing @FirstItem–@LastItem of @FilteredContracts.Count contracts</span>
+                    <div><button disabled="@(page == 1)" @onclick="PreviousPage" aria-label="Previous page">‹</button><strong>@(page)</strong><span>of @TotalPages</span><button disabled="@(page == TotalPages)" @onclick="NextPage" aria-label="Next page">›</button></div>
+                </footer>
+            </article>
+
+            <aside class="register-selection-card">
+                <span class="selection-count">@SelectedContracts.Count</span>
+                <h2>Selected contracts</h2>
+                <p>Review the contracts that will form your reporting register.</p>
+                <dl class="register-selection-summary"><div><dt>Combined value</dt><dd>@Currency(SelectedContracts.Sum(contract => contract.TotalContractValueExVat))</dd></div><div><dt>Evidence missing</dt><dd class="warning-number">@SelectedContracts.Count(contract => contract.Evidence.Count == 0)</dd></div></dl>
+                @if (SelectedContracts.Any(contract => contract.Evidence.Count == 0))
+                {
+                    <p class="selection-warning">Some selected contracts have no linked evidence. Open the contract record to archive the signed document.</p>
+                }
+                <ul class="selected-records">
+                    @foreach (var contract in SelectedContracts)
+                    {
+                        <li><span><strong>@contract.SupplierReference</strong><small>@contract.CustomerName</small></span><button @onclick="@(() => ToggleSelection(contract.ContractId))" aria-label="Remove @contract.SupplierReference">×</button></li>
+                    }
+                </ul>
+                <button class="button primary selection-review" disabled="@(SelectedContracts.Count == 0)" @onclick="ReviewSelection">Review selected contracts <span aria-hidden="true">→</span></button>
+                @if (SelectedContracts.Count > 0) { <button class="clear-selection" @onclick="ClearSelection">Clear selection</button> }
+            </aside>
+        </section>
     </section>
 }
 
 @code {
+    private const int PageSize = 10;
     private DashboardModel? model;
+    private readonly HashSet<Guid> selectedContractIds = [];
+    private string searchTerm = string.Empty;
+    private string frameworkFilter = string.Empty;
+    private string evidenceFilter = string.Empty;
+    private string progressFilter = string.Empty;
+    private string quickFilter = string.Empty;
+    private string? selectionNotice;
+    private int page = 1;
 
     protected override async Task OnInitializedAsync() => model = await Workspace.GetDashboardAsync();
 
-    private static string Percentage(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
+    private IReadOnlyList<ContractProgress> FilteredContracts => model?.ContractProgress
+        .Where(MatchesFilters)
+        .OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase)
+        .ToList() ?? [];
 
+    private IReadOnlyList<ContractProgress> PagedContracts => FilteredContracts.Skip((page - 1) * PageSize).Take(PageSize).ToList();
+    private IReadOnlyList<ContractProgress> SelectedContracts => model?.ContractProgress.Where(contract => selectedContractIds.Contains(contract.ContractId)).OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredContracts.Count / (double)PageSize));
+    private int FirstItem => FilteredContracts.Count == 0 ? 0 : ((page - 1) * PageSize) + 1;
+    private int LastItem => Math.Min(page * PageSize, FilteredContracts.Count);
+    private bool AllVisibleSelected => PagedContracts.Count > 0 && PagedContracts.All(contract => IsSelected(contract.ContractId));
+
+    private bool MatchesFilters(ContractProgress contract)
+    {
+        var hasEvidence = contract.Evidence.Count > 0;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        return (string.IsNullOrWhiteSpace(searchTerm) || contract.SupplierReference.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || contract.CustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrWhiteSpace(frameworkFilter) || contract.Framework.ToString() == frameworkFilter)
+            && (string.IsNullOrWhiteSpace(evidenceFilter) || (evidenceFilter == "available" && hasEvidence) || (evidenceFilter == "missing" && !hasEvidence))
+            && (string.IsNullOrWhiteSpace(progressFilter) || (progressFilter == "not-started" && contract.CompletionRatio == 0) || (progressFilter == "in-progress" && contract.CompletionRatio > 0 && contract.CompletionRatio < 1) || (progressFilter == "complete" && contract.CompletionRatio >= 1))
+            && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "available" && hasEvidence) || (quickFilter == "missing" && !hasEvidence) || (quickFilter == "expiring" && contract.EndDate is not null && contract.EndDate <= today.AddDays(180)) || (quickFilter == "selected" && IsSelected(contract.ContractId)));
+    }
+
+    private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
+    private void ResetPage() { page = 1; selectionNotice = null; }
+    private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = quickFilter = string.Empty; ResetPage(); }
+    private bool IsSelected(Guid id) => selectedContractIds.Contains(id);
+    private void ToggleSelection(Guid id) { if (!selectedContractIds.Add(id)) selectedContractIds.Remove(id); selectionNotice = null; }
+    private void ToggleAllVisible() { var shouldSelect = !AllVisibleSelected; foreach (var contract in PagedContracts) { if (shouldSelect) selectedContractIds.Add(contract.ContractId); else selectedContractIds.Remove(contract.ContractId); } selectionNotice = null; }
+    private void ClearSelection() { selectedContractIds.Clear(); selectionNotice = null; }
+    private void ReviewSelection() => selectionNotice = $"{SelectedContracts.Count} contract record(s) are ready for review. Use Prepare return when you are ready to continue.";
+    private void PreviousPage() => page = Math.Max(1, page - 1);
+    private void NextPage() => page = Math.Min(TotalPages, page + 1);
+    private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";
+    private static string EvidenceStatus(ContractProgress contract) => contract.Evidence.Count > 0 ? "Linked" : "Missing";
+    private static string EvidenceStatusClass(ContractProgress contract) => contract.Evidence.Count > 0 ? "register-status good" : "register-status warning";
+    private static string DisplayDate(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
+    private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
 }
