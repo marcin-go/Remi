@@ -175,7 +175,7 @@ else
     }
 
     private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
-    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
     private static string StatusMark(bool complete) => complete ? "✓" : "!";

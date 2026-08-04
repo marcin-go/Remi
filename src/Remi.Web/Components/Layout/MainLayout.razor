@@ -80,10 +80,7 @@
     private string PeriodLink(string path) => PeriodLink(path, ReportingPeriod.SelectedPeriod);
 
     private static string PeriodLink(string path, string period)
-    {
-        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return $"{path}{separator}period={Uri.EscapeDataString(period)}";
-    }
+        => ReportingRoutes.WithPeriod(path, period);
 
     private string CurrentPath()
     {

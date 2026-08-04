@@ -46,7 +46,7 @@ public sealed class ReportingPeriodContext
             || !IsInitialised;
 
         AvailablePeriods = periods;
-        SelectedPeriod = selectedPeriod;
+        SelectedPeriod = selectedPeriod!;
         IsInitialised = true;
 
         if (changed)

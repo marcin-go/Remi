@@ -235,10 +235,7 @@ else
     private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
 
     private string PeriodRoute(string path)
-    {
-        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return $"{path}{separator}period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
-    }
+        => ReportingRoutes.WithPeriod(path, ReportingPeriod.SelectedPeriod);
 
     private static bool IsReady(FrameworkReadiness summary) =>
         summary.BlockingFindingCount == 0

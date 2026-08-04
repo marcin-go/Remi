@@ -8,9 +8,9 @@ The intended experience is **quiet assurance**: precise, calm, authoritative and
 
 ## Delivery status
 
-- **Completed:** plan documentation, global reporting-period context, shared design tokens, operational dashboard, full-width Contracts/Invoices registers, and consistent contract/invoice detail views.
-- **Next:** add automated accessibility, navigation-state and visual regression coverage.
-- **Pending:** quality gates and release validation.
+- **Completed:** plan documentation, global reporting-period context, shared design tokens, operational dashboard, full-width Contracts/Invoices registers, consistent contract/invoice detail views, and Phase 5 quality gates.
+- **Verified:** 22 automated application, component, accessibility and workbook-export tests; responsive register checks at 1440px, 1024px and 390px; a zero-warning solution build; and migration-tool startup.
+- **Release follow-up:** validate a supplied production G-Cloud/VAS source-workbook set through the migration tool before a production data migration. No source workbooks are stored in this repository.
 
 ## Product decisions
 

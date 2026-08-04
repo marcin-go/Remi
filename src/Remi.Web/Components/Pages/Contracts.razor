@@ -22,8 +22,8 @@ else
             </div>
             <div class="register-header-actions">
                 <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="button secondary" href="@PeriodRoute(\"reporting\")">Import workbook</a>
-                <a class="button primary" href="@PeriodRoute(\"contracts/new\")">Register contract</a>
+                <a class="button secondary" href="@PeriodRoute("reporting")">Import workbook</a>
+                <a class="button primary" href="@PeriodRoute("contracts/new")">Register contract</a>
             </div>
         </header>
 
@@ -211,6 +211,6 @@ else
     private static string ProgressSummary(ContractProgress contract) => IsOverrun(contract) ? $"{Percentage(contract.CompletionRatio)} reported. Reported invoice value exceeds the planned or contract value." : $"{Percentage(contract.CompletionRatio)} reported against the planned or contract value.";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
-    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
 }

@@ -22,7 +22,7 @@ else
             </div>
             <div class="register-header-actions">
                 <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="button primary" href="@PeriodRoute(\"reporting\")">Import invoices</a>
+                <a class="button primary" href="@PeriodRoute("reporting")">Import invoices</a>
             </div>
         </header>
 
@@ -210,6 +210,6 @@ else
     private static string DisplayDate(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private string InvoiceRoute(Guid invoiceId) => PeriodRoute($"invoices/{invoiceId}");
-    private string PeriodRoute(string path) => $"/{path.TrimStart('/')}?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}";
+    private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
 }

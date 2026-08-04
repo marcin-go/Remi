@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <!-- bUnit's current .NET 10 package pins AngleSharp 1.3.0; it is test-only. -->
+    <NoWarn>$(NoWarn);NU1902</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="bunit" Version="2.0.66" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Remi.Application\Remi.Application.csproj" />
+    <ProjectReference Include="..\Remi.Domain\Remi.Domain.csproj" />
+    <ProjectReference Include="..\Remi.Infrastructure\Remi.Infrastructure.csproj" />
+    <ProjectReference Include="..\Remi.Web\Remi.Web.csproj" />
+  </ItemGroup>
+</Project>

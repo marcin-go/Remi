@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Remi.Infrastructure", "src\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Remi.Web", "src\Remi.Web\Remi.Web.csproj", "{EA2F70D5-DF8A-4D8F-A66B-E6F7D0E23B0A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Remi.Tests", "src\Remi.Tests\Remi.Tests.csproj", "{8C8D6DE1-4D7E-4B7A-9E5B-3D9FA67DA4C0}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Remi.Migration", "src\Remi.Migration\Remi.Migration.csproj", "{C2FFB8D3-2F42-46E7-8DA9-4578C30C9F10}"
 EndProject
 Global
@@ -34,6 +36,10 @@ Global
 		{EA2F70D5-DF8A-4D8F-A66B-E6F7D0E23B0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EA2F70D5-DF8A-4D8F-A66B-E6F7D0E23B0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EA2F70D5-DF8A-4D8F-A66B-E6F7D0E23B0A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8C8D6DE1-4D7E-4B7A-9E5B-3D9FA67DA4C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C8D6DE1-4D7E-4B7A-9E5B-3D9FA67DA4C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C8D6DE1-4D7E-4B7A-9E5B-3D9FA67DA4C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C8D6DE1-4D7E-4B7A-9E5B-3D9FA67DA4C0}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C2FFB8D3-2F42-46E7-8DA9-4578C30C9F10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C2FFB8D3-2F42-46E7-8DA9-4578C30C9F10}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C2FFB8D3-2F42-46E7-8DA9-4578C30C9F10}.Release|Any CPU.ActiveCfg = Release|Any CPU

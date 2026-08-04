@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.DataProtection;
 using Remi.Application;
 using Remi.Infrastructure;
+using Remi.Web;
 using Remi.Web.Components;
 using Serilog;
 
