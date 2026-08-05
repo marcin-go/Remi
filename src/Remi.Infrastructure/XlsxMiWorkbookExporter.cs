@@ -202,11 +202,10 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
             .Where(row => RowNumber(row) > sheet.HeaderRow)
             .Remove();
 
-        var cellsByColumn = headerRow.Elements(SpreadsheetNamespace + "c")
-            .ToDictionary(cell => ColumnName((string?)cell.Attribute("r") ?? string.Empty), cell => cell, StringComparer.Ordinal);
         var templateCells = templateRow?.Elements(SpreadsheetNamespace + "c")
             .ToDictionary(cell => ColumnName((string?)cell.Attribute("r") ?? string.Empty), cell => cell, StringComparer.Ordinal)
             ?? new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var defaultDataCell = templateCells.Values.FirstOrDefault();
         var headersByColumn = sheet.Headers.ToDictionary(pair => NormaliseHeader(pair.Value), pair => pair.Key, StringComparer.Ordinal);
         for (var rowIndex = 0; rowIndex < values.Count; rowIndex++)
         {
@@ -215,7 +214,7 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
             foreach (var header in headersByColumn.OrderBy(pair => ColumnIndex(pair.Value)))
             {
                 var column = header.Value;
-                var sourceCell = templateCells.GetValueOrDefault(column) ?? cellsByColumn.GetValueOrDefault(column);
+                var sourceCell = templateCells.GetValueOrDefault(column) ?? defaultDataCell;
                 var cell = sourceCell is null
                     ? new XElement(SpreadsheetNamespace + "c")
                     : new XElement(sourceCell);
@@ -302,9 +301,9 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
         ["productservicedescription"] = invoice.ServiceDescription,
         ["orderchannel"] = invoice.OrderChannel,
         ["digitalmarketplaceserviceid"] = invoice.DigitalMarketplaceServiceId,
-        ["unitofmeasure"] = invoice.UnitOfMeasure,
-        ["quantity"] = invoice.Quantity,
-        ["priceperunit"] = invoice.PricePerUnitExVat,
+        ["unitofmeasure"] = InvoiceReportingDefaults.UnitOfMeasure,
+        ["quantity"] = InvoiceReportingDefaults.Quantity,
+        ["priceperunit"] = InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat),
         ["totalcostexvat"] = invoice.TotalCostExVat,
         ["originalvendor"] = invoice.OriginalVendor,
         ["subcontractorname"] = invoice.SubcontractorName,

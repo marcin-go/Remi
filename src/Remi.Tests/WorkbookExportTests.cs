@@ -35,7 +35,27 @@ public sealed class WorkbookExportTests
         Assert.NotNull(archive.GetEntry("xl/worksheets/sheet2.xml"));
     }
 
-    private static MemoryStream CreateTemplate(FrameworkCode framework)
+    [Fact]
+    public async Task Gcloud_export_uses_standard_invoice_values_and_data_row_formatting_for_sparse_template_columns()
+    {
+        using var template = CreateTemplate(FrameworkCode.GCloud14, includeSparseInvoiceDataRow: true);
+        var exporter = new XlsxMiWorkbookExporter();
+
+        var generated = await exporter.GenerateAsync(FrameworkCode.GCloud14, template, [Contract(FrameworkCode.GCloud14)], [Invoice(FrameworkCode.GCloud14)]);
+
+        using var archive = new ZipArchive(generated.Content, ZipArchiveMode.Read, leaveOpen: true);
+        var invoiceSheet = ReadXml(archive, "xl/worksheets/sheet2.xml");
+        var cells = invoiceSheet.Descendants(SpreadsheetNamespace + "c")
+            .Where(cell => ((string?)cell.Attribute("r"))?.EndsWith("2", StringComparison.Ordinal) == true)
+            .ToDictionary(cell => (string)cell.Attribute("r")!, cell => cell, StringComparer.Ordinal);
+        Assert.Equal("Per unit", CellValue(cells["I2"]));
+        Assert.Equal("1", CellValue(cells["J2"]));
+        Assert.Equal("1000", CellValue(cells["K2"]));
+        Assert.Equal("1000", CellValue(cells["L2"]));
+        Assert.All(["H2", "I2", "J2", "K2", "L2"], reference => Assert.Equal("3", (string?)cells[reference].Attribute("s")));
+    }
+
+    private static MemoryStream CreateTemplate(FrameworkCode framework, bool includeSparseInvoiceDataRow = false)
     {
         var output = new MemoryStream();
         using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
@@ -51,21 +71,32 @@ public sealed class WorkbookExportTests
                     new XElement(PackageRelationshipNamespace + "Relationship", new XAttribute("Id", "rId1"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"), new XAttribute("Target", "worksheets/sheet1.xml")),
                     new XElement(PackageRelationshipNamespace + "Relationship", new XAttribute("Id", "rId2"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"), new XAttribute("Target", "worksheets/sheet2.xml")))));
             WriteXml(archive, "xl/worksheets/sheet1.xml", Sheet(ContractHeaders(framework)));
-            WriteXml(archive, "xl/worksheets/sheet2.xml", Sheet(InvoiceHeaders(framework)));
+            WriteXml(archive, "xl/worksheets/sheet2.xml", Sheet(InvoiceHeaders(framework), includeSparseInvoiceDataRow));
         }
 
         output.Position = 0;
         return output;
     }
 
-    private static XDocument Sheet(IReadOnlyList<string> headers) => new(
-        new XElement(SpreadsheetNamespace + "worksheet",
-            new XElement(SpreadsheetNamespace + "sheetData",
-                new XElement(SpreadsheetNamespace + "row", new XAttribute("r", "1"), headers.Select((header, index) =>
-                    new XElement(SpreadsheetNamespace + "c",
-                        new XAttribute("r", $"{ColumnName(index)}1"),
-                        new XAttribute("t", "inlineStr"),
-                        new XElement(SpreadsheetNamespace + "is", new XElement(SpreadsheetNamespace + "t", header))))))));
+    private static XDocument Sheet(IReadOnlyList<string> headers, bool includeSparseDataRow = false)
+    {
+        var rows = new List<XElement>
+        {
+            new(SpreadsheetNamespace + "row", new XAttribute("r", "1"), headers.Select((header, index) =>
+                new XElement(SpreadsheetNamespace + "c",
+                    new XAttribute("s", "5"),
+                    new XAttribute("r", $"{ColumnName(index)}1"),
+                    new XAttribute("t", "inlineStr"),
+                    new XElement(SpreadsheetNamespace + "is", new XElement(SpreadsheetNamespace + "t", header))))),
+        };
+        if (includeSparseDataRow)
+        {
+            rows.Add(new XElement(SpreadsheetNamespace + "row", new XAttribute("r", "2"), Enumerable.Range(0, 7).Select(index =>
+                new XElement(SpreadsheetNamespace + "c", new XAttribute("r", $"{ColumnName(index)}2"), new XAttribute("s", index == 3 ? "4" : "3")))));
+        }
+
+        return new XDocument(new XElement(SpreadsheetNamespace + "worksheet", new XElement(SpreadsheetNamespace + "sheetData", rows)));
+    }
 
     private static IReadOnlyList<string> ContractHeaders(FrameworkCode framework) =>
         framework == FrameworkCode.VerticalApplicationSolutions
@@ -75,7 +106,7 @@ public sealed class WorkbookExportTests
     private static IReadOnlyList<string> InvoiceHeaders(FrameworkCode framework) =>
         framework == FrameworkCode.VerticalApplicationSolutions
             ? ["Supplier reference number", "Customer organisation name", "Customer invoice credit note number", "Total cost ex VAT", "Product service description"]
-            : ["Supplier reference number", "Customer organisation name", "Customer invoice credit note number", "Total cost ex VAT", "Service group", "Digital Marketplace service ID", "Unit of measure"];
+            : ["Supplier reference number", "Customer Unique Reference Number (URN)", "Customer organisation name", "Customer invoice credit note date", "Customer invoice credit note number", "Lot number", "Service Group", "Digital Marketplace service ID", "Unit of measure", "Quantity", "Price per Unit", "Total cost ex VAT"];
 
     private static ContractRecord Contract(FrameworkCode framework) => new(
         Guid.NewGuid(), framework, "RM-001", "Example customer", "URN-001", new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 31), "Lot 1", "Cloud support", null, "Managed reporting service", "Direct award", "123456", 1000, "2026-07", "test.xlsx", DateTimeOffset.UtcNow);
@@ -102,4 +133,15 @@ public sealed class WorkbookExportTests
         using var writer = new StreamWriter(archive.CreateEntry(path).Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         document.Save(writer);
     }
+
+    private static XDocument ReadXml(ZipArchive archive, string path)
+    {
+        using var stream = archive.GetEntry(path)!.Open();
+        return XDocument.Load(stream);
+    }
+
+    private static string CellValue(XElement cell) =>
+        (string?)cell.Element(SpreadsheetNamespace + "v") ??
+        (string?)cell.Element(SpreadsheetNamespace + "is")?.Element(SpreadsheetNamespace + "t") ??
+        string.Empty;
 }

@@ -179,6 +179,7 @@ public sealed class XlsxMiWorkbookImporter : IWorkbookImporter
     private static ImportedInvoice ToInvoice(FrameworkCode framework, IReadOnlyDictionary<string, string> row)
     {
         var isVas = framework == FrameworkCode.VerticalApplicationSolutions;
+        var totalCostExVat = RequiredDecimal(row, "totalcostexvat", "invoice");
         return new ImportedInvoice(
             Required(row, "supplierreferencenumber", "invoice"),
             Required(row, "customerorganisationname", "invoice"),
@@ -191,10 +192,10 @@ public sealed class XlsxMiWorkbookImporter : IWorkbookImporter
             isVas ? Optional(row, "productservicedescription") : null,
             isVas ? Optional(row, "orderchannel") : null,
             isVas ? null : Optional(row, "digitalmarketplaceserviceid"),
-            isVas ? null : Optional(row, "unitofmeasure"),
-            isVas ? null : ReadDecimal(Optional(row, "quantity")),
-            isVas ? null : ReadDecimal(Optional(row, "priceperunit")),
-            RequiredDecimal(row, "totalcostexvat", "invoice"),
+            InvoiceReportingDefaults.UnitOfMeasure,
+            InvoiceReportingDefaults.Quantity,
+            InvoiceReportingDefaults.PricePerUnitExVat(totalCostExVat),
+            totalCostExVat,
             isVas ? Optional(row, "originalvendor") : null,
             isVas ? Optional(row, "subcontractorname") : null);
     }

@@ -352,9 +352,9 @@ public sealed class ReportingWorkspace(
                     invoice.ServiceDescription,
                     invoice.OrderChannel,
                     invoice.DigitalMarketplaceServiceId,
-                    invoice.UnitOfMeasure,
-                    invoice.Quantity,
-                    invoice.PricePerUnitExVat,
+                    InvoiceReportingDefaults.UnitOfMeasure,
+                    InvoiceReportingDefaults.Quantity,
+                    InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat),
                     invoice.TotalCostExVat,
                     invoice.OriginalVendor,
                     invoice.SubcontractorName,
@@ -707,9 +707,9 @@ public sealed class ReportingWorkspace(
                 NullIfWhiteSpace(entry.ServiceDescription),
                 NullIfWhiteSpace(entry.OrderChannel),
                 NullIfWhiteSpace(entry.DigitalMarketplaceServiceId),
-                NullIfWhiteSpace(entry.UnitOfMeasure),
-                entry.Quantity,
-                entry.PricePerUnitExVat,
+                InvoiceReportingDefaults.UnitOfMeasure,
+                InvoiceReportingDefaults.Quantity,
+                InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat),
                 entry.TotalCostExVat,
                 NullIfWhiteSpace(entry.OriginalVendor),
                 NullIfWhiteSpace(entry.SubcontractorName),
@@ -999,7 +999,7 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract change does not belong to this invoice's contract.", []);
             }
 
-            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure), entry.Quantity, entry.PricePerUnitExVat, entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor), NullIfWhiteSpace(entry.SubcontractorName), entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
+            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), InvoiceReportingDefaults.UnitOfMeasure, InvoiceReportingDefaults.Quantity, InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor), NullIfWhiteSpace(entry.SubcontractorName), entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Invoices.IndexOf(existing);
             var previousLinks = database.InvoiceContractChangeLinks.Where(link => link.InvoiceId == invoiceId).ToList();
             database.Invoices[index] = updated;
@@ -1482,9 +1482,9 @@ public sealed class ReportingWorkspace(
                 CardField("Lot number", invoice.LotNumber),
                 CardField("Service Group", invoice.ServiceGroup),
                 CardField("Digital Marketplace Service ID", invoice.DigitalMarketplaceServiceId),
-                CardField("Unit of Measure", invoice.UnitOfMeasure),
-                CardField("Quantity", invoice.Quantity),
-                CardField("Price per Unit", invoice.PricePerUnitExVat),
+                CardField("Unit of Measure", InvoiceReportingDefaults.UnitOfMeasure),
+                CardField("Quantity", (int)InvoiceReportingDefaults.Quantity),
+                CardField("Price per Unit", InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat)),
                 CardField("Total Cost (ex VAT)", invoice.TotalCostExVat),
             ];
 
@@ -1542,7 +1542,7 @@ public sealed class ReportingWorkspace(
                 .ToList();
             return new FrameworkReadiness(
                 framework,
-                database.Contracts.Count(contract => contract.Framework == framework.Code && contract.ReportMonth == currentReportingMonth),
+                ContractsForReportingMonth(database, framework.Code, currentReportingMonth).Count,
                 database.Invoices.Count(invoice => invoice.Framework == framework.Code && invoice.ReportMonth == currentReportingMonth),
                 database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework.Code && item.ReportMonth == currentReportingMonth)?.Status,
                 frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Error),
@@ -1954,8 +1954,9 @@ public sealed class ReportingWorkspace(
     private static string PaymentPlanSummary(ContractPaymentPlanEntry paymentPlan) =>
         $"{PaymentPlanTerm(paymentPlan)} term; {string.Join(" + ", paymentPlan.Positions.OrderBy(position => position.ContractYear).ThenBy(position => position.Description, StringComparer.OrdinalIgnoreCase).Select(position => $"Y{position.ContractYear} {position.Description}: {position.ValueExVat:0.00}"))}";
 
-    private static string PaymentPositionDescription(ContractPaymentPosition position) =>
-        position.ContractYear == 1 && position.PositionsInYear > 1
+    private static string PaymentPositionDescription(ContractPaymentPosition position)
+    {
+        var description = position.ContractYear == 1 && position.PositionsInYear > 1
             ? position.PositionInYear switch
             {
                 1 => "Annual licence and maintenance",
@@ -1964,6 +1965,29 @@ public sealed class ReportingWorkspace(
                 _ => "Other",
             }
             : "Annual licence and maintenance";
+
+        return position.HasUnresolvedUplift
+            ? $"{description} (uplift: {UpliftDescription(position.SourceText)})"
+            : description;
+    }
+
+    private static string UpliftDescription(string sourceText)
+    {
+        var marker = sourceText.IndexOf("up", StringComparison.OrdinalIgnoreCase);
+        if (marker < 0)
+        {
+            return "unspecified";
+        }
+
+        var uplift = sourceText[(marker + 2)..].Trim();
+        if (string.IsNullOrWhiteSpace(uplift) || uplift == "%")
+        {
+            return "unspecified";
+        }
+
+        return string.Join(" ", uplift.Replace("+", " + ", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     private static ContractRecord MergeLedgerContractDetails(ContractRecord contract, LedgerContractScheduleEntry ledger) =>
         contract with

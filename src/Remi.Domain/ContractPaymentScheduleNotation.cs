@@ -131,7 +131,7 @@ public static partial class ContractPaymentScheduleNotation
                     }
 
                     break;
-                case '+' when depth == 0:
+                case '+' when depth == 0 && IsPaymentPositionSeparator(value, index):
                     groups.Add(value[start..index].Trim());
                     start = index + 1;
                     break;
@@ -169,7 +169,7 @@ public static partial class ContractPaymentScheduleNotation
             return [];
         }
 
-        var components = trimmed.Split('+', StringSplitOptions.TrimEntries).ToList();
+        var components = SplitPaymentPositions(trimmed);
         if (components.Any(string.IsNullOrWhiteSpace))
         {
             error = "Each payment position must contain an amount.";
@@ -178,6 +178,29 @@ public static partial class ContractPaymentScheduleNotation
 
         return components;
     }
+
+    private static List<string> SplitPaymentPositions(string value)
+    {
+        var positions = new List<string>();
+        var start = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] != '+' || !IsPaymentPositionSeparator(value, index))
+            {
+                continue;
+            }
+
+            positions.Add(value[start..index].Trim());
+            start = index + 1;
+        }
+
+        positions.Add(value[start..].Trim());
+        return positions;
+    }
+
+    private static bool IsPaymentPositionSeparator(string value, int index) =>
+        index > 0 && index < value.Length - 1 &&
+        char.IsWhiteSpace(value[index - 1]) && char.IsWhiteSpace(value[index + 1]);
 
     private static bool TryReadAmount(string value, out decimal amount)
     {

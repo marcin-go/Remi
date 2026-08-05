@@ -96,8 +96,8 @@ else
                             <section class="contract-detail-section">
                                 <h3>Cost and quantity</h3>
                                 <dl class="contract-definition-grid">
-                                    <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd class="@NotRecordedClass(details.Invoice.UnitOfMeasure)">@Display(details.Invoice.UnitOfMeasure)</dd></div>
-                                    <div><dt>Quantity</dt><dd class="@NotRecordedClass(details.Invoice.Quantity)">@Display(details.Invoice.Quantity)</dd></div><div><dt>Price per unit, ex VAT</dt><dd class="@NotRecordedClass(details.Invoice.PricePerUnitExVat)">@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
+                                    <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd>@InvoiceReportingDefaults.UnitOfMeasure</dd></div>
+                                    <div><dt>Quantity</dt><dd>@InvoiceReportingDefaults.Quantity</dd></div><div><dt>Price per unit, ex VAT</dt><dd>@Currency(InvoiceReportingDefaults.PricePerUnitExVat(details.Invoice.TotalCostExVat))</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
@@ -171,7 +171,7 @@ else
     {
         if (details is null) return;
         var invoice = details.Invoice;
-        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
+        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = InvoiceReportingDefaults.UnitOfMeasure; quantity = InvoiceReportingDefaults.Quantity; pricePerUnitExVat = InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat); totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
     }
 
     private async Task SaveAsync()

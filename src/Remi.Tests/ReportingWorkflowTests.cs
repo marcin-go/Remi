@@ -220,6 +220,8 @@ public sealed class ReportingWorkflowTests
 
         Assert.True(recorded.Succeeded);
         Assert.Contains("2026-07", await workspace.GetReportingPeriodsAsync());
+        var readiness = Assert.Single(dashboard.FrameworkReadiness.Where(item => item.Framework.Code == FrameworkCode.GCloud14));
+        Assert.Equal(1, readiness.ContractCount);
         Assert.Equal(1500, Assert.Single(dashboard.ContractProgress).ComparisonValueExVat);
         var extensionRow = Assert.Single(card.Contracts);
         Assert.Equal("500.00", Assert.Single(extensionRow.Fields, field => field.Label == "Total contract value").Value);
@@ -303,6 +305,80 @@ public sealed class ReportingWorkflowTests
         Assert.True(Assert.Single(database.ContractChanges).WasProvidedForInOriginalCallOff);
         Assert.Contains(database.InvoiceContractChangeLinks, link => link.InvoiceId == invoiceId && link.ContractChangeId == changeId);
         Assert.Contains(database.AuditEvents, item => item.Action == "ContractChangeUpdated" && item.EntityId == changeId);
+    }
+
+    [Fact]
+    public void Payment_schedule_keeps_an_unspaced_uplift_percentage_with_its_payment_position()
+    {
+        var parsed = ContractPaymentScheduleNotation.Parse("2+1 years; 13 000 + 13 000 + 13 000upCPI+4% GBP");
+
+        var schedule = Assert.IsType<ContractPaymentSchedule>(parsed.Schedule);
+        var upliftPosition = Assert.Single(schedule.Positions.Where(position => position.HasUnresolvedUplift));
+        Assert.Equal(3, schedule.Positions.Count);
+        Assert.Equal(3, upliftPosition.ContractYear);
+        Assert.Equal(13000, upliftPosition.ValueExVat);
+        Assert.Equal("13 000upCPI+4%", upliftPosition.SourceText);
+    }
+
+    [Fact]
+    public async Task Ledger_import_preserves_uplift_information_in_payment_position_descriptions()
+    {
+        var contractId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "COL_202604_LLC", "2026-04")],
+        };
+        var schedule = Assert.IsType<ContractPaymentSchedule>(ContractPaymentScheduleNotation.Parse("2+1 years; 13 000 + 13 000 + 13 000upCPI+4% GBP").Schedule);
+        var entry = new LedgerContractScheduleEntry(
+            FrameworkCode.GCloud14,
+            "COL_202604_LLC",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "2026-04",
+            "G-Cloud 14",
+            "B19",
+            schedule);
+
+        var imported = await Workspace(database).ImportLedgerSchedulesAsync([entry]);
+
+        Assert.Equal(3, imported.PaymentPositionsAdded);
+        Assert.Contains(database.ChargeScheduleItems, item => item.Description == "Annual licence and maintenance (uplift: CPI + 4%)" && item.ValueExVat == 13000);
+    }
+
+    [Fact]
+    public async Task Ledger_import_marks_an_unspecified_uplift_in_the_payment_position_description()
+    {
+        var contractId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.VerticalApplicationSolutions, "HAV_202510_GIS", "2025-10")],
+        };
+        var schedule = Assert.IsType<ContractPaymentSchedule>(ContractPaymentScheduleNotation.Parse("1+1 years; 42 800 + 42 800up% GBP").Schedule);
+        var entry = new LedgerContractScheduleEntry(
+            FrameworkCode.VerticalApplicationSolutions,
+            "HAV_202510_GIS",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "2025-10",
+            "VAS",
+            "B35",
+            schedule);
+
+        await Workspace(database).ImportLedgerSchedulesAsync([entry]);
+
+        Assert.Contains(database.ChargeScheduleItems, item => item.Description == "Annual licence and maintenance (uplift: unspecified)" && item.ValueExVat == 42800);
     }
 
     private static ReportingWorkspace Workspace(RemiDatabase database, TimeProvider? timeProvider = null) =>
