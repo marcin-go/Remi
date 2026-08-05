@@ -270,6 +270,41 @@ public sealed class ReportingWorkflowTests
         Assert.Contains(database.AuditEvents, item => item.Action == "ContractChangeConfirmed" && item.EntityId == changeId);
     }
 
+    [Fact]
+    public async Task Confirmed_contract_change_can_be_corrected_without_breaking_its_invoice_link()
+    {
+        var contractId = Guid.NewGuid();
+        var changeId = Guid.NewGuid();
+        var invoiceId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ContractChanges =
+            [
+                new ContractChangeRecord(changeId, contractId, ContractChangeKind.Extension, new DateOnly(2026, 7, 14), null, null, 500, false, true, "EXT-01", DateTimeOffset.UtcNow),
+            ],
+            Invoices = [Invoice(invoiceId, FrameworkCode.GCloud14, "RM-001", "INV-001", 250, "2026-07")],
+            InvoiceContractChangeLinks = [new InvoiceContractChangeLink(invoiceId, changeId)],
+        };
+        var workspace = Workspace(database);
+
+        var corrected = await workspace.UpdateContractChangeAsync(changeId, new ContractChangeEntry(
+            contractId,
+            ContractChangeKind.Extension,
+            new DateOnly(2026, 7, 14),
+            null,
+            null,
+            500,
+            true,
+            true,
+            "EXT-01"));
+
+        Assert.True(corrected.Succeeded);
+        Assert.True(Assert.Single(database.ContractChanges).WasProvidedForInOriginalCallOff);
+        Assert.Contains(database.InvoiceContractChangeLinks, link => link.InvoiceId == invoiceId && link.ContractChangeId == changeId);
+        Assert.Contains(database.AuditEvents, item => item.Action == "ContractChangeUpdated" && item.EntityId == changeId);
+    }
+
     private static ReportingWorkspace Workspace(RemiDatabase database, TimeProvider? timeProvider = null) =>
         new(new InMemoryStore(database), null!, null!, null!, null!, timeProvider ?? TimeProvider.System);
 

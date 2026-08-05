@@ -11,11 +11,8 @@
 else
 {
     <section class="contract-record">
-        <nav class="contract-breadcrumbs" aria-label="Breadcrumb"><a href="@PeriodRoute("contracts")">Contracts</a><span aria-hidden="true">›</span><span>@details.Contract.SupplierReference</span></nav>
-
         <header class="contract-hero">
             <div>
-                <p class="eyebrow">Contract record</p>
                 <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status"><i aria-hidden="true"></i>Recorded</span></div>
                 <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
@@ -38,10 +35,10 @@ else
         </header>
 
         <section class="contract-summary-grid" aria-label="Contract summary">
-            <div class="contract-summary-item"><span>Total contract value, ex VAT</span><strong>@Currency(details.Contract.TotalContractValueExVat)</strong><small>@LotAndFramework</small></div>
+            <div class="contract-summary-item"><span>Contract value, ex VAT</span><strong>@Currency(CurrentContractValue)</strong><small>@LotAndFramework</small>@if (AgreedChangeValue != 0) { <small>Original value: @Currency(details.Contract.TotalContractValueExVat)</small> }</div>
             <div class="contract-summary-item"><span>Reported invoices</span><strong>@details.Invoices.Count</strong><small>Across @ReportingMonthCount reporting month@(ReportingMonthCount == 1 ? string.Empty : "s")</small></div>
             <div class="contract-summary-item"><span>Value invoiced</span><strong>@Currency(InvoicedValue)</strong><div class="contract-summary-progress" aria-label="@InvoicePercent of contract value"><i style="width: @InvoiceProgressWidth"></i></div><small>@InvoicePercent of contract value</small></div>
-            <div class="contract-summary-item"><span>Contract term</span><strong>@ContractTerm</strong><small>@DateRange</small></div>
+            <div class="contract-summary-item"><span>Contract term</span><strong>@ContractTerm</strong><small>@DateRange</small>@if (TermHasBeenExtended) { <small>Original term: @OriginalDateRange</small> }</div>
         </section>
 
         <section class="contract-tab-shell">
@@ -149,17 +146,20 @@ else
                         {
                             <ClipboardImageEvidence @ref="changeClipboardEvidence" OnDocumentsChanged="SetChangeClipboardDocumentCount">
                             <section class="contract-invoice-form">
-                                <header class="contract-invoice-form-heading"><h3>Register a contract change</h3><span>The agreement date determines the MI reporting month.</span></header>
+                                <header class="contract-invoice-form-heading"><h3>@(EditingChange ? "Correct a contract change" : "Register a contract change")</h3><span>The agreement date determines the MI reporting month.</span></header>
                                 <div class="invoice-details-grid contract-invoice-fields">
                                     <label class="floating-field floating-field--static"><select @bind="changeKind"><option value="@ContractChangeKind.Extension">Extension</option><option value="@ContractChangeKind.Variation">Variation</option></select><span class="floating-label">Change type</span></label>
                                     <label class="floating-field floating-field--static"><input required type="date" @bind="changeAgreementDate" /><span class="floating-label">Agreement date</span></label>
                                     <label class="floating-field floating-field--static"><input type="date" @bind="changeEffectiveStartDate" /><span class="floating-label">Effective start date</span></label>
                                     <label class="floating-field floating-field--static"><input type="date" @bind="changeEffectiveEndDate" /><span class="floating-label">Effective end date</span></label>
-                                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="changeIncrementalValue" /><span class="floating-label">Incremental value, ex VAT</span></label>
+                                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="changeIncrementalValue" @onfocus="ClearZeroIncrementalValue" /><span class="floating-label">Incremental value, ex VAT</span></label>
                                     <label class="floating-field"><input placeholder=" " @bind="changeReference" /><span class="floating-label">Agreement reference (optional)</span></label>
                                 </div>
-                                <div class="contract-change-checks"><label><input type="checkbox" @bind="changeProvidedFor" /> Provided for in the original call-off</label><label><input type="checkbox" @bind="changeIsConfirmed" /> Confirm now</label></div>
-                                <footer class="contract-invoice-actions"><button type="button" class="invoice-command invoice-command-muted" @onclick="ToggleChangeForm">Cancel</button><button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecordChange || changeWorking)" @onclick="RecordChangeAsync">@(changeWorking ? "Saving…" : "Save change")</button></footer>
+                                <div class="contract-change-checks">
+                                    <label class="contract-change-flipper"><input type="checkbox" @bind="changeProvidedFor" /><span class="contract-change-flipper-control" aria-hidden="true"></span><span>Provided for in the original call-off</span></label>
+                                    <label class="contract-change-flipper"><input type="checkbox" @bind="changeIsConfirmed" disabled="@ConfirmedChangeCannotBeUnconfirmed" /><span class="contract-change-flipper-control" aria-hidden="true"></span><span>@(ConfirmedChangeCannotBeUnconfirmed ? "Confirmed" : "Confirm now")</span></label>
+                                </div>
+                                <footer class="contract-invoice-actions"><button type="button" class="invoice-command invoice-command-muted" @onclick="ToggleChangeForm">Cancel</button><button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecordChange || changeWorking)" @onclick="SaveChangeAsync">@(changeWorking ? "Saving…" : EditingChange ? "Save correction" : "Save change")</button></footer>
                                 @if (changeSubmission is not null) { <p class="notice @(changeSubmission.Succeeded ? "success" : "error")" role="status">@changeSubmission.Message</p> }
                             </section>
                             </ClipboardImageEvidence>
@@ -170,7 +170,7 @@ else
                         }
                         else
                         {
-                            <div class="table-wrap"><table><thead><tr><th>Type</th><th>Agreement date</th><th>Effective period</th><th>Incremental value</th><th>Confirmation</th></tr></thead><tbody>@foreach (var change in details.ContractChanges) { <tr><td>@change.Kind</td><td>@Display(change.AgreementDate)</td><td>@DisplayPeriod(change.EffectiveStartDate, change.EffectiveEndDate)</td><td>@Currency(change.IncrementalValueExVat)</td><td>@if (change.IsConfirmed) { <span>Confirmed</span> } else { <button class="button secondary" disabled="@(confirmingChangeId == change.Id)" @onclick="@(() => ConfirmChangeAsync(change.Id))">@(confirmingChangeId == change.Id ? "Confirming…" : "Confirm")</button> }</td></tr> }</tbody></table></div>
+                            <div class="table-wrap"><table><thead><tr><th>Type</th><th>Agreement date</th><th>Effective period</th><th>Incremental value</th><th>Confirmation</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>@foreach (var change in details.ContractChanges) { <tr><td>@change.Kind</td><td>@Display(change.AgreementDate)</td><td>@DisplayPeriod(change.EffectiveStartDate, change.EffectiveEndDate)</td><td>@Currency(change.IncrementalValueExVat)</td><td>@if (change.IsConfirmed) { <span>Confirmed</span> } else { <button class="button secondary" disabled="@(confirmingChangeId == change.Id)" @onclick="@(() => ConfirmChangeAsync(change.Id))">@(confirmingChangeId == change.Id ? "Confirming…" : "Confirm")</button> }</td><td><button class="button secondary" disabled="@changeWorking" @onclick="@(() => BeginChangeEdit(change))">Edit</button></td></tr> }</tbody></table></div>
                         }
                     </article>
                 </div>
@@ -253,8 +253,9 @@ else
     private ReturnActionResult? changeSubmission;
     private ContractChangeKind changeKind = ContractChangeKind.Extension;
     private DateOnly? changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate;
-    private decimal changeIncrementalValue;
+    private decimal? changeIncrementalValue;
     private bool changeProvidedFor, changeIsConfirmed;
+    private Guid? editingChangeId;
     private Guid? confirmingChangeId;
     private string changeReference = string.Empty;
     private ClipboardImageEvidence? changeClipboardEvidence;
@@ -264,22 +265,33 @@ else
 
     private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
     private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
-    private decimal RemainingContractValue => details is null ? 0 : Math.Max(0, details.Contract.TotalContractValueExVat + details.ContractChanges.Sum(change => change.IncrementalValueExVat) - InvoicedValue);
+    private decimal AgreedChangeValue => details?.ContractChanges.Sum(change => change.IncrementalValueExVat) ?? 0;
+    private decimal CurrentContractValue => details?.Contract.TotalContractValueExVat + AgreedChangeValue ?? 0;
+    private decimal RemainingContractValue => Math.Max(0, CurrentContractValue - InvoicedValue);
     private ContractChangeRecord? SelectedInvoiceChange => invoiceContractChangeId is Guid changeId ? details?.ContractChanges.SingleOrDefault(change => change.Id == changeId) : null;
     private int ReportingMonthCount => details?.Invoices.Select(item => item.ReportMonth).Distinct(StringComparer.Ordinal).Count() ?? 0;
-    private decimal InvoiceRatio => details is null || details.Contract.TotalContractValueExVat <= 0 ? 0 : InvoicedValue / details.Contract.TotalContractValueExVat;
+    private decimal InvoiceRatio => CurrentContractValue <= 0 ? 0 : InvoicedValue / CurrentContractValue;
     private string InvoiceProgressWidth => $"{Math.Clamp(InvoiceRatio * 100, 0, 100):0.##}%";
     private string InvoicePercent => $"{InvoiceRatio * 100:0.#}%";
     private string LotAndFramework => $"{(string.IsNullOrWhiteSpace(details!.Contract.LotNumber) ? "No lot recorded" : $"Lot {details.Contract.LotNumber}")} · {Frameworks.Get(details.Contract.Framework).DisplayName}";
-    private string ContractTerm => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{FullContractMonths(details.Contract.StartDate.Value, details.Contract.EndDate.Value)} months" : "Not recorded";
-    private string DateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
+    private DateOnly? CurrentContractEndDate => details is null ? null : details.ContractChanges
+        .Where(change => change.Kind == ContractChangeKind.Extension)
+        .Select(change => change.EffectiveEndDate)
+        .Append(details.Contract.EndDate)
+        .Max();
+    private bool TermHasBeenExtended => details is not null && CurrentContractEndDate is not null && CurrentContractEndDate != details.Contract.EndDate;
+    private string ContractTerm => details?.Contract.StartDate is not null && CurrentContractEndDate is not null ? $"{FullContractMonths(details.Contract.StartDate.Value, CurrentContractEndDate.Value)} months" : "Not recorded";
+    private string DateRange => details?.Contract.StartDate is not null && CurrentContractEndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(CurrentContractEndDate)}" : "Dates not recorded";
+    private string OriginalDateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
     private bool HasCustomerUrn => !string.IsNullOrWhiteSpace(details?.Contract.CustomerUrn);
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference) && !string.IsNullOrWhiteSpace(details.Contract.CustomerName) && details.Contract.StartDate is not null && details.Contract.EndDate is not null && details.Contract.TotalContractValueExVat > 0;
     private bool IsValidInvoiceReportingMonth => IsValidReportingMonth(invoiceReportingMonth);
     private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat != 0;
     private bool InvoiceMayRevealChange => details is not null && invoiceTotalExVat > RemainingContractValue;
     private decimal InvoiceOverage => Math.Max(0, invoiceTotalExVat - RemainingContractValue);
-    private bool CanRecordChange => details is not null && changeAgreementDate is not null && changeIncrementalValue != 0;
+    private bool CanRecordChange => details is not null && changeAgreementDate is not null && changeIncrementalValue is not null && changeIncrementalValue != 0;
+    private bool EditingChange => editingChangeId is not null;
+    private bool ConfirmedChangeCannotBeUnconfirmed => editingChangeId is Guid changeId && details?.ContractChanges.Any(change => change.Id == changeId && change.IsConfirmed) == true;
     private IReadOnlyList<string> InvoiceReportingMonthOptions
     {
         get
@@ -315,6 +327,21 @@ else
     private void SetTab(string tab) => activeTab = tab;
     private void ShowInvoiceForm() { showInvoiceForm = !showInvoiceForm; invoiceSubmission = null; }
     private void ToggleChangeForm() { showChangeForm = !showChangeForm; changeSubmission = null; if (!showChangeForm) ResetChangeForm(); }
+    private void BeginChangeEdit(ContractChangeRecord change)
+    {
+        editingChangeId = change.Id;
+        changeKind = change.Kind;
+        changeAgreementDate = change.AgreementDate;
+        changeEffectiveStartDate = change.EffectiveStartDate;
+        changeEffectiveEndDate = change.EffectiveEndDate;
+        changeIncrementalValue = change.IncrementalValueExVat;
+        changeProvidedFor = change.WasProvidedForInOriginalCallOff;
+        changeIsConfirmed = change.IsConfirmed;
+        changeReference = change.Reference ?? string.Empty;
+        changeClipboardDocumentCount = 0;
+        changeSubmission = null;
+        showChangeForm = true;
+    }
     private void ToggleContractEditor() { editingContract = !editingContract; contractSubmission = null; if (editingContract) PopulateContractEditor(); }
     private void ToggleScheduleEditor() { editingSchedule = !editingSchedule; scheduleSubmission = null; if (editingSchedule) PopulateScheduleEditor(); }
     private void AddSchedulePosition() => editableSchedule.Add(new EditableSchedulePosition());
@@ -385,19 +412,22 @@ else
         invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
     }
 
-    private async Task RecordChangeAsync()
+    private async Task SaveChangeAsync()
     {
         if (!CanRecordChange) return;
         changeWorking = true;
         changeSubmission = null;
         try
         {
-            changeSubmission = await Workspace.RecordContractChangeAsync(new ContractChangeEntry(ContractId, changeKind, changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate, changeIncrementalValue, changeProvidedFor, changeIsConfirmed, changeReference));
+            var entry = new ContractChangeEntry(ContractId, changeKind, changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate, changeIncrementalValue!.Value, changeProvidedFor, changeIsConfirmed, changeReference);
+            changeSubmission = editingChangeId is Guid changeId
+                ? await Workspace.UpdateContractChangeAsync(changeId, entry)
+                : await Workspace.RecordContractChangeAsync(entry);
             if (changeSubmission.Succeeded)
             {
-                if (changeClipboardDocumentCount != 0 && changeSubmission.EntityId is Guid changeId)
+                if (changeClipboardDocumentCount != 0 && changeSubmission.EntityId is Guid archivedChangeId)
                 {
-                    await changeClipboardEvidence!.ArchiveAsync("contract-change", changeId);
+                    await changeClipboardEvidence!.ArchiveAsync("contract-change", archivedChangeId);
                 }
                 details = await Workspace.GetContractDetailsAsync(ContractId);
                 history = await Workspace.GetContractAuditEventsAsync(ContractId);
@@ -414,8 +444,17 @@ else
         changeAgreementDate = changeEffectiveStartDate = changeEffectiveEndDate = null;
         changeIncrementalValue = 0;
         changeProvidedFor = changeIsConfirmed = false;
+        editingChangeId = null;
         changeReference = string.Empty;
         changeClipboardDocumentCount = 0;
+    }
+
+    private void ClearZeroIncrementalValue()
+    {
+        if (changeIncrementalValue == 0)
+        {
+            changeIncrementalValue = null;
+        }
     }
 
     private void SetContractClipboardImageCount(int count) => contractClipboardImageCount = count;
@@ -466,6 +505,6 @@ else
     private static string DisplayPeriod(DateOnly? start, DateOnly? end) => start is null && end is null ? "Not recorded" : $"{Display(start)} – {Display(end)}";
     private static string ChangeDescription(ContractChangeRecord change) => $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy} · {change.IncrementalValueExVat:C2}";
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
-    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", _ => action };
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "ContractChangeRecorded" => "Contract change recorded", "ContractChangeUpdated" => "Contract change corrected", "ContractChangeConfirmed" => "Contract change confirmed", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", _ => action };
     private sealed class EditableSchedulePosition { public Guid? Id { get; init; } public int ContractYear { get; set; } = 1; public string Description { get; set; } = "Annual licence and maintenance"; public DateOnly? ExpectedInvoiceDate { get; set; } public decimal ValueExVat { get; set; } public bool IsOptionalExtension { get; set; } }
 }

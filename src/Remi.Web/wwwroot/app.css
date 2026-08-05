@@ -471,3 +471,14 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
     .dashboard-header .button, .dashboard-header .remi-action, .register-reset { width: auto; }
     .register-header-actions .button, .register-header-actions .remi-action { justify-self: start; }
 }
+
+.contract-change-checks { display: grid; gap: 0.65rem; margin-top: 1rem; }
+.contract-change-flipper { display: inline-flex; align-items: center; gap: 0.55rem; width: fit-content; color: #183c50; font-size: 0.84rem; font-weight: 750; line-height: 1.25; cursor: pointer; }
+.contract-change-flipper input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.contract-change-flipper-control { position: relative; display: inline-block; flex: 0 0 auto; width: 1.8rem; height: 1rem; box-sizing: border-box; background: #bdcbd2; border: 1px solid #a9bbc4; border-radius: 999px; transition: background-color 120ms ease, border-color 120ms ease; }
+.contract-change-flipper-control::after { position: absolute; top: 0.125rem; left: 0.125rem; width: 0.5rem; height: 0.5rem; background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgb(23 54 75 / 28%); content: ""; transition: transform 120ms ease; }
+.contract-change-flipper input:checked + .contract-change-flipper-control { background: #0b918f; border-color: #087f7d; }
+.contract-change-flipper input:checked + .contract-change-flipper-control::after { transform: translateX(0.75rem); }
+.contract-change-flipper input:focus-visible + .contract-change-flipper-control { box-shadow: 0 0 0 2px #0e6a86; }
+.contract-change-flipper input:disabled + .contract-change-flipper-control { opacity: 0.55; }
+.contract-change-flipper:has(input:disabled) { cursor: default; }

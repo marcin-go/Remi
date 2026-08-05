@@ -850,6 +850,100 @@ public sealed class ReportingWorkspace(
             return new ReturnActionResult(true, "The contract change has been confirmed.", [], existing.Id);
         }, cancellationToken);
 
+    public Task<ReturnActionResult> UpdateContractChangeAsync(
+        Guid changeId,
+        ContractChangeEntry entry,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var existing = database.ContractChanges.SingleOrDefault(change => change.Id == changeId);
+            if (existing is null)
+            {
+                return new ReturnActionResult(false, "The selected contract change no longer exists.", []);
+            }
+
+            if (existing.ContractId != entry.ContractId)
+            {
+                return new ReturnActionResult(false, "A contract change cannot be moved to a different contract.", []);
+            }
+
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == existing.ContractId);
+            if (contract is null)
+            {
+                return new ReturnActionResult(false, "The contract for this change no longer exists.", []);
+            }
+
+            if (entry.AgreementDate is null)
+            {
+                return new ReturnActionResult(false, "Record the agreement date before reporting a contract change.", []);
+            }
+
+            if (entry.IncrementalValueExVat == 0)
+            {
+                return new ReturnActionResult(false, "Record the incremental ex-VAT value for the contract change.", []);
+            }
+
+            if (entry.Kind == ContractChangeKind.Extension && entry.IncrementalValueExVat < 0)
+            {
+                return new ReturnActionResult(false, "An extension must have a positive incremental value. Record a variation for a reduction.", []);
+            }
+
+            if (entry.EffectiveStartDate is not null && entry.EffectiveEndDate is not null && entry.EffectiveEndDate < entry.EffectiveStartDate)
+            {
+                return new ReturnActionResult(false, "The effective end date cannot be earlier than the effective start date.", []);
+            }
+
+            var duplicate = database.ContractChanges.Any(change =>
+                change.Id != changeId &&
+                change.ContractId == entry.ContractId &&
+                change.Kind == entry.Kind &&
+                change.AgreementDate == entry.AgreementDate.Value &&
+                change.EffectiveStartDate == entry.EffectiveStartDate &&
+                change.EffectiveEndDate == entry.EffectiveEndDate &&
+                change.IncrementalValueExVat == entry.IncrementalValueExVat);
+            if (duplicate)
+            {
+                return new ReturnActionResult(false, "An identical agreed contract change is already recorded for this contract.", []);
+            }
+
+            var updated = existing with
+            {
+                Kind = entry.Kind,
+                AgreementDate = entry.AgreementDate.Value,
+                EffectiveStartDate = entry.EffectiveStartDate,
+                EffectiveEndDate = entry.EffectiveEndDate,
+                IncrementalValueExVat = entry.IncrementalValueExVat,
+                WasProvidedForInOriginalCallOff = entry.WasProvidedForInOriginalCallOff,
+                IsConfirmed = existing.IsConfirmed || entry.IsConfirmed,
+                Reference = NullIfWhiteSpace(entry.Reference),
+            };
+            var index = database.ContractChanges.IndexOf(existing);
+            database.ContractChanges[index] = updated;
+            var findings = ReportingRules.Validate(database)
+                .Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == updated.Id)
+                .ToList();
+            if (findings.Count != 0)
+            {
+                database.ContractChanges[index] = existing;
+                return new ReturnActionResult(false, "The contract change was not updated. Resolve the highlighted fields first.", findings);
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var reportingMonth = ReportingMonth(updated.AgreementDate);
+            EnsureReturn(database, contract.Framework, reportingMonth, null, now);
+            RecordAudit(
+                database,
+                now,
+                "ContractChangeUpdated",
+                "ContractChange",
+                updated.Id,
+                $"Corrected {updated.Kind.ToString().ToLowerInvariant()} for {contract.SupplierReference}; it will report in {reportingMonth}.",
+                null,
+                actor);
+            return new ReturnActionResult(true, "The contract change has been corrected.", [], updated.Id);
+        }, cancellationToken);
+
     public Task<ReturnActionResult> UpdateContractAsync(
         Guid contractId,
         ContractEntry entry,

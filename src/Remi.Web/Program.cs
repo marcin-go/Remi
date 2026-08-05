@@ -198,6 +198,8 @@ app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
     return Results.Text(text, "text/plain; charset=utf-8");
 });
 
+app.MapGet("/", () => Results.Redirect("/home"));
+
 app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
