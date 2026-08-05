@@ -43,6 +43,25 @@
 </section>
 
 <section class="panel maintenance-panel">
+    <p class="eyebrow">Archive storage</p>
+    <h2>Flatten the evidence file layout</h2>
+    <p>Store evidence as flat, hash-named files under <code>data\evidence</code>. Remi keeps each original source path, framework, reporting month and checksum in the register, so this changes the disk layout without changing evidence provenance.</p>
+    <div class="action-row">
+        <button class="button secondary" disabled="@working" @onclick="FlattenEvidenceArchiveAsync">@(archiveNormalizing ? "Flattening archiveâ€¦" : "Flatten evidence archive")</button>
+    </div>
+    @if (archiveNormalization is not null)
+    {
+        <p class="notice @(string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning) ? "success" : "error")" role="status">
+            Updated @archiveNormalization.EvidenceRecordsUpdated evidence record(s) and removed @archiveNormalization.LegacyCopiesRemoved legacy file(s).
+            @if (!string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning))
+            {
+                <span>@archiveNormalization.CleanupWarning</span>
+            }
+        </p>
+    }
+</section>
+
+<section class="panel maintenance-panel">
     <p class="eyebrow">1 · Select source data</p>
     <h2>Historical reporting folder</h2>
     <div class="form-grid">
@@ -172,11 +191,13 @@
     private string? validatedSourceDirectory;
     private string? message;
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
+    private EvidenceArchiveNormalizationResult? archiveNormalization;
     private string? urnMessage;
     private bool succeeded;
     private bool working;
     private bool urnRefreshing;
     private bool urnRefreshSucceeded;
+    private bool archiveNormalizing;
     private bool validationReviewed;
     private bool repopulationReviewed;
 
@@ -218,6 +239,35 @@
         finally
         {
             urnRefreshing = false;
+            working = false;
+        }
+    }
+
+    private async Task FlattenEvidenceArchiveAsync()
+    {
+        if (working)
+        {
+            return;
+        }
+
+        working = true;
+        archiveNormalizing = true;
+        try
+        {
+            archiveNormalization = await Workspace.FlattenEvidenceArchiveAsync();
+            succeeded = string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning);
+            message = archiveNormalization.EvidenceRecordsUpdated == 0
+                ? "The evidence archive already uses the flat layout."
+                : "The evidence archive now uses the flat, content-addressed layout.";
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = $"Evidence archive normalization stopped: {exception.Message}";
+        }
+        finally
+        {
+            archiveNormalizing = false;
             working = false;
         }
     }

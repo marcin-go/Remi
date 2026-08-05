@@ -283,3 +283,12 @@ public sealed record MigrationReport(
     int ArchivedEvidenceFiles,
     IReadOnlyList<ValidationFinding> Findings,
     int LedgerPaymentPositions);
+
+/// <summary>
+/// The outcome of flattening the physical evidence archive while retaining source provenance in
+/// evidence metadata.
+/// </summary>
+public sealed record EvidenceArchiveNormalizationResult(
+    int EvidenceRecordsUpdated,
+    int LegacyCopiesRemoved,
+    string? CleanupWarning);

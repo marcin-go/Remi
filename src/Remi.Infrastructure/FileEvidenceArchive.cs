@@ -5,11 +5,11 @@ using Remi.Domain;
 namespace Remi.Infrastructure;
 
 /// <summary>
-/// A portable, content-addressed archive. The original relative source path is retained as
-/// a directory structure below the archive root, with a hash prefix allowing later versions
-/// of the same source file to coexist.
+/// A portable, content-addressed archive. Every file is kept at the archive root with a
+/// checksum prefix, while the original relative source path remains evidence metadata in
+/// the register. This keeps the on-disk layout independent of the user's source folders.
 /// </summary>
-public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArchive, IResettableEvidenceArchive
+public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArchive, IEvidenceArchiveLayoutMigrator, IResettableEvidenceArchive
 {
     private readonly string archiveDirectory = Path.GetFullPath(archiveDirectory);
 
@@ -50,9 +50,8 @@ public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArch
             }
 
             var sha256 = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-            var sourceDirectory = Path.GetDirectoryName(relativeSourcePath) ?? string.Empty;
             var originalFileName = Path.GetFileName(relativeSourcePath);
-            var storedRelativePath = Path.Combine(sourceDirectory, $"{sha256[..12]}-{originalFileName}");
+            var storedRelativePath = FlatStoredRelativePath(sha256, originalFileName);
             var targetPath = ResolveWithinArchive(storedRelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
 
@@ -86,6 +85,69 @@ public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArch
         return Task.FromResult(stream);
     }
 
+    public async Task<IReadOnlyList<EvidenceArchiveRelocation>> PrepareFlatLayoutAsync(
+        IReadOnlyList<EvidenceRecord> evidence,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+
+        var relocations = evidence
+            .Select(item => new EvidenceArchiveRelocation(
+                item.Id,
+                item.StoredRelativePath,
+                FlatStoredRelativePath(item.Sha256, item.FileName)))
+            .Where(item => !string.Equals(item.PreviousStoredRelativePath, item.FlatStoredRelativePath, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var relocation in relocations)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var source = ResolveWithinArchive(relocation.PreviousStoredRelativePath);
+            var evidenceRecord = evidence.Single(item => item.Id == relocation.EvidenceId);
+            await VerifyEvidenceFileAsync(source, evidenceRecord, cancellationToken);
+        }
+
+        foreach (var relocation in relocations)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var source = ResolveWithinArchive(relocation.PreviousStoredRelativePath);
+            var target = ResolveWithinArchive(relocation.FlatStoredRelativePath);
+            var evidenceRecord = evidence.Single(item => item.Id == relocation.EvidenceId);
+            if (!File.Exists(target))
+            {
+                File.Copy(source, target);
+            }
+
+            await VerifyEvidenceFileAsync(target, evidenceRecord, cancellationToken);
+        }
+
+        return relocations;
+    }
+
+    public Task<int> RemoveLegacyCopiesAsync(
+        IReadOnlyList<EvidenceArchiveRelocation> relocations,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(relocations);
+
+        var removed = 0;
+        foreach (var relocation in relocations)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var legacyPath = ResolveWithinArchive(relocation.PreviousStoredRelativePath);
+            if (!File.Exists(legacyPath))
+            {
+                continue;
+            }
+
+            File.Delete(legacyPath);
+            RemoveEmptyParentDirectories(legacyPath);
+            removed++;
+        }
+
+        return Task.FromResult(removed);
+    }
+
     /// <summary>
     /// Removes every archived file as part of an explicitly confirmed full repopulation.
     /// </summary>
@@ -113,6 +175,66 @@ public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArch
         return string.Equals(Path.GetFileName(candidate), fileName, StringComparison.OrdinalIgnoreCase)
             ? candidate
             : Path.Combine(Path.GetDirectoryName(candidate) ?? string.Empty, fileName);
+    }
+
+    private static string FlatStoredRelativePath(string sha256, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(sha256) || sha256.Length < 12 || sha256.Any(character => !Uri.IsHexDigit(character)))
+        {
+            throw new ArgumentException("Evidence must have a SHA-256 checksum before its archive path can be resolved.", nameof(sha256));
+        }
+
+        var name = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException("Evidence must have a safe file name before its archive path can be resolved.", nameof(fileName));
+        }
+
+        return $"{sha256[..12].ToLowerInvariant()}-{name}";
+    }
+
+    private async Task VerifyEvidenceFileAsync(string path, EvidenceRecord evidence, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"The archived evidence file was not found: {evidence.StoredRelativePath}", path);
+        }
+
+        var info = new FileInfo(path);
+        if (info.Length != evidence.FileSizeBytes)
+        {
+            throw new InvalidDataException($"The archived evidence file size does not match the register for {evidence.FileName}.");
+        }
+
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 81920, useAsync: true);
+        var buffer = new byte[81920];
+        int bytesRead;
+        while ((bytesRead = await source.ReadAsync(buffer, cancellationToken)) != 0)
+        {
+            hash.AppendData(buffer, 0, bytesRead);
+        }
+
+        var sha256 = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        if (!string.Equals(sha256, evidence.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"The archived evidence checksum does not match the register for {evidence.FileName}.");
+        }
+    }
+
+    private void RemoveEmptyParentDirectories(string filePath)
+    {
+        var root = archiveDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        for (var directory = Directory.GetParent(filePath); directory is not null; directory = directory.Parent)
+        {
+            if (string.Equals(directory.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), root, StringComparison.OrdinalIgnoreCase) ||
+                Directory.EnumerateFileSystemEntries(directory.FullName).Any())
+            {
+                return;
+            }
+
+            directory.Delete();
+        }
     }
 
     private string ResolveWithinArchive(string storedRelativePath)

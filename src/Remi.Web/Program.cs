@@ -6,7 +6,13 @@ using Remi.Web;
 using Remi.Web.Components;
 using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    // Remi is portable: resolve static assets from beside the executable rather than from
+    // whichever directory happened to launch the process.
+    ContentRootPath = AppContext.BaseDirectory
+});
 var dataPath = builder.Configuration["Remi:DataPath"] ?? RemiDataPaths.DefaultDatabaseFile;
 var dataDirectory = Path.GetDirectoryName(Path.GetFullPath(dataPath))
     ?? throw new InvalidOperationException("The Remi data path has no parent directory.");

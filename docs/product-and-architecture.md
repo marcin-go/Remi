@@ -18,7 +18,7 @@ Domain records and validation
 Storage / template / evidence adapters
 ```
 
-The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. Evidence filenames retain the original relative source-data path and a SHA-256 checksum, while the archive uses content-addressed copies so a later revision does not replace an earlier original. The customer-URN reference index also stays in that portable data folder: it is rebuilt from the dated ODS linked by the stable GOV.UK guidance page and retains that exact ODS as evidence. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
+The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. The register retains each evidence file's original relative source-data path and SHA-256 checksum, while the archive stores a flat content-addressed copy under data/evidence so the physical layout does not mirror source folders and a later revision does not replace an earlier original. The customer-URN reference index also stays in that portable data folder: it is rebuilt from the dated ODS linked by the stable GOV.UK guidance page and retains that exact ODS as evidence. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
 
 ## Reporting workflow
 

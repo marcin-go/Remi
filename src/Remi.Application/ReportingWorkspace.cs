@@ -38,6 +38,73 @@ public sealed class ReportingWorkspace(
         CancellationToken cancellationToken = default) =>
         customerUrnDirectory.SearchAsync(query, cancellationToken: cancellationToken);
 
+    /// <summary>
+    /// Converts legacy source-tree evidence paths into Remi's flat content-addressed archive
+    /// layout while preserving every original relative path as evidence metadata.
+    /// </summary>
+    public async Task<EvidenceArchiveNormalizationResult> FlattenEvidenceArchiveAsync(
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (evidenceArchive is not IEvidenceArchiveLayoutMigrator layoutMigrator)
+        {
+            throw new InvalidOperationException("The configured evidence archive does not support layout normalization.");
+        }
+
+        var evidence = await store.ReadAsync(
+            database => (IReadOnlyList<EvidenceRecord>)database.Evidence.ToList(),
+            cancellationToken);
+        var relocations = await layoutMigrator.PrepareFlatLayoutAsync(evidence, cancellationToken);
+        if (relocations.Count == 0)
+        {
+            return new EvidenceArchiveNormalizationResult(0, 0, null);
+        }
+
+        var pathsById = relocations.ToDictionary(item => item.EvidenceId, item => item.FlatStoredRelativePath);
+        var updatedRecords = await store.UpdateAsync(database =>
+        {
+            var updated = 0;
+            for (var index = 0; index < database.Evidence.Count; index++)
+            {
+                var item = database.Evidence[index];
+                if (pathsById.TryGetValue(item.Id, out var flatPath) &&
+                    !string.Equals(item.StoredRelativePath, flatPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    database.Evidence[index] = item with { StoredRelativePath = flatPath };
+                    updated++;
+                }
+            }
+
+            if (updated > 0)
+            {
+                RecordAudit(
+                    database,
+                    timeProvider.GetUtcNow(),
+                    "EvidenceArchiveFlattened",
+                    "EvidenceArchive",
+                    null,
+                    $"Flattened the physical archive layout for {updated} evidence file(s) while retaining their original source paths.",
+                    null,
+                    actor);
+            }
+
+            return updated;
+        }, cancellationToken);
+
+        try
+        {
+            var removed = await layoutMigrator.RemoveLegacyCopiesAsync(relocations, cancellationToken);
+            return new EvidenceArchiveNormalizationResult(updatedRecords, removed, null);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new EvidenceArchiveNormalizationResult(
+                updatedRecords,
+                0,
+                $"The register now uses the flat archive layout, but legacy copies could not be removed: {exception.Message}");
+        }
+    }
+
     public async Task<CustomerUrnDirectoryStatus> RefreshCustomerUrnDirectoryAsync(
         string? actor = null,
         CancellationToken cancellationToken = default)

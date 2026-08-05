@@ -54,7 +54,7 @@ Once the findings have been reviewed, rerun without --validate and point it at t
 
     dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.db"
 
-The data folder will be created automatically. The migration retains every file beneath source-data except MI Reporting Ledger.xlsx: the 52 MI workbooks are imported as structured records and retained as originals; PDFs, screenshots and guidance are retained as evidence too. Each archived file has its original relative source path and SHA-256 checksum recorded in Remi. The preflight command does not need the --data argument because it does not write data.
+The data folder will be created automatically. The migration retains every file beneath source-data except MI Reporting Ledger.xlsx: the 52 MI workbooks are imported as structured records and retained as originals; PDFs, screenshots and guidance are retained as evidence too. Remi records each archived file's original relative source path and SHA-256 checksum in its register, while storing the physical file as a flat hash-named copy under data/evidence. The preflight command does not need the --data argument because it does not write data.
 
 The portable app also exposes this workflow under **Maintenance**: use the browser-native folder chooser to select source data, create a source inventory, run the same no-write validation, review any findings, then explicitly confirm the import into SQLite. The selected files are temporarily staged with their folder hierarchy before processing.
 
