@@ -7,6 +7,7 @@
 
 <PageTitle>Remi · Register invoice</PageTitle>
 
+<ClipboardImageEvidence @ref="clipboardEvidence" OnDocumentsChanged="SetClipboardImageCount">
 <section class="invoice-intake-page">
     <header class="invoice-intake-header">
         <div><h1>Register invoice</h1><p>Choose a contract and enter the invoice details.</p></div>
@@ -22,8 +23,9 @@
         <section class="invoice-intake-surface">
             <section class="invoice-contract-section">
                 <h2>Contract</h2>
-                <label><span class="invoice-field-label">Contract <span class="required-marker" aria-hidden="true">*</span></span>
+                <label class="floating-field floating-field--static">
                     <select disabled aria-label="Contract"><option>No contracts available</option></select>
+                    <span class="floating-label">Contract</span>
                 </label>
                 <p class="invoice-empty-contracts">No registered contracts are available yet.</p>
             </section>
@@ -44,8 +46,9 @@
             <section class="invoice-contract-section">
                 <h2>Contract</h2>
                 <div class="contract-picker">
-                    <label for="contract-search"><span class="invoice-field-label">Contract <span class="required-marker" aria-hidden="true">*</span></span>
+                    <label for="contract-search" class="floating-field floating-field--static">
                         <input id="contract-search" role="combobox" aria-label="Contract" aria-autocomplete="list" aria-controls="contract-suggestions" aria-expanded="@contractSuggestionsOpen.ToString().ToLowerInvariant()" autocomplete="off" placeholder="Search by reference, customer or framework" value="@contractSearch" @oninput="SearchContracts" @onfocus="OpenContractSuggestions" @onkeydown="HandleContractSearchKeyDown" />
+                        <span class="floating-label">Contract</span>
                     </label>
                     @if (contractSuggestionsOpen)
                     {
@@ -76,24 +79,53 @@
                     <a class="invoice-command" href="@ContractRoute(SelectedContract.ContractId)">View contract <span aria-hidden="true">→</span></a>
                 </section>
 
+                @if (SelectedContract.UnconfirmedChangeCount != 0)
+                {
+                    <p class="notice warning">This contract has @SelectedContract.UnconfirmedChangeCount change@(SelectedContract.UnconfirmedChangeCount == 1 ? string.Empty : "s") awaiting confirmation. An invoice can be recorded now; confirm the change from the contract's Changes tab when you have spoken to the customer.</p>
+                }
+
+                @if (SelectedContract.AgreedChanges.Count != 0)
+                {
+                    <section class="invoice-details-section invoice-contract-change-section">
+                        <label class="floating-field floating-field--static">
+                            <select @bind="contractChangeId">
+                                <option value="">Original contract</option>
+                                @foreach (var change in SelectedContract.AgreedChanges)
+                                {
+                                    <option value="@change.Id">@ChangeDescription(change)</option>
+                                }
+                            </select>
+                            <span class="floating-label">Contract segment</span>
+                        </label>
+                        <p class="invoice-field-help">Choose the agreed extension or variation when this invoice relates to it. The MI invoice remains a separate invoice record.</p>
+                    </section>
+                }
+
                 <section class="invoice-details-section">
-                    <header><h2>Invoice details</h2><span><b aria-hidden="true">*</b> Required fields</span></header>
+                    <header><h2>Invoice details</h2></header>
                     <div class="invoice-details-grid">
-                        <label><span class="invoice-field-label">Invoice or credit note number <span class="required-marker" aria-hidden="true">*</span></span><input required @bind="invoiceNumber" @bind:event="oninput" /></label>
-                        <label><span class="invoice-field-label">Invoice or credit note date <span class="required-marker" aria-hidden="true">*</span></span><input required type="date" @bind="invoiceDate" /></label>
-                        <label><span class="invoice-field-label">Reporting month <span class="required-marker" aria-hidden="true">*</span></span>
+                        <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" @bind:event="oninput" /><span class="floating-label">Invoice or credit note number</span></label>
+                        <label class="floating-field floating-field--static"><input required type="date" @bind="invoiceDate" /><span class="floating-label">Invoice or credit note date</span></label>
+                        <label class="floating-field floating-field--static">
                             <select required @bind="reportingMonth">
                                 @foreach (var month in ReportingMonthOptions)
                                 {
                                     <option value="@month">@DisplayReportingMonth(month)</option>
                                 }
                             </select>
+                            <span class="floating-label">Reporting month</span>
                         </label>
-                        <label><span class="invoice-field-label">Total cost, ex VAT <span class="required-marker" aria-hidden="true">*</span></span>
-                            <span class="invoice-money-field"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="totalCostExVat" /></span>
-                        </label>
+                        <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="totalCostExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
                     </div>
                     <p class="invoice-field-help">Use a negative total for a credit note.</p>
+                    @if (InvoiceExceedsRecordedValue)
+                    {
+                        <p class="notice warning">This invoice exceeds the remaining recorded contract value by @Currency(InvoiceOverage). It may reveal an extension or variation—record it from the contract's Changes tab.</p>
+                    }
+                    @if (SelectedChange is { IsConfirmed: false })
+                    {
+                        <p class="notice warning">The selected @SelectedChange.Kind.ToString().ToLowerInvariant() is awaiting confirmation. The invoice can still be linked to it.</p>
+                    }
                 </section>
 
                 <footer class="invoice-intake-actions">
@@ -104,6 +136,7 @@
         </section>
     }
 </section>
+</ClipboardImageEvidence>
 
 @code {
     private IReadOnlyList<InvoiceRegistrationContract>? contracts;
@@ -115,11 +148,17 @@
     private string reportingMonth = string.Empty;
     private string initialReportingMonth = string.Empty;
     private decimal totalCostExVat;
+    private Guid? contractChangeId;
     private ReturnActionResult? submission;
     private bool working;
+    private ClipboardImageEvidence? clipboardEvidence;
+    private int clipboardImageCount;
 
     private InvoiceRegistrationContract? SelectedContract => selectedContractId is Guid contractId
         ? contracts?.SingleOrDefault(contract => contract.ContractId == contractId)
+        : null;
+    private ContractChangeRecord? SelectedChange => contractChangeId is Guid changeId
+        ? SelectedContract?.AgreedChanges.SingleOrDefault(change => change.Id == changeId)
         : null;
     private IReadOnlyList<InvoiceRegistrationContract> MatchingContracts => (contracts ?? [])
         .Where(MatchesContractSearch)
@@ -127,7 +166,10 @@
         .ToList();
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
     private bool CanRecord => SelectedContract is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && totalCostExVat != 0;
-    private bool HasUnsavedInvoiceChanges => !string.IsNullOrWhiteSpace(invoiceNumber) || invoiceDate is not null || totalCostExVat != 0 || reportingMonth != initialReportingMonth;
+    private bool InvoiceExceedsRecordedValue => SelectedContract is not null && totalCostExVat > SelectedContract.RemainingCommittedValueExVat;
+    private decimal InvoiceOverage => SelectedContract is null ? 0 : Math.Max(0, totalCostExVat - SelectedContract.RemainingCommittedValueExVat);
+    private bool HasUnsavedInvoiceChanges => !string.IsNullOrWhiteSpace(invoiceNumber) || invoiceDate is not null || totalCostExVat != 0 || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as invoice evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private IReadOnlyList<string> ReportingMonthOptions
     {
         get
@@ -177,6 +219,7 @@
     private void SelectContract(InvoiceRegistrationContract contract)
     {
         selectedContractId = contract.ContractId;
+        contractChangeId = null;
         contractSearch = ContractDescription(contract);
         contractSuggestionsOpen = false;
         submission = null;
@@ -211,8 +254,16 @@
                 null,
                 null,
                 reportingMonth,
-                "Manual invoice registration"));
-            if (submission.Succeeded) ResetForm();
+                "Manual invoice registration",
+                contractChangeId));
+            if (submission.Succeeded)
+            {
+                if (clipboardImageCount != 0 && submission.EntityId is Guid invoiceId)
+                {
+                    await clipboardEvidence!.ArchiveAsync("invoice", invoiceId);
+                }
+                ResetForm();
+            }
         }
         finally { working = false; }
     }
@@ -223,6 +274,8 @@
         invoiceDate = null;
         totalCostExVat = 0;
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
+        clipboardImageCount = 0;
+        contractChangeId = null;
     }
 
     private async Task ConfirmCancelAsync()
@@ -231,8 +284,12 @@
         Navigation.NavigateTo(PeriodRoute("invoices"));
     }
 
+    private void SetClipboardImageCount(int count) => clipboardImageCount = count;
+
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;
     private static string ContractDescription(InvoiceRegistrationContract contract) => $"{contract.SupplierReference} · {contract.CustomerName} · {Frameworks.Get(contract.Framework).DisplayName}";
+    private static string ChangeDescription(ContractChangeRecord change) => $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy} · {change.IncrementalValueExVat:C2}";
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
 }

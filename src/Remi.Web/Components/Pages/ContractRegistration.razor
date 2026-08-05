@@ -1,52 +1,55 @@
 @page "/contracts/new"
 @using Remi.Domain
+@using Microsoft.JSInterop
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject NavigationManager Navigation
+@inject IJSRuntime JsRuntime
 
 <PageTitle>Remi · Register contract</PageTitle>
 
-<section class="registration-page">
-    <nav class="register-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>Register contract</span></nav>
-
-    <header class="registration-heading">
-        <div><p class="eyebrow">Contract intake</p><h1>Register a signed contract</h1><p class="lede">Start with the framework, then record the required contract details.</p></div>
-        <a class="button secondary" href="/contracts">Back ←</a>
+<ClipboardImageEvidence @ref="clipboardEvidence" OnDocumentsChanged="SetClipboardImageCount">
+<section class="invoice-intake-page contract-intake-page">
+    <header class="invoice-intake-header">
+        <div><h1>Register contract</h1><p>Choose a framework and enter the signed contract details.</p></div>
+        <button type="button" class="invoice-command" @onclick="ConfirmCancelAsync">Back <span aria-hidden="true">←</span></button>
     </header>
 
-    @if (selectedFramework is null)
+    @if (submission is not null)
     {
-        <section class="framework-choice-panel" aria-labelledby="choose-framework">
-            <p class="eyebrow">Step 1 of 2</p>
-            <h2 id="choose-framework">Which framework is this contract for?</h2>
-            <p>Choose an agreement that is open to new contracts to load the right set of fields. Reporting-only frameworks remain available for invoices against existing contract records.</p>
-            <div class="framework-choice-grid">
-                @foreach (var definition in availableFrameworks)
-                {
-                    <button class="framework-choice" @onclick="@(() => SelectFramework(definition.Code))">
-                        <span>@definition.AgreementNumber</span><strong>@definition.DisplayName</strong><small>@FrameworkFieldsSummary(definition.Code)</small><b>Continue <span aria-hidden="true">→</span></b>
-                    </button>
-                }
-            </div>
-        </section>
+        <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
     }
-    else
-    {
-        <section class="registration-framework-context">
-            <span>Framework</span><strong>@Frameworks.Get(selectedFramework.Value).DisplayName (@Frameworks.Get(selectedFramework.Value).AgreementNumber)</strong><button @onclick="ChooseAnotherFramework">Change</button>
+
+    <section class="invoice-intake-surface">
+        <section class="invoice-contract-section">
+            <h2>Framework</h2>
+            <label class="floating-field floating-field--static">
+                <select aria-label="Framework" value="@selectedFramework?.ToString()" @onchange="SelectFramework">
+                    <option value="">Select a framework</option>
+                    @foreach (var definition in availableFrameworks)
+                    {
+                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
+                    }
+                </select>
+                <span class="floating-label">Framework</span>
+            </label>
         </section>
 
-        @if (submission is not null)
+        @if (selectedFramework is FrameworkCode framework)
         {
-            <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
-        }
+            <section class="invoice-contract-summary contract-framework-summary">
+                <div>
+                    <strong>@Frameworks.Get(framework).DisplayName</strong>
+                    <span>@Frameworks.Get(framework).AgreementNumber</span>
+                </div>
+            </section>
 
-        <section class="registration-form-panel">
-            <header><p class="eyebrow">Step 2 of 2</p><h2>Contract information</h2><p>All fields below are required to create a usable contract record.</p></header>
-            <div class="registration-section"><h3>Shared register details</h3>
-                <div class="form-grid">
-                    <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" @bind:event="oninput" placeholder="e.g. ABC_202608_GMS" /></label>
+            <section class="invoice-details-section">
+                <header><h2>Contract details</h2></header>
+                <div class="invoice-details-grid">
+                    <label class="floating-field"><input required @bind="supplierReference" @bind:event="oninput" placeholder=" " /><span class="floating-label">Supplier reference</span></label>
                     <div class="urn-customer-field">
-                        <label>Customer organisation <span class="required">required</span><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" /></label>
+                        <label class="floating-field"><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" placeholder=" " /><span class="floating-label">Customer organisation</span></label>
                         @if (urnSuggestions.Count != 0)
                         {
                             <div id="customer-urn-suggestions" class="urn-suggestions" role="listbox" aria-label="Customer URN suggestions">
@@ -57,36 +60,45 @@
                             </div>
                         }
                     </div>
-                    <label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:event="oninput" /></label>
-                    <label>Contract start date <span class="required">required</span><input required type="date" @bind="startDate" /></label>
-                    <label>Contract end date <span class="required">required</span><input required type="date" @bind="endDate" /></label>
-                    <label>Contract value, ex VAT <span class="required">required</span><input required type="number" min="0.01" step="0.01" @bind="contractValue" /></label>
+                    <label class="floating-field floating-field--static">
+                        <select required @bind="reportingMonth">
+                            @foreach (var month in ReportingMonthOptions)
+                            {
+                                <option value="@month">@DisplayReportingMonth(month)</option>
+                            }
+                        </select>
+                        <span class="floating-label">Reporting month</span>
+                    </label>
+                    <label class="floating-field floating-field--static"><input required type="date" @bind="startDate" /><span class="floating-label">Contract start date</span></label>
+                    <label class="floating-field floating-field--static"><input required type="date" @bind="endDate" /><span class="floating-label">Contract end date</span></label>
+                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" min="0.01" step="0.01" @bind="contractValue" /><span class="floating-label">Contract value, ex VAT</span></label>
                 </div>
-            </div>
+            </section>
 
-            @if (IsGCloud)
-            {
-                <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3>
-                    <div class="form-grid">
-                        <label>Service group <span class="required">required</span><input required @bind="serviceGroup" @bind:event="oninput" /></label>
-                        <label>Digital Marketplace service ID <span class="required">required</span><input required @bind="digitalMarketplaceServiceId" @bind:event="oninput" /></label>
-                    </div>
-                </section>
-            }
-            else
-            {
-                <section class="registration-section framework-fields"><h3>VAS contract details</h3>
-                    <div class="form-grid">
-                        <label>Product or service description <span class="required">required</span><input required @bind="serviceDescription" @bind:event="oninput" /></label>
-                        <label>Order channel <span class="required">required</span><input required @bind="orderChannel" @bind:event="oninput" /></label>
-                    </div>
-                </section>
-            }
+            <section class="invoice-details-section contract-framework-details">
+                <header><h2>@(IsGCloud ? "G-Cloud details" : "VAS details")</h2></header>
+                <div class="invoice-details-grid">
+                    @if (IsGCloud)
+                    {
+                        <label class="floating-field"><input required placeholder=" " @bind="serviceGroup" @bind:event="oninput" /><span class="floating-label">Service group</span></label>
+                        <label class="floating-field"><input required placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                    }
+                    else
+                    {
+                        <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">Product or service description</span></label>
+                        <label class="floating-field"><input required placeholder=" " @bind="orderChannel" @bind:event="oninput" /><span class="floating-label">Order channel</span></label>
+                    }
+                </div>
+            </section>
 
-            <div class="action-row"><button class="button primary" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Registering…" : "Register")</button><a class="button secondary" href="/contracts">Cancel</a></div>
-        </section>
-    }
+            <footer class="invoice-intake-actions">
+                <button type="button" class="invoice-command invoice-command-muted" @onclick="ConfirmCancelAsync">Cancel</button>
+                <button type="button" class="invoice-command invoice-command-save" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Saving…" : "Save contract")</button>
+            </footer>
+        }
+    </section>
 </section>
+</ClipboardImageEvidence>
 
 @code {
     private FrameworkCode? selectedFramework;
@@ -94,6 +106,7 @@
     private string customerName = string.Empty;
     private string customerUrn = string.Empty;
     private string reportingMonth = string.Empty;
+    private string initialReportingMonth = string.Empty;
     private DateOnly? startDate;
     private DateOnly? endDate;
     private decimal contractValue;
@@ -104,26 +117,41 @@
     private ReturnActionResult? submission;
     private bool working;
     private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
+    private ClipboardImageEvidence? clipboardEvidence;
+    private int clipboardImageCount;
 
     private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
     private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
         Frameworks.All.Where(item => item.AllowsNewContracts).ToList();
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
     private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
-
-    protected override void OnInitialized() => reportingMonth = ReportingPeriod.SelectedPeriod;
-
-    private void SelectFramework(FrameworkCode framework)
+    private bool HasUnsavedContractChanges => !string.IsNullOrWhiteSpace(supplierReference) || !string.IsNullOrWhiteSpace(customerName) || startDate is not null || endDate is not null || contractValue != 0 || !string.IsNullOrWhiteSpace(serviceGroup) || !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) || !string.IsNullOrWhiteSpace(serviceDescription) || !string.IsNullOrWhiteSpace(orderChannel) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as contract evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
+    private IReadOnlyList<string> ReportingMonthOptions
     {
-        if (!Frameworks.AllowsNewContracts(framework))
+        get
         {
+            var selectedMonth = DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out var parsed)
+                ? parsed
+                : DateOnly.FromDateTime(DateTime.Today);
+            var firstMonth = new DateOnly(selectedMonth.Year, selectedMonth.Month, 1).AddMonths(-36);
+            return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
+        }
+    }
+
+    protected override void OnInitialized() => reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
+
+    private void SelectFramework(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<FrameworkCode>(args.Value?.ToString(), out var framework) || !Frameworks.AllowsNewContracts(framework))
+        {
+            selectedFramework = null;
             return;
         }
 
         selectedFramework = framework;
         submission = null;
     }
-    private void ChooseAnotherFramework() { selectedFramework = null; submission = null; }
 
     private async Task SearchCustomerUrnsAsync()
     {
@@ -150,7 +178,14 @@
         try
         {
             submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, null, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", null));
-            if (submission.Succeeded) ResetForm();
+            if (submission.Succeeded)
+            {
+                if (clipboardImageCount != 0 && submission.EntityId is Guid contractId)
+                {
+                    await clipboardEvidence!.ArchiveAsync("contract", contractId);
+                }
+                ResetForm();
+            }
         }
         finally { working = false; }
     }
@@ -161,7 +196,17 @@
         urnSuggestions = [];
         startDate = endDate = null;
         contractValue = 0;
+        reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
+        clipboardImageCount = 0;
     }
 
-    private static string FrameworkFieldsSummary(FrameworkCode framework) => Frameworks.IsGCloud(framework) ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";
+    private async Task ConfirmCancelAsync()
+    {
+        if (HasUnsavedContractChanges && !await JsRuntime.InvokeAsync<bool>("confirm", "Discard the contract details you have entered?")) return;
+        Navigation.NavigateTo("/contracts");
+    }
+
+    private void SetClipboardImageCount(int count) => clipboardImageCount = count;
+
+    private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;
 }

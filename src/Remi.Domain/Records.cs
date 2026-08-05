@@ -70,6 +70,35 @@ public sealed record InvoiceRecord(
     string SourceWorkbook,
     DateTimeOffset CreatedAtUtc);
 
+/// <summary>
+/// A separately agreed change to an existing call-off.  Options in a call-off's payment
+/// schedule are not changes: they remain non-reportable until an agreement is recorded here.
+/// </summary>
+public enum ContractChangeKind
+{
+    Extension,
+    Variation,
+}
+
+public sealed record ContractChangeRecord(
+    Guid Id,
+    Guid ContractId,
+    ContractChangeKind Kind,
+    DateOnly AgreementDate,
+    DateOnly? EffectiveStartDate,
+    DateOnly? EffectiveEndDate,
+    decimal IncrementalValueExVat,
+    bool WasProvidedForInOriginalCallOff,
+    bool IsConfirmed,
+    string? Reference,
+    DateTimeOffset CreatedAtUtc);
+
+/// <summary>
+/// Keeps an invoice's MI fields on the invoice while retaining which agreed contract change it
+/// relates to for audit and payment-position calculations.
+/// </summary>
+public sealed record InvoiceContractChangeLink(Guid InvoiceId, Guid ContractChangeId);
+
 public sealed record InvoicePlanItem(
     Guid Id,
     Guid ContractId,
@@ -161,6 +190,10 @@ public sealed class RemiDatabase
     public List<ContractRecord> Contracts { get; init; } = [];
 
     public List<InvoiceRecord> Invoices { get; init; } = [];
+
+    public List<ContractChangeRecord> ContractChanges { get; init; } = [];
+
+    public List<InvoiceContractChangeLink> InvoiceContractChangeLinks { get; init; } = [];
 
     public List<InvoicePlanItem> InvoicePlanItems { get; init; } = [];
 

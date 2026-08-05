@@ -187,6 +187,31 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             CREATE INDEX IF NOT EXISTS ix_invoices_framework_reference
                 ON invoices (framework, supplier_reference);
 
+            CREATE TABLE IF NOT EXISTS contract_changes (
+                id TEXT PRIMARY KEY,
+                contract_id TEXT NOT NULL,
+                kind INTEGER NOT NULL,
+                agreement_date TEXT NOT NULL,
+                effective_start_date TEXT NULL,
+                effective_end_date TEXT NULL,
+                incremental_value_ex_vat TEXT NOT NULL,
+                was_provided_for_in_original_call_off INTEGER NOT NULL,
+                has_written_agreement INTEGER NOT NULL,
+                reference TEXT NULL,
+                created_at_utc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_contract_changes_contract_agreement
+                ON contract_changes (contract_id, agreement_date);
+
+            CREATE TABLE IF NOT EXISTS invoice_contract_change_links (
+                invoice_id TEXT PRIMARY KEY,
+                contract_change_id TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_invoice_contract_change_links_change
+                ON invoice_contract_change_links (contract_change_id);
+
             CREATE TABLE IF NOT EXISTS invoice_plan_items (
                 id TEXT PRIMARY KEY,
                 contract_id TEXT NOT NULL,
@@ -283,6 +308,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DROP TABLE IF EXISTS monthly_returns;
             DROP TABLE IF EXISTS charge_schedule_items;
             DROP TABLE IF EXISTS invoice_plan_items;
+            DROP TABLE IF EXISTS invoice_contract_change_links;
+            DROP TABLE IF EXISTS contract_changes;
             DROP TABLE IF EXISTS invoices;
             DROP TABLE IF EXISTS contracts;
             DROP TABLE IF EXISTS workspace_state;
@@ -295,6 +322,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         {
             Contracts = await LoadContractsAsync(connection, cancellationToken),
             Invoices = await LoadInvoicesAsync(connection, cancellationToken),
+            ContractChanges = await LoadContractChangesAsync(connection, cancellationToken),
+            InvoiceContractChangeLinks = await LoadInvoiceContractChangeLinksAsync(connection, cancellationToken),
             InvoicePlanItems = await LoadInvoicePlanItemsAsync(connection, cancellationToken),
             ChargeScheduleItems = await LoadChargeScheduleItemsAsync(connection, cancellationToken),
             MonthlyReturns = await LoadMonthlyReturnsAsync(connection, cancellationToken),
@@ -367,6 +396,43 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         }
 
         return invoices;
+    }
+
+    private static async Task<List<ContractChangeRecord>> LoadContractChangesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT id, contract_id, kind, agreement_date, effective_start_date, effective_end_date, incremental_value_ex_vat, was_provided_for_in_original_call_off, has_written_agreement, reference, created_at_utc FROM contract_changes ORDER BY agreement_date, created_at_utc, id;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var changes = new List<ContractChangeRecord>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            changes.Add(new ContractChangeRecord(
+                Guid.Parse(reader.GetString(0)),
+                Guid.Parse(reader.GetString(1)),
+                (ContractChangeKind)reader.GetInt32(2),
+                DateOnly.ParseExact(reader.GetString(3), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                NullableDate(reader, 4),
+                NullableDate(reader, 5),
+                Number(reader.GetString(6)),
+                reader.GetInt32(7) != 0,
+                reader.GetInt32(8) != 0,
+                NullableString(reader, 9),
+                Timestamp(reader.GetString(10))));
+        }
+
+        return changes;
+    }
+
+    private static async Task<List<InvoiceContractChangeLink>> LoadInvoiceContractChangeLinksAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT invoice_id, contract_change_id FROM invoice_contract_change_links ORDER BY invoice_id;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var links = new List<InvoiceContractChangeLink>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            links.Add(new InvoiceContractChangeLink(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1))));
+        }
+
+        return links;
     }
 
     private static async Task<List<InvoicePlanItem>> LoadInvoicePlanItemsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -519,6 +585,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DELETE FROM monthly_returns;
             DELETE FROM charge_schedule_items;
             DELETE FROM invoice_plan_items;
+            DELETE FROM invoice_contract_change_links;
+            DELETE FROM contract_changes;
             DELETE FROM invoices;
             DELETE FROM contracts;
             """, cancellationToken);
@@ -531,6 +599,16 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         foreach (var invoice in database.Invoices)
         {
             await InsertInvoiceAsync(connection, transaction, invoice, cancellationToken);
+        }
+
+        foreach (var change in database.ContractChanges)
+        {
+            await InsertContractChangeAsync(connection, transaction, change, cancellationToken);
+        }
+
+        foreach (var link in database.InvoiceContractChangeLinks)
+        {
+            await InsertInvoiceContractChangeLinkAsync(connection, transaction, link, cancellationToken);
         }
 
         foreach (var item in database.InvoicePlanItems)
@@ -617,6 +695,31 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         AddParameter(command, "$reportMonth", item.ReportMonth);
         AddParameter(command, "$sourceWorkbook", item.SourceWorkbook);
         AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertContractChangeAsync(SqliteConnection connection, SqliteTransaction transaction, ContractChangeRecord item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO contract_changes (id, contract_id, kind, agreement_date, effective_start_date, effective_end_date, incremental_value_ex_vat, was_provided_for_in_original_call_off, has_written_agreement, reference, created_at_utc) VALUES ($id, $contractId, $kind, $agreementDate, $effectiveStartDate, $effectiveEndDate, $incrementalValue, $providedFor, $writtenAgreement, $reference, $createdAtUtc);");
+        AddParameter(command, "$id", item.Id.ToString("D"));
+        AddParameter(command, "$contractId", item.ContractId.ToString("D"));
+        AddParameter(command, "$kind", (int)item.Kind);
+        AddParameter(command, "$agreementDate", Date(item.AgreementDate));
+        AddParameter(command, "$effectiveStartDate", Date(item.EffectiveStartDate));
+        AddParameter(command, "$effectiveEndDate", Date(item.EffectiveEndDate));
+        AddParameter(command, "$incrementalValue", Number(item.IncrementalValueExVat));
+        AddParameter(command, "$providedFor", item.WasProvidedForInOriginalCallOff ? 1 : 0);
+        AddParameter(command, "$writtenAgreement", item.IsConfirmed ? 1 : 0);
+        AddParameter(command, "$reference", item.Reference);
+        AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertInvoiceContractChangeLinkAsync(SqliteConnection connection, SqliteTransaction transaction, InvoiceContractChangeLink item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO invoice_contract_change_links (invoice_id, contract_change_id) VALUES ($invoiceId, $contractChangeId);");
+        AddParameter(command, "$invoiceId", item.InvoiceId.ToString("D"));
+        AddParameter(command, "$contractChangeId", item.ContractChangeId.ToString("D"));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

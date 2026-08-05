@@ -44,7 +44,7 @@ else
         <section class="contract-tab-shell">
             <div class="contract-tabs" role="tablist" aria-label="Invoice sections">
                 <button class="@TabClass("overview")" role="tab" aria-selected="@(activeTab == "overview")" @onclick="@(() => SetTab("overview"))">Overview</button>
-                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Evidence <span>@details.Evidence.Count</span></button>
+                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Documents <span>@details.Evidence.Count</span></button>
                 <button class="@TabClass("history")" role="tab" aria-selected="@(activeTab == "history")" @onclick="@(() => SetTab("history"))">Record history</button>
             </div>
 
@@ -58,6 +58,7 @@ else
 
                     @if (editing)
                     {
+                        <ClipboardImageEvidence @ref="invoiceClipboardEvidence" OnDocumentsChanged="SetInvoiceClipboardImageCount">
                         <section class="contract-edit-panel">
                             <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Invoice information</h2></div></div>
                             <div class="form-grid">
@@ -77,6 +78,7 @@ else
                             <div class="action-row"><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button></div>
                             @if (submission is not null) { <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p> }
                         </section>
+                        </ClipboardImageEvidence>
                     }
 
                     <div class="contract-overview-layout">
@@ -118,7 +120,7 @@ else
             }
             else if (activeTab == "evidence")
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Evidence archive</p><h2>Original supporting files</h2><p>Immutable copies retained alongside this invoice record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No evidence linked</strong><span>Archive invoice copies, credit notes and supporting documents against this record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Documents</p><h2>Supporting documents</h2><p>Immutable copies retained alongside this invoice record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add invoice copies, credit notes and other supporting documents to this invoice.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
             }
             else
             {
@@ -142,10 +144,13 @@ else
     private DateOnly? invoiceDate;
     private decimal? quantity, pricePerUnitExVat;
     private decimal totalCostExVat;
+    private ClipboardImageEvidence? invoiceClipboardEvidence;
+    private int invoiceClipboardImageCount;
 
     private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
     private bool CanSave => details is not null && IsValidReportingMonth(reportMonth) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0;
+    private string InvoiceClipboardEvidenceMessage => invoiceClipboardImageCount == 0 ? "Paste images here to add them to this invoice's evidence." : $"{invoiceClipboardImageCount} image{(invoiceClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
 
     protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;
     public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
@@ -176,13 +181,14 @@ else
         submission = null;
         try
         {
-            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi"));
-            if (submission.Succeeded) { await ReloadAsync(); editing = false; }
+            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi", details.ContractChange?.Id));
+            if (submission.Succeeded) { if (invoiceClipboardImageCount != 0) await invoiceClipboardEvidence!.ArchiveAsync("invoice", InvoiceId); invoiceClipboardImageCount = 0; await ReloadAsync(); editing = false; }
         }
         finally { saving = false; }
     }
 
     private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
+    private void SetInvoiceClipboardImageCount(int count) => invoiceClipboardImageCount = count;
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);

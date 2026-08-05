@@ -28,7 +28,7 @@ else
         <section class="register-workspace register-workspace-full" id="invoice-register">
             <article class="register-card">
                 <header class="register-card-header register-card-header-compact">
-                    <div><h2>Find and check invoices</h2><p>Contract matching and evidence are checked in one place.</p></div>
+                    <div><h2>Find and check invoices</h2><p>Contract matching and documents are checked in one place.</p></div>
                     <div class="register-result-count"><strong>@FilteredInvoices.Count</strong><span>matching invoices</span></div>
                 </header>
 
@@ -36,13 +36,13 @@ else
                     <label class="register-search">Search invoices<input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /></label>
                     <label>Framework<select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
                     <label>Contract match<select @bind="matchFilter" @bind:after="ResetPage"><option value="">All records</option><option value="matched">Matched</option><option value="unmatched">Needs a contract</option></select></label>
-                    <label>Evidence<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All evidence</option><option value="available">Evidence linked</option><option value="missing">Evidence missing</option></select></label>
+                    <label>Documents<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select></label>
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
                         <button class="@QuickButtonClass("current")" @onclick="@(() => SetQuickFilter("current"))">Selected period</button>
                         <button class="@QuickButtonClass("unmatched")" @onclick="@(() => SetQuickFilter("unmatched"))">Needs a contract</button>
-                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Evidence missing</button>
+                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Documents missing</button>
                         <button class="@QuickButtonClass("selected")" @onclick="@(() => SetQuickFilter("selected"))">Selected</button>
                     </div>
                 </div>
@@ -92,7 +92,7 @@ else
                                     else
                                     {
                                         @if (!invoice.HasMatchingContract) { <span class="register-status warning"><i aria-hidden="true"></i>Contract missing</span> }
-                                        @if (invoice.EvidenceCount == 0) { <span class="register-status warning"><i aria-hidden="true"></i>Evidence missing</span> }
+                                        @if (invoice.EvidenceCount == 0) { <span class="register-status warning"><i aria-hidden="true"></i>Documents missing</span> }
                                     }
                                 </td>
                             </tr>

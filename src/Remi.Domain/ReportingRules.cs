@@ -10,6 +10,7 @@ public static class ReportingRules
         ValidateContracts(database.Contracts, findings);
         ValidateInvoices(database, findings);
         ValidateChargeSchedule(database, findings);
+        ValidateContractChanges(database, findings);
         return findings;
     }
 
@@ -137,6 +138,53 @@ public static class ReportingRules
                     "Each charge schedule item needs a description and a positive ex-VAT value.",
                     "ChargeSchedule",
                     item.Id));
+            }
+        }
+    }
+
+    private static void ValidateContractChanges(RemiDatabase database, ICollection<ValidationFinding> findings)
+    {
+        var contractIds = database.Contracts.Select(contract => contract.Id).ToHashSet();
+        foreach (var change in database.ContractChanges)
+        {
+            if (!contractIds.Contains(change.ContractId))
+            {
+                findings.Add(Error("ContractChangeContractNotFound", "The contract change is not linked to a contract.", "ContractChange", change.Id));
+            }
+
+            if (change.IncrementalValueExVat == 0)
+            {
+                findings.Add(Error("InvalidContractChangeValue", "A contract change needs a non-zero incremental ex-VAT value.", "ContractChange", change.Id));
+            }
+
+            if (change.Kind == ContractChangeKind.Extension && change.IncrementalValueExVat < 0)
+            {
+                findings.Add(Error("InvalidExtensionValue", "An extension needs a positive incremental ex-VAT value.", "ContractChange", change.Id));
+            }
+
+            if (change.EffectiveStartDate is not null && change.EffectiveEndDate is not null && change.EffectiveEndDate < change.EffectiveStartDate)
+            {
+                findings.Add(Error("ContractChangeEndBeforeStart", "The contract change effective end date is earlier than its start date.", "ContractChange", change.Id));
+            }
+
+            if (!change.WasProvidedForInOriginalCallOff)
+            {
+                findings.Add(new ValidationFinding(FindingSeverity.Warning, "ChangeNotProvidedFor", "This change was not recorded as provided for in the original call-off.", "ContractChange", change.Id));
+            }
+
+            if (!change.IsConfirmed)
+            {
+                findings.Add(new ValidationFinding(FindingSeverity.Warning, "ContractChangeUnconfirmed", "This contract change is awaiting confirmation.", "ContractChange", change.Id));
+            }
+        }
+
+        var changeIds = database.ContractChanges.Select(change => change.Id).ToHashSet();
+        var invoiceIds = database.Invoices.Select(invoice => invoice.Id).ToHashSet();
+        foreach (var link in database.InvoiceContractChangeLinks)
+        {
+            if (!invoiceIds.Contains(link.InvoiceId) || !changeIds.Contains(link.ContractChangeId))
+            {
+                findings.Add(Error("InvoiceContractChangeLinkInvalid", "An invoice-to-contract-change link is incomplete.", "Invoice", link.InvoiceId));
             }
         }
     }

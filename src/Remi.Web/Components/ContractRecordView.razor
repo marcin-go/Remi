@@ -47,8 +47,9 @@ else
         <section class="contract-tab-shell">
             <div class="contract-tabs" role="tablist" aria-label="Contract sections">
                 <button class="@TabClass("overview")" role="tab" aria-selected="@(activeTab == "overview")" @onclick="@(() => SetTab("overview"))">Overview</button>
+                <button class="@TabClass("changes")" role="tab" aria-selected="@(activeTab == "changes")" @onclick="@(() => SetTab("changes"))">Changes <span>@details.ContractChanges.Count</span></button>
                 <button class="@TabClass("invoices")" role="tab" aria-selected="@(activeTab == "invoices")" @onclick="@(() => SetTab("invoices"))">Invoices <span>@details.Invoices.Count</span></button>
-                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Evidence <span>@details.Evidence.Count</span></button>
+                <button class="@TabClass("evidence")" role="tab" aria-selected="@(activeTab == "evidence")" @onclick="@(() => SetTab("evidence"))">Documents <span>@details.Evidence.Count</span></button>
                 <button class="@TabClass("history")" role="tab" aria-selected="@(activeTab == "history")" @onclick="@(() => SetTab("history"))">Record history</button>
             </div>
 
@@ -61,6 +62,7 @@ else
                     }
                     @if (editingContract)
                     {
+                        <ClipboardImageEvidence @ref="contractClipboardEvidence" OnDocumentsChanged="SetContractClipboardImageCount">
                         <section class="contract-edit-panel">
                             <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Contract information</h2></div></div>
                             <div class="form-grid">
@@ -77,6 +79,7 @@ else
                             <div class="action-row"><button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save")</button></div>
                             @if (contractSubmission is not null) { <p class="notice @(contractSubmission.Succeeded ? "success" : "error")" role="status">@contractSubmission.Message</p> }
                         </section>
+                        </ClipboardImageEvidence>
                     }
                     <div class="contract-overview-layout">
                         <article class="contract-content-card">
@@ -137,6 +140,41 @@ else
                     </div>
                 </div>
             }
+            else if (activeTab == "changes")
+            {
+                <div class="contract-tab-panel" role="tabpanel">
+                    <article class="contract-content-card">
+                        <header class="contract-card-head"><div><p class="eyebrow">Agreed changes</p><h2>Extensions and variations</h2><p>Options are not reported until an agreement is recorded. Each agreement reports once, in its agreement month.</p></div><button class="button primary" @onclick="ToggleChangeForm">@(showChangeForm ? "Close" : "Register")</button></header>
+                        @if (showChangeForm)
+                        {
+                            <ClipboardImageEvidence @ref="changeClipboardEvidence" OnDocumentsChanged="SetChangeClipboardDocumentCount">
+                            <section class="contract-invoice-form">
+                                <header class="contract-invoice-form-heading"><h3>Register a contract change</h3><span>The agreement date determines the MI reporting month.</span></header>
+                                <div class="invoice-details-grid contract-invoice-fields">
+                                    <label class="floating-field floating-field--static"><select @bind="changeKind"><option value="@ContractChangeKind.Extension">Extension</option><option value="@ContractChangeKind.Variation">Variation</option></select><span class="floating-label">Change type</span></label>
+                                    <label class="floating-field floating-field--static"><input required type="date" @bind="changeAgreementDate" /><span class="floating-label">Agreement date</span></label>
+                                    <label class="floating-field floating-field--static"><input type="date" @bind="changeEffectiveStartDate" /><span class="floating-label">Effective start date</span></label>
+                                    <label class="floating-field floating-field--static"><input type="date" @bind="changeEffectiveEndDate" /><span class="floating-label">Effective end date</span></label>
+                                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="changeIncrementalValue" /><span class="floating-label">Incremental value, ex VAT</span></label>
+                                    <label class="floating-field"><input placeholder=" " @bind="changeReference" /><span class="floating-label">Agreement reference (optional)</span></label>
+                                </div>
+                                <div class="contract-change-checks"><label><input type="checkbox" @bind="changeProvidedFor" /> Provided for in the original call-off</label><label><input type="checkbox" @bind="changeIsConfirmed" /> Confirm now</label></div>
+                                <footer class="contract-invoice-actions"><button type="button" class="invoice-command invoice-command-muted" @onclick="ToggleChangeForm">Cancel</button><button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecordChange || changeWorking)" @onclick="RecordChangeAsync">@(changeWorking ? "Saving…" : "Save change")</button></footer>
+                                @if (changeSubmission is not null) { <p class="notice @(changeSubmission.Succeeded ? "success" : "error")" role="status">@changeSubmission.Message</p> }
+                            </section>
+                            </ClipboardImageEvidence>
+                        }
+                        @if (details.ContractChanges.Count == 0)
+                        {
+                            <div class="contract-empty-inline"><strong>No agreed changes recorded</strong><span>Unexercised optional years remain outside the awarded contract value.</span></div>
+                        }
+                        else
+                        {
+                            <div class="table-wrap"><table><thead><tr><th>Type</th><th>Agreement date</th><th>Effective period</th><th>Incremental value</th><th>Confirmation</th></tr></thead><tbody>@foreach (var change in details.ContractChanges) { <tr><td>@change.Kind</td><td>@Display(change.AgreementDate)</td><td>@DisplayPeriod(change.EffectiveStartDate, change.EffectiveEndDate)</td><td>@Currency(change.IncrementalValueExVat)</td><td>@if (change.IsConfirmed) { <span>Confirmed</span> } else { <button class="button secondary" disabled="@(confirmingChangeId == change.Id)" @onclick="@(() => ConfirmChangeAsync(change.Id))">@(confirmingChangeId == change.Id ? "Confirming…" : "Confirm")</button> }</td></tr> }</tbody></table></div>
+                        }
+                    </article>
+                </div>
+            }
             else if (activeTab == "invoices")
             {
                 <div class="contract-tab-panel" role="tabpanel">
@@ -145,9 +183,19 @@ else
                         @if (showInvoiceForm)
                         {
                             <section class="contract-invoice-form">
-                                <h3>Register an invoice</h3><div class="contract-invoice-context"><strong>@details.Contract.SupplierReference</strong><span>@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</span></div>
-                                <div class="form-grid"><label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" @bind:event="oninput" /></label><label>Invoice or credit note date <span class="required">required</span><input required type="date" @bind="invoiceDate" /></label><label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="invoiceReportingMonth" @bind:event="oninput" /></label><label>Total cost, ex VAT <span class="required">required</span><input required type="number" step="0.01" @bind="invoiceTotalExVat" /></label><label>Unit of measure <span class="optional">optional</span><input @bind="unitOfMeasure" @bind:event="oninput" placeholder="e.g. licence, day or each" /></label><label>Quantity <span class="optional">optional</span><input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT <span class="optional">optional</span><input type="number" step="0.01" @bind="pricePerUnitExVat" /></label><label>Original vendor <span class="optional">optional</span><input @bind="originalVendor" @bind:event="oninput" /></label><label>Subcontractor name <span class="optional">optional</span><input @bind="subcontractorName" @bind:event="oninput" /></label></div>
-                                <p class="caption">Use a negative total for a credit note. Service fields, lot, order channel and Marketplace ID are copied from the registered contract.</p><div class="action-row"><button class="button primary" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Recording…" : "Register")</button></div>
+                                <header class="contract-invoice-form-heading"><h3>Register invoice</h3><span>Contract details are inherited automatically.</span></header>
+                                <div class="invoice-contract-summary contract-invoice-context"><div><strong>@details.Contract.SupplierReference <span aria-hidden="true">·</span> @details.Contract.CustomerName</strong><span>@Frameworks.Get(details.Contract.Framework).DisplayName <span aria-hidden="true">·</span> @Frameworks.Get(details.Contract.Framework).AgreementNumber</span></div></div>
+                                <div class="invoice-details-grid contract-invoice-fields">
+                                    <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" @bind:event="oninput" /><span class="floating-label">Invoice or credit note number</span></label>
+                                    <label class="floating-field floating-field--static"><input required type="date" @bind="invoiceDate" /><span class="floating-label">Invoice or credit note date</span></label>
+                                    <label class="floating-field floating-field--static"><select required @bind="invoiceReportingMonth">@foreach (var month in InvoiceReportingMonthOptions) { <option value="@month">@DisplayReportingMonth(month)</option> }</select><span class="floating-label">Reporting month</span></label>
+                                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="invoiceTotalExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
+                                    @if (details.ContractChanges.Count != 0) { <label class="floating-field floating-field--static"><select @bind="invoiceContractChangeId"><option value="">Original contract</option>@foreach (var change in details.ContractChanges) { <option value="@change.Id">@ChangeDescription(change)</option> }</select><span class="floating-label">Contract segment</span></label> }
+                                </div>
+                                <p class="invoice-field-help">Use a negative total for a credit note.</p>
+                                @if (InvoiceMayRevealChange) { <p class="notice warning">This invoice exceeds the remaining recorded contract value by @Currency(InvoiceOverage). It may reveal an extension or variation—record it in the Changes tab.</p> }
+                                @if (SelectedInvoiceChange is { IsConfirmed: false }) { <p class="notice warning">The selected @SelectedInvoiceChange.Kind.ToString().ToLowerInvariant() is awaiting confirmation. The invoice can still be linked to it.</p> }
+                                <footer class="contract-invoice-actions"><button type="button" class="invoice-command invoice-command-muted" @onclick="ShowInvoiceForm">Cancel</button><button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Saving…" : "Save invoice")</button></footer>
                                 @if (invoiceSubmission is not null) { <p class="notice @(invoiceSubmission.Succeeded ? "success" : "error")" role="status">@invoiceSubmission.Message</p>@if (invoiceSubmission.Findings.Count != 0) { <ul class="findings inline-findings">@foreach (var finding in invoiceSubmission.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li> }</ul> } }
                             </section>
                         }
@@ -166,7 +214,7 @@ else
             }
             else if (activeTab == "evidence")
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Evidence archive</p><h2>Original supporting files</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No evidence linked</strong><span>Archive signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Documents</p><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
             }
             else
             {
@@ -186,11 +234,7 @@ else
     private DateOnly? invoiceDate;
     private string invoiceReportingMonth = string.Empty;
     private decimal invoiceTotalExVat;
-    private string unitOfMeasure = string.Empty;
-    private decimal? quantity;
-    private decimal? pricePerUnitExVat;
-    private string originalVendor = string.Empty;
-    private string subcontractorName = string.Empty;
+    private Guid? invoiceContractChangeId;
     private ReturnActionResult? invoiceSubmission;
     private bool invoiceWorking;
     private bool editingContract;
@@ -204,21 +248,51 @@ else
     private bool scheduleWorking;
     private ReturnActionResult? scheduleSubmission;
     private List<EditableSchedulePosition> editableSchedule = [];
+    private bool showChangeForm;
+    private bool changeWorking;
+    private ReturnActionResult? changeSubmission;
+    private ContractChangeKind changeKind = ContractChangeKind.Extension;
+    private DateOnly? changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate;
+    private decimal changeIncrementalValue;
+    private bool changeProvidedFor, changeIsConfirmed;
+    private Guid? confirmingChangeId;
+    private string changeReference = string.Empty;
+    private ClipboardImageEvidence? changeClipboardEvidence;
+    private int changeClipboardDocumentCount;
+    private ClipboardImageEvidence? contractClipboardEvidence;
+    private int contractClipboardImageCount;
 
     private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
     private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
+    private decimal RemainingContractValue => details is null ? 0 : Math.Max(0, details.Contract.TotalContractValueExVat + details.ContractChanges.Sum(change => change.IncrementalValueExVat) - InvoicedValue);
+    private ContractChangeRecord? SelectedInvoiceChange => invoiceContractChangeId is Guid changeId ? details?.ContractChanges.SingleOrDefault(change => change.Id == changeId) : null;
     private int ReportingMonthCount => details?.Invoices.Select(item => item.ReportMonth).Distinct(StringComparer.Ordinal).Count() ?? 0;
     private decimal InvoiceRatio => details is null || details.Contract.TotalContractValueExVat <= 0 ? 0 : InvoicedValue / details.Contract.TotalContractValueExVat;
     private string InvoiceProgressWidth => $"{Math.Clamp(InvoiceRatio * 100, 0, 100):0.##}%";
     private string InvoicePercent => $"{InvoiceRatio * 100:0.#}%";
     private string LotAndFramework => $"{(string.IsNullOrWhiteSpace(details!.Contract.LotNumber) ? "No lot recorded" : $"Lot {details.Contract.LotNumber}")} · {Frameworks.Get(details.Contract.Framework).DisplayName}";
-    private string ContractTerm => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Math.Max(0, (details.Contract.EndDate.Value.Year - details.Contract.StartDate.Value.Year) * 12 + details.Contract.EndDate.Value.Month - details.Contract.StartDate.Value.Month)} months" : "Not recorded";
+    private string ContractTerm => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{FullContractMonths(details.Contract.StartDate.Value, details.Contract.EndDate.Value)} months" : "Not recorded";
     private string DateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
     private bool HasCustomerUrn => !string.IsNullOrWhiteSpace(details?.Contract.CustomerUrn);
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference) && !string.IsNullOrWhiteSpace(details.Contract.CustomerName) && details.Contract.StartDate is not null && details.Contract.EndDate is not null && details.Contract.TotalContractValueExVat > 0;
     private bool IsValidInvoiceReportingMonth => IsValidReportingMonth(invoiceReportingMonth);
     private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat != 0;
+    private bool InvoiceMayRevealChange => details is not null && invoiceTotalExVat > RemainingContractValue;
+    private decimal InvoiceOverage => Math.Max(0, invoiceTotalExVat - RemainingContractValue);
+    private bool CanRecordChange => details is not null && changeAgreementDate is not null && changeIncrementalValue != 0;
+    private IReadOnlyList<string> InvoiceReportingMonthOptions
+    {
+        get
+        {
+            var selectedMonth = DateOnly.TryParseExact($"{invoiceReportingMonth}-01", "yyyy-MM-dd", out var parsed)
+                ? parsed
+                : DateOnly.FromDateTime(DateTime.Today);
+            var firstMonth = new DateOnly(selectedMonth.Year, selectedMonth.Month, 1).AddMonths(-36);
+            return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
+        }
+    }
     private bool CanSaveContract => details is not null && IsValidReportingMonth(editReportingMonth) && !string.IsNullOrWhiteSpace(editSupplierReference) && !string.IsNullOrWhiteSpace(editCustomerName) && editContractValue > 0;
+    private string ContractClipboardEvidenceMessage => contractClipboardImageCount == 0 ? "Paste images here to add them to this contract's evidence." : $"{contractClipboardImageCount} image{(contractClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private bool CanSaveSchedule => editableSchedule.Count != 0 && editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ValueExVat > 0);
 
     protected override void OnInitialized()
@@ -240,6 +314,7 @@ else
 
     private void SetTab(string tab) => activeTab = tab;
     private void ShowInvoiceForm() { showInvoiceForm = !showInvoiceForm; invoiceSubmission = null; }
+    private void ToggleChangeForm() { showChangeForm = !showChangeForm; changeSubmission = null; if (!showChangeForm) ResetChangeForm(); }
     private void ToggleContractEditor() { editingContract = !editingContract; contractSubmission = null; if (editingContract) PopulateContractEditor(); }
     private void ToggleScheduleEditor() { editingSchedule = !editingSchedule; scheduleSubmission = null; if (editingSchedule) PopulateScheduleEditor(); }
     private void AddSchedulePosition() => editableSchedule.Add(new EditableSchedulePosition());
@@ -260,7 +335,7 @@ else
         try
         {
             contractSubmission = await Workspace.UpdateContractAsync(ContractId, new ContractEntry(editFramework, editSupplierReference, editCustomerName, editCustomerUrn, editStartDate, editEndDate, editLotNumber, editServiceGroup, editServiceGroupLevel2, editServiceDescription, editOrderChannel, editMarketplaceServiceId, editContractValue, editReportingMonth, "Edited in Remi"));
-            if (contractSubmission.Succeeded) { details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingContract = false; PopulateEditors(); }
+            if (contractSubmission.Succeeded) { if (contractClipboardImageCount != 0) await contractClipboardEvidence!.ArchiveAsync("contract", ContractId); contractClipboardImageCount = 0; details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingContract = false; PopulateEditors(); }
         }
         finally { contractWorking = false; }
     }
@@ -290,7 +365,7 @@ else
         invoiceSubmission = null;
         try
         {
-            invoiceSubmission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(contract.Framework, contract.SupplierReference, contract.CustomerName, contract.CustomerUrn, invoiceDate, invoiceNumber, contract.LotNumber, contract.ServiceGroup, contract.ServiceGroupLevel2, contract.ServiceDescription, contract.OrderChannel, contract.DigitalMarketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, invoiceTotalExVat, originalVendor, subcontractorName, invoiceReportingMonth, "Manual invoice registration"));
+            invoiceSubmission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(contract.Framework, contract.SupplierReference, contract.CustomerName, contract.CustomerUrn, invoiceDate, invoiceNumber, contract.LotNumber, contract.ServiceGroup, contract.ServiceGroupLevel2, contract.ServiceDescription, contract.OrderChannel, contract.DigitalMarketplaceServiceId, null, null, null, invoiceTotalExVat, null, null, invoiceReportingMonth, "Manual invoice registration", invoiceContractChangeId));
             if (invoiceSubmission.Succeeded)
             {
                 ResetInvoiceForm();
@@ -303,11 +378,62 @@ else
 
     private void ResetInvoiceForm()
     {
-        invoiceNumber = unitOfMeasure = originalVendor = subcontractorName = string.Empty;
+        invoiceNumber = string.Empty;
         invoiceDate = null;
         invoiceTotalExVat = 0;
-        quantity = pricePerUnitExVat = null;
+        invoiceContractChangeId = null;
         invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
+    }
+
+    private async Task RecordChangeAsync()
+    {
+        if (!CanRecordChange) return;
+        changeWorking = true;
+        changeSubmission = null;
+        try
+        {
+            changeSubmission = await Workspace.RecordContractChangeAsync(new ContractChangeEntry(ContractId, changeKind, changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate, changeIncrementalValue, changeProvidedFor, changeIsConfirmed, changeReference));
+            if (changeSubmission.Succeeded)
+            {
+                if (changeClipboardDocumentCount != 0 && changeSubmission.EntityId is Guid changeId)
+                {
+                    await changeClipboardEvidence!.ArchiveAsync("contract-change", changeId);
+                }
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+                showChangeForm = false;
+                ResetChangeForm();
+            }
+        }
+        finally { changeWorking = false; }
+    }
+
+    private void ResetChangeForm()
+    {
+        changeKind = ContractChangeKind.Extension;
+        changeAgreementDate = changeEffectiveStartDate = changeEffectiveEndDate = null;
+        changeIncrementalValue = 0;
+        changeProvidedFor = changeIsConfirmed = false;
+        changeReference = string.Empty;
+        changeClipboardDocumentCount = 0;
+    }
+
+    private void SetContractClipboardImageCount(int count) => contractClipboardImageCount = count;
+    private void SetChangeClipboardDocumentCount(int count) => changeClipboardDocumentCount = count;
+
+    private async Task ConfirmChangeAsync(Guid changeId)
+    {
+        confirmingChangeId = changeId;
+        try
+        {
+            changeSubmission = await Workspace.ConfirmContractChangeAsync(changeId);
+            if (changeSubmission.Succeeded)
+            {
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+            }
+        }
+        finally { confirmingChangeId = null; }
     }
 
     private void ReportingPeriodChanged()
@@ -323,11 +449,22 @@ else
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string InvoiceRoute(Guid invoiceId) => PeriodRoute($"invoices/{invoiceId}");
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
+    private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed) ? parsed.ToString("MMMM yyyy") : month;
     private static string StatusMark(bool complete) => complete ? "✓" : "!";
     private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;
     private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
     private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static int FullContractMonths(DateOnly start, DateOnly end)
+    {
+        var endExclusive = end == DateOnly.MaxValue ? end : end.AddDays(1);
+        var months = (endExclusive.Year - start.Year) * 12 + endExclusive.Month - start.Month;
+        if (endExclusive.Day < start.Day) months--;
+        return Math.Max(0, months);
+    }
+    private static string Display(DateOnly value) => value.ToString("dd MMM yyyy");
+    private static string DisplayPeriod(DateOnly? start, DateOnly? end) => start is null && end is null ? "Not recorded" : $"{Display(start)} – {Display(end)}";
+    private static string ChangeDescription(ContractChangeRecord change) => $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy} · {change.IncrementalValueExVat:C2}";
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", _ => action };
     private sealed class EditableSchedulePosition { public Guid? Id { get; init; } public int ContractYear { get; set; } = 1; public string Description { get; set; } = "Annual licence and maintenance"; public DateOnly? ExpectedInvoiceDate { get; set; } public decimal ValueExVat { get; set; } public bool IsOptionalExtension { get; set; } }

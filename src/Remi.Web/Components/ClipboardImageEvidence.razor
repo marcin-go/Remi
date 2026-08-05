@@ -1,0 +1,100 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime
+
+<div class="clipboard-evidence-layout" @ref="host">
+    <div class="clipboard-evidence-form">
+        @ChildContent
+    </div>
+    <aside class="clipboard-image-panel" aria-label="Documents ready to save">
+        <header><strong>Documents</strong><span>@(documents.Count == 0 ? "Add supporting files" : $"{documents.Count} ready to save")</span></header>
+        <label class="clipboard-document-dropzone"><input type="file" multiple /><strong>Drop files here</strong><span>or choose from disk</span></label>
+        @if (documents.Count != 0)
+        {
+            <div class="clipboard-image-list">
+                @foreach (var document in documents)
+                {
+                    <article class="clipboard-document-item">
+                        @if (document.PreviewDataUrl is not null) { <img src="@document.PreviewDataUrl" alt="@document.FileName" /> } else { <span class="clipboard-document-icon" aria-hidden="true">▧</span> }
+                        <div><label>Document title<input @bind="document.Title" @bind:event="oninput" /></label><small>@document.FileName</small></div>
+                        <button type="button" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName">Remove</button>
+                    </article>
+                }
+            </div>
+        }
+        else
+        {
+            <p class="clipboard-documents-empty">Paste screenshots, or add signed contracts, pricing and related files.</p>
+        }
+    </aside>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback<int> OnDocumentsChanged { get; set; }
+
+    private ElementReference host;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<ClipboardImageEvidence>? reference;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./clipboard-image-evidence.js");
+            reference = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("attach", host, reference);
+        }
+        catch (Exception)
+        {
+            // Static component tests do not provide a browser module runtime.
+        }
+    }
+
+    [JSInvokable]
+    public async Task DocumentAdded(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
+    {
+        documents.Add(new PendingDocument(id, fileName, contentType, fileSizeBytes, previewDataUrl));
+        await OnDocumentsChanged.InvokeAsync(documents.Count);
+    }
+
+    public async Task<bool> ArchiveAsync(string entityType, Guid entityId)
+    {
+        if (module is null) return false;
+        var archivedCount = await module.InvokeAsync<int>("archive", host, entityType, entityId, documents.Select(document => new DocumentTitle(document.Id, document.Title)).ToList());
+        documents.Clear();
+        await OnDocumentsChanged.InvokeAsync(0);
+        return archivedCount != 0;
+    }
+
+    private async Task RemoveDocumentAsync(string id)
+    {
+        if (module is not null) await module.InvokeVoidAsync("remove", host, id);
+        documents.RemoveAll(document => document.Id == id);
+        await OnDocumentsChanged.InvokeAsync(documents.Count);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("dispose", host); }
+            catch (JSDisconnectedException) { }
+            await module.DisposeAsync();
+        }
+        reference?.Dispose();
+    }
+
+    private readonly List<PendingDocument> documents = [];
+    private sealed record DocumentTitle(string Id, string Title);
+    private sealed class PendingDocument(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
+    {
+        public string Id { get; } = id;
+        public string FileName { get; } = fileName;
+        public string ContentType { get; } = contentType;
+        public long FileSizeBytes { get; } = fileSizeBytes;
+        public string? PreviewDataUrl { get; } = previewDataUrl;
+        public string Title { get; set; } = Path.GetFileNameWithoutExtension(fileName);
+    }
+}

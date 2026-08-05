@@ -28,20 +28,20 @@ else
         <section class="register-workspace register-workspace-full" id="contract-register">
             <article class="register-card">
                 <header class="register-card-header register-card-header-compact">
-                    <div><h2>Find and check contracts</h2><p>Evidence and reported value are visible before review.</p></div>
+                    <div><h2>Find and check contracts</h2><p>Documents and reported value are visible before review.</p></div>
                     <div class="register-result-count"><strong>@FilteredContracts.Count</strong><span>matching contracts</span></div>
                 </header>
 
                 <div class="register-filters">
                     <label class="register-search">Search contracts<input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Reference, customer or supplier" /></label>
                     <label>Framework<select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
-                    <label>Evidence<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All evidence</option><option value="available">Evidence linked</option><option value="missing">Evidence missing</option></select></label>
+                    <label>Documents<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select></label>
                     <label>Progress<select @bind="progressFilter" @bind:after="ResetPage"><option value="">Any progress</option><option value="not-started">Not started</option><option value="in-progress">In progress</option><option value="complete">Complete</option></select></label>
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
-                        <button class="@QuickButtonClass("available")" @onclick="@(() => SetQuickFilter("available"))">Evidence linked</button>
-                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Evidence missing</button>
+                        <button class="@QuickButtonClass("available")" @onclick="@(() => SetQuickFilter("available"))">Documents linked</button>
+                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Documents missing</button>
                         <button class="@QuickButtonClass("expiring")" @onclick="@(() => SetQuickFilter("expiring"))">Expiring soon</button>
                         <button class="@QuickButtonClass("period")" @onclick="@(() => SetQuickFilter("period"))">Selected period</button>
                         <button class="@QuickButtonClass("selected")" @onclick="@(() => SetQuickFilter("selected"))">Selected</button>
@@ -68,7 +68,7 @@ else
                             <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
                             <th aria-sort="@SortAria("endDate")"><button class="table-sort" @onclick="@(() => SortBy("endDate"))">End date <span aria-hidden="true">@SortIndicator("endDate")</span></button></th>
                             <th aria-sort="@SortAria("value")"><button class="table-sort" @onclick="@(() => SortBy("value"))">Value <span aria-hidden="true">@SortIndicator("value")</span></button></th>
-                            <th aria-sort="@SortAria("evidence")"><button class="table-sort" @onclick="@(() => SortBy("evidence"))">Evidence <span aria-hidden="true">@SortIndicator("evidence")</span></button></th>
+                            <th aria-sort="@SortAria("evidence")"><button class="table-sort" @onclick="@(() => SortBy("evidence"))">Documents <span aria-hidden="true">@SortIndicator("evidence")</span></button></th>
                             <th aria-sort="@SortAria("progress")"><button class="table-sort" @onclick="@(() => SortBy("progress"))">Progress <span aria-hidden="true">@SortIndicator("progress")</span></button></th>
                         </tr></thead>
                         <tbody>
@@ -82,7 +82,7 @@ else
                                 <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" aria-label="Select @contract.SupplierReference" /></td>
                                 <td><a class="register-reference" href="@ContractRoute(contract.ContractId)">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName</span></td>
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
-                                <td class="register-date">@DisplayDate(contract.EndDate)</td>
+                                <td class="register-date"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span><span>@DisplayDate(contract.EndDate)</span></td>
                                 <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
                                 <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
@@ -228,6 +228,10 @@ else
     private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";
     private static string EvidenceStatus(ContractProgress contract) => contract.Evidence.Count > 0 ? "Linked" : "Missing";
     private static string EvidenceStatusClass(ContractProgress contract) => contract.Evidence.Count > 0 ? "register-status good" : "register-status warning";
+    private static bool IsEnded(ContractProgress contract) => contract.EndDate is not null && contract.EndDate < DateOnly.FromDateTime(DateTime.Today);
+    private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.UsesInvoicePlan && contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
+    private static string LifecycleStatus(ContractProgress contract) => !IsEnded(contract) ? "Live" : HasOutstandingPaymentPositions(contract) ? "Ended · payments open" : "Ended";
+    private static string LifecycleStatusClass(ContractProgress contract) => !IsEnded(contract) ? "register-status live" : HasOutstandingPaymentPositions(contract) ? "register-status ended-open" : "register-status ended";
     private static string DisplayDate(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
     private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
     private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";

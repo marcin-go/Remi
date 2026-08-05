@@ -190,6 +190,86 @@ public sealed class ReportingWorkflowTests
         Assert.Contains(database.AuditEvents, item => item.Action == "FrameworkStartDateUpdated");
     }
 
+    [Fact]
+    public async Task Agreed_extension_reports_once_in_its_agreement_month_and_optional_year_is_not_awarded_value()
+    {
+        var contractId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ChargeScheduleItems =
+            [
+                new ChargeScheduleItem(Guid.NewGuid(), contractId, 1, "Initial term", new DateOnly(2026, 1, 1), 1000, false, DateTimeOffset.UtcNow),
+                new ChargeScheduleItem(Guid.NewGuid(), contractId, 2, "Optional extension", new DateOnly(2027, 1, 1), 1000, true, DateTimeOffset.UtcNow),
+            ],
+        };
+        var workspace = Workspace(database);
+
+        var recorded = await workspace.RecordContractChangeAsync(new ContractChangeEntry(
+            contractId,
+            ContractChangeKind.Extension,
+            new DateOnly(2026, 7, 14),
+            new DateOnly(2027, 1, 1),
+            new DateOnly(2027, 12, 31),
+            500,
+            true,
+            true,
+            "EXT-01"));
+        var dashboard = await workspace.GetDashboardAsync("2026-07");
+        var card = await workspace.GetReportingCardAsync(FrameworkCode.GCloud14, "2026-07");
+
+        Assert.True(recorded.Succeeded);
+        Assert.Contains("2026-07", await workspace.GetReportingPeriodsAsync());
+        Assert.Equal(1500, Assert.Single(dashboard.ContractProgress).ComparisonValueExVat);
+        var extensionRow = Assert.Single(card.Contracts);
+        Assert.Equal("500.00", Assert.Single(extensionRow.Fields, field => field.Label == "Total contract value").Value);
+    }
+
+    [Fact]
+    public async Task Invoice_can_be_linked_to_an_agreed_extension_without_changing_its_mi_record()
+    {
+        var contractId = Guid.NewGuid();
+        var changeId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ContractChanges =
+            [
+                new ContractChangeRecord(changeId, contractId, ContractChangeKind.Extension, new DateOnly(2026, 7, 14), null, null, 500, true, true, null, DateTimeOffset.UtcNow),
+            ],
+        };
+        var workspace = Workspace(database);
+
+        var recorded = await workspace.RecordInvoiceAsync(new InvoiceEntry(
+            FrameworkCode.GCloud14, "RM-001", "Example customer", "URN-001", new DateOnly(2026, 7, 31), "INV-001", "Lot 1", null, null, null, null, null, null, null, null, 250, null, null, "2026-07", "test", changeId));
+
+        Assert.True(recorded.Succeeded);
+        Assert.Contains(database.InvoiceContractChangeLinks, link => link.InvoiceId == recorded.EntityId && link.ContractChangeId == changeId);
+        var invoiceDetails = await workspace.GetInvoiceDetailsAsync(recorded.EntityId!.Value);
+        Assert.Equal(changeId, invoiceDetails!.ContractChange!.Id);
+    }
+
+    [Fact]
+    public async Task Recorded_contract_change_can_be_confirmed_later_without_a_document()
+    {
+        var contractId = Guid.NewGuid();
+        var changeId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ContractChanges =
+            [
+                new ContractChangeRecord(changeId, contractId, ContractChangeKind.Extension, new DateOnly(2026, 7, 14), null, null, 500, true, false, "Customer call", DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var confirmed = await Workspace(database).ConfirmContractChangeAsync(changeId);
+
+        Assert.True(confirmed.Succeeded);
+        Assert.True(Assert.Single(database.ContractChanges).IsConfirmed);
+        Assert.Contains(database.AuditEvents, item => item.Action == "ContractChangeConfirmed" && item.EntityId == changeId);
+    }
+
     private static ReportingWorkspace Workspace(RemiDatabase database, TimeProvider? timeProvider = null) =>
         new(new InMemoryStore(database), null!, null!, null!, null!, timeProvider ?? TimeProvider.System);
 

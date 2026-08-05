@@ -22,6 +22,7 @@ public sealed class ReportingWorkspace(
     public Task<IReadOnlyList<string>> GetReportingPeriodsAsync(CancellationToken cancellationToken = default) =>
         store.ReadAsync(database => (IReadOnlyList<string>)database.Contracts
             .Select(contract => contract.ReportMonth)
+            .Concat(database.ContractChanges.Select(change => ReportingMonth(change.AgreementDate)))
             .Concat(database.Invoices.Select(invoice => invoice.ReportMonth))
             .Concat(database.MonthlyReturns.Select(monthlyReturn => monthlyReturn.ReportMonth))
             .Where(IsValidReportingMonth)
@@ -151,11 +152,17 @@ public sealed class ReportingWorkspace(
                 .ThenByDescending(item => item.ValueExVat)
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            var changes = database.ContractChanges
+                .Where(item => item.ContractId == contract.Id)
+                .OrderBy(item => item.AgreementDate)
+                .ThenBy(item => item.CreatedAtUtc)
+                .ToList();
             var findings = ReportingRules.Validate(database)
                 .Where(item => item.EntityId == contract.Id ||
-                    (item.EntityType == "ChargeSchedule" && database.ChargeScheduleItems.Any(schedule => schedule.Id == item.EntityId && schedule.ContractId == contract.Id)))
+                    (item.EntityType == "ChargeSchedule" && database.ChargeScheduleItems.Any(schedule => schedule.Id == item.EntityId && schedule.ContractId == contract.Id)) ||
+                    (item.EntityType == "ContractChange" && changes.Any(change => change.Id == item.EntityId)))
                 .ToList();
-            return new ContractDetailsModel(contract, invoices, chargeSchedule, EvidenceForContract(database, contract), findings);
+            return new ContractDetailsModel(contract, invoices, chargeSchedule, changes, EvidenceForContract(database, contract), findings);
         }, cancellationToken);
 
     public Task<InvoiceDetailsModel?> GetInvoiceDetailsAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
@@ -169,10 +176,14 @@ public sealed class ReportingWorkspace(
 
             var contract = database.Contracts.SingleOrDefault(item => item.Framework == invoice.Framework &&
                 ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference));
+            var changeId = database.InvoiceContractChangeLinks.SingleOrDefault(item => item.InvoiceId == invoice.Id)?.ContractChangeId;
+            var change = changeId is Guid linkedChangeId
+                ? database.ContractChanges.SingleOrDefault(item => item.Id == linkedChangeId)
+                : null;
             var findings = ReportingRules.Validate(database)
                 .Where(item => item.EntityId == invoice.Id)
                 .ToList();
-            return new InvoiceDetailsModel(invoice, contract, EvidenceForInvoice(database, invoice), findings);
+            return new InvoiceDetailsModel(invoice, contract, change, EvidenceForInvoice(database, invoice), findings);
         }, cancellationToken);
 
     public Task<IReadOnlyList<InvoiceRegisterItem>> GetInvoiceRegisterAsync(CancellationToken cancellationToken = default) =>
@@ -195,22 +206,37 @@ public sealed class ReportingWorkspace(
             .ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase)
             .ToList(), cancellationToken);
 
-    public Task<IReadOnlyList<InvoiceRegistrationContract>> GetInvoiceRegistrationContractsAsync(CancellationToken cancellationToken = default) =>
-        store.ReadAsync(database => (IReadOnlyList<InvoiceRegistrationContract>)database.Contracts
+    public Task<IReadOnlyList<InvoiceRegistrationContract>> GetInvoiceRegistrationContractsAsync(CancellationToken cancellationToken = default)
+    {
+        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        return store.ReadAsync(database => (IReadOnlyList<InvoiceRegistrationContract>)database.Contracts
+            .Where(contract => contract.EndDate is null || contract.EndDate >= today || HasOutstandingPaymentPositions(database, contract))
             .OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase)
-            .Select(contract => new InvoiceRegistrationContract(
-                contract.Id,
-                contract.Framework,
-                contract.SupplierReference,
-                contract.CustomerName,
-                contract.CustomerUrn,
-                contract.LotNumber,
-                contract.ServiceGroup,
-                contract.ServiceGroupLevel2,
-                contract.ServiceDescription,
-                contract.OrderChannel,
-                contract.DigitalMarketplaceServiceId))
+            .Select(contract =>
+            {
+                var changes = database.ContractChanges.Where(change => change.ContractId == contract.Id).OrderBy(change => change.AgreementDate).ToList();
+                var invoicedValue = database.Invoices
+                    .Where(invoice => invoice.Framework == contract.Framework &&
+                        ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
+                    .Sum(invoice => invoice.TotalCostExVat);
+                return new InvoiceRegistrationContract(
+                    contract.Id,
+                    contract.Framework,
+                    contract.SupplierReference,
+                    contract.CustomerName,
+                    contract.CustomerUrn,
+                    contract.LotNumber,
+                    contract.ServiceGroup,
+                    contract.ServiceGroupLevel2,
+                    contract.ServiceDescription,
+                    contract.OrderChannel,
+                    contract.DigitalMarketplaceServiceId,
+                    changes,
+                    Math.Max(0, CommittedValue(database, contract) - invoicedValue),
+                    changes.Count(change => !change.IsConfirmed));
+            })
             .ToList(), cancellationToken);
+    }
 
     /// <summary>
     /// Imports a completed workbook from the one-off historical source-data baseline.
@@ -561,7 +587,7 @@ public sealed class ReportingWorkspace(
             }
 
             EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
-            return new ReturnActionResult(true, "The contract has been added to the reporting register.", []);
+            return new ReturnActionResult(true, "The contract has been added to the reporting register.", [], record.Id);
         }, cancellationToken);
     }
 
@@ -660,6 +686,13 @@ public sealed class ReportingWorkspace(
         return store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();
+            var linkedChange = entry.ContractChangeId is Guid contractChangeId
+                ? database.ContractChanges.SingleOrDefault(change => change.Id == contractChangeId)
+                : null;
+            if (entry.ContractChangeId is not null && (linkedChange is null || !InvoiceMatchesContract(entry, database.Contracts.SingleOrDefault(contract => contract.Id == linkedChange.ContractId))))
+            {
+                return new ReturnActionResult(false, "The selected contract change does not belong to this invoice's contract.", []);
+            }
             var record = new InvoiceRecord(
                 Guid.NewGuid(),
                 entry.Framework,
@@ -684,20 +717,138 @@ public sealed class ReportingWorkspace(
                 string.IsNullOrWhiteSpace(entry.SourceDescription) ? "Manual entry" : entry.SourceDescription.Trim(),
                 now);
             database.Invoices.Add(record);
+            if (linkedChange is not null)
+            {
+                database.InvoiceContractChangeLinks.Add(new InvoiceContractChangeLink(record.Id, linkedChange.Id));
+            }
             var findings = ReportingRules.Validate(database);
             var errors = findings.Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == record.Id).ToList();
             var duplicate = database.Invoices.Count(invoice => InvoiceKey(invoice.Framework, invoice.SupplierReference, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.TotalCostExVat) == InvoiceKey(record.Framework, record.SupplierReference, record.InvoiceNumber, record.InvoiceDate, record.TotalCostExVat)) > 1;
             if (errors.Count != 0 || duplicate)
             {
                 database.Invoices.Remove(record);
+                database.InvoiceContractChangeLinks.RemoveAll(link => link.InvoiceId == record.Id);
                 return new ReturnActionResult(false, "The invoice was not added. It must match a contract and not duplicate an existing invoice.", errors);
             }
 
             RecordAudit(database, now, "InvoiceRecorded", "Invoice", record.Id, $"Recorded invoice {record.InvoiceNumber} for {record.SupplierReference}.", null, actor);
             EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
-            return new ReturnActionResult(true, "The invoice has been recorded.", []);
+            return new ReturnActionResult(true, "The invoice has been recorded.", [], record.Id);
         }, cancellationToken);
     }
+
+    public Task<ReturnActionResult> RecordContractChangeAsync(
+        ContractChangeEntry entry,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == entry.ContractId);
+            if (contract is null)
+            {
+                return new ReturnActionResult(false, "The selected contract no longer exists.", []);
+            }
+
+            if (entry.AgreementDate is null)
+            {
+                return new ReturnActionResult(false, "Record the agreement date before reporting a contract change.", []);
+            }
+
+            if (entry.IncrementalValueExVat == 0)
+            {
+                return new ReturnActionResult(false, "Record the incremental ex-VAT value for the contract change.", []);
+            }
+
+            if (entry.Kind == ContractChangeKind.Extension && entry.IncrementalValueExVat < 0)
+            {
+                return new ReturnActionResult(false, "An extension must have a positive incremental value. Record a variation for a reduction.", []);
+            }
+
+            if (entry.EffectiveStartDate is not null && entry.EffectiveEndDate is not null && entry.EffectiveEndDate < entry.EffectiveStartDate)
+            {
+                return new ReturnActionResult(false, "The effective end date cannot be earlier than the effective start date.", []);
+            }
+
+            var duplicate = database.ContractChanges.Any(change =>
+                change.ContractId == entry.ContractId &&
+                change.Kind == entry.Kind &&
+                change.AgreementDate == entry.AgreementDate.Value &&
+                change.EffectiveStartDate == entry.EffectiveStartDate &&
+                change.EffectiveEndDate == entry.EffectiveEndDate &&
+                change.IncrementalValueExVat == entry.IncrementalValueExVat);
+            if (duplicate)
+            {
+                return new ReturnActionResult(false, "An identical agreed contract change is already recorded for this contract.", []);
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var change = new ContractChangeRecord(
+                Guid.NewGuid(),
+                contract.Id,
+                entry.Kind,
+                entry.AgreementDate.Value,
+                entry.EffectiveStartDate,
+                entry.EffectiveEndDate,
+                entry.IncrementalValueExVat,
+                entry.WasProvidedForInOriginalCallOff,
+                entry.IsConfirmed,
+                NullIfWhiteSpace(entry.Reference),
+                now);
+            database.ContractChanges.Add(change);
+            var findings = ReportingRules.Validate(database)
+                .Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == change.Id)
+                .ToList();
+            if (findings.Count != 0)
+            {
+                database.ContractChanges.Remove(change);
+                return new ReturnActionResult(false, "The contract change was not recorded. Resolve the highlighted fields first.", findings);
+            }
+
+            var reportingMonth = ReportingMonth(change.AgreementDate);
+            EnsureReturn(database, contract.Framework, reportingMonth, null, now);
+            RecordAudit(
+                database,
+                now,
+                "ContractChangeRecorded",
+                "ContractChange",
+                change.Id,
+                $"Recorded {change.Kind.ToString().ToLowerInvariant()} for {contract.SupplierReference}; it will report in {reportingMonth}.",
+                change.IsConfirmed ? null : "The change is awaiting confirmation.",
+                actor);
+            return new ReturnActionResult(true, $"The {change.Kind.ToString().ToLowerInvariant()} has been recorded for {reportingMonth} reporting.", [], change.Id);
+        }, cancellationToken);
+
+    public Task<ReturnActionResult> ConfirmContractChangeAsync(
+        Guid changeId,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var existing = database.ContractChanges.SingleOrDefault(change => change.Id == changeId);
+            if (existing is null)
+            {
+                return new ReturnActionResult(false, "The selected contract change no longer exists.", []);
+            }
+
+            if (existing.IsConfirmed)
+            {
+                return new ReturnActionResult(true, "This contract change is already confirmed.", [], existing.Id);
+            }
+
+            var index = database.ContractChanges.IndexOf(existing);
+            database.ContractChanges[index] = existing with { IsConfirmed = true };
+            var contract = database.Contracts.Single(contract => contract.Id == existing.ContractId);
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "ContractChangeConfirmed",
+                "ContractChange",
+                existing.Id,
+                $"Confirmed {existing.Kind.ToString().ToLowerInvariant()} for {contract.SupplierReference}.",
+                null,
+                actor);
+            return new ReturnActionResult(true, "The contract change has been confirmed.", [], existing.Id);
+        }, cancellationToken);
 
     public Task<ReturnActionResult> UpdateContractAsync(
         Guid contractId,
@@ -746,15 +897,31 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected invoice no longer exists.", []);
             }
 
+            var linkedChange = entry.ContractChangeId is Guid contractChangeId
+                ? database.ContractChanges.SingleOrDefault(change => change.Id == contractChangeId)
+                : null;
+            if (entry.ContractChangeId is not null && (linkedChange is null || !InvoiceMatchesContract(entry, database.Contracts.SingleOrDefault(contract => contract.Id == linkedChange.ContractId))))
+            {
+                return new ReturnActionResult(false, "The selected contract change does not belong to this invoice's contract.", []);
+            }
+
             var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure), entry.Quantity, entry.PricePerUnitExVat, entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor), NullIfWhiteSpace(entry.SubcontractorName), entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Invoices.IndexOf(existing);
+            var previousLinks = database.InvoiceContractChangeLinks.Where(link => link.InvoiceId == invoiceId).ToList();
             database.Invoices[index] = updated;
+            database.InvoiceContractChangeLinks.RemoveAll(link => link.InvoiceId == invoiceId);
+            if (linkedChange is not null)
+            {
+                database.InvoiceContractChangeLinks.Add(new InvoiceContractChangeLink(invoiceId, linkedChange.Id));
+            }
             var findings = ReportingRules.Validate(database);
             var duplicate = database.Invoices.Any(invoice => invoice.Id != invoiceId && InvoiceKey(invoice.Framework, invoice.SupplierReference, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.TotalCostExVat) == InvoiceKey(updated.Framework, updated.SupplierReference, updated.InvoiceNumber, updated.InvoiceDate, updated.TotalCostExVat));
             var errors = findings.Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == invoiceId).ToList();
             if (errors.Count != 0 || duplicate)
             {
                 database.Invoices[index] = existing;
+                database.InvoiceContractChangeLinks.RemoveAll(link => link.InvoiceId == invoiceId);
+                database.InvoiceContractChangeLinks.AddRange(previousLinks);
                 return new ReturnActionResult(false, "The invoice was not updated. It must match a contract and not duplicate an existing invoice.", errors);
             }
 
@@ -946,7 +1113,7 @@ public sealed class ReportingWorkspace(
         {
             var template = database.MiTemplates.SingleOrDefault(item => item.Framework == framework && item.IsActive);
             var templateEvidence = template is null ? null : database.Evidence.SingleOrDefault(item => item.Id == template.EvidenceId);
-            var contracts = database.Contracts.Where(item => item.Framework == framework && item.ReportMonth == reportingMonth).ToList();
+            var contracts = ContractsForReportingMonth(database, framework, reportingMonth);
             var invoices = database.Invoices.Where(item => item.Framework == framework && item.ReportMonth == reportingMonth).ToList();
             return new ExportContext(template, templateEvidence, contracts, invoices);
         }, cancellationToken);
@@ -1112,7 +1279,7 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "Resolve the errors for this return before recording it as submitted.", periodFindings);
             }
 
-            var hasActivity = database.Contracts.Any(contract => contract.Framework == framework && contract.ReportMonth == reportingMonth)
+            var hasActivity = ContractsForReportingMonth(database, framework, reportingMonth).Count != 0
                 || database.Invoices.Any(invoice => invoice.Framework == framework && invoice.ReportMonth == reportingMonth);
             if (status == ReturnStatus.NilReturn && hasActivity)
             {
@@ -1154,8 +1321,7 @@ public sealed class ReportingWorkspace(
         FrameworkCode framework,
         string reportingMonth)
     {
-        var contracts = database.Contracts
-            .Where(item => item.Framework == framework && item.ReportMonth == reportingMonth)
+        var contracts = ContractsForReportingMonth(database, framework, reportingMonth)
             .OrderBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase)
             .Select(item => new ReportingCardItem(item.SupplierReference, ContractCardFields(item)))
             .ToList();
@@ -1307,8 +1473,13 @@ public sealed class ReportingWorkspace(
                 .ThenBy(item => item.ExpectedInvoiceDate)
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            var chargeScheduleValue = chargeSchedule.Sum(item => item.ValueExVat);
-            var plannedValue = chargeScheduleValue > 0 ? chargeScheduleValue : invoicePlanValue;
+            // An unexercised option is commercially useful context, but it is not awarded value.
+            var chargeScheduleValue = chargeSchedule.Where(item => !item.IsOptionalExtension).Sum(item => item.ValueExVat);
+            var committedBaseValue = chargeScheduleValue > 0 ? chargeScheduleValue : invoicePlanValue;
+            var agreedChangeValue = database.ContractChanges
+                .Where(change => change.ContractId == contract.Id)
+                .Sum(change => change.IncrementalValueExVat);
+            var plannedValue = committedBaseValue + agreedChangeValue;
             var comparisonValue = plannedValue > 0 ? plannedValue : contract.TotalContractValueExVat;
             var evidence = EvidenceForContract(database, contract);
             return new ContractProgress(
@@ -1354,6 +1525,7 @@ public sealed class ReportingWorkspace(
         var currentReportingMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
         var reportingMonths = database.Contracts
             .Select(contract => contract.ReportMonth)
+            .Concat(database.ContractChanges.Select(change => ReportingMonth(change.AgreementDate)))
             .Concat(database.Invoices.Select(invoice => invoice.ReportMonth))
             .Concat(database.MonthlyReturns.Select(monthlyReturn => monthlyReturn.ReportMonth))
             .Append(currentReportingMonth)
@@ -1367,9 +1539,7 @@ public sealed class ReportingWorkspace(
             {
                 var monthlyReturn = database.MonthlyReturns.SingleOrDefault(item =>
                     item.Framework == framework.Code && item.ReportMonth == reportingMonth);
-                var contracts = database.Contracts
-                    .Where(contract => contract.Framework == framework.Code && contract.ReportMonth == reportingMonth)
-                    .ToList();
+                var contracts = ContractsForReportingMonth(database, framework.Code, reportingMonth);
                 var invoices = database.Invoices
                     .Where(invoice => invoice.Framework == framework.Code && invoice.ReportMonth == reportingMonth)
                     .ToList();
@@ -1435,11 +1605,69 @@ public sealed class ReportingWorkspace(
         string reportingMonth)
     {
         return database.Contracts.Any(contract => contract.Id == finding.EntityId && contract.Framework == framework && contract.ReportMonth == reportingMonth)
+            || database.ContractChanges.Any(change => change.Id == finding.EntityId &&
+                database.Contracts.Any(contract => contract.Id == change.ContractId && contract.Framework == framework) &&
+                ReportingMonth(change.AgreementDate) == reportingMonth)
             || database.Invoices.Any(invoice => invoice.Id == finding.EntityId && invoice.Framework == framework && invoice.ReportMonth == reportingMonth);
     }
 
     private static string InvoiceKey(FrameworkCode framework, string supplierReference, string invoiceNumber, DateOnly? invoiceDate, decimal total) =>
         $"{framework}|{ReportingRules.NormaliseReference(supplierReference)}|{invoiceNumber.Trim()}|{invoiceDate:yyyy-MM-dd}|{total}";
+
+    private static bool InvoiceMatchesContract(InvoiceEntry invoice, ContractRecord? contract) =>
+        contract is not null &&
+        contract.Framework == invoice.Framework &&
+        ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference);
+
+    private static string ReportingMonth(DateOnly date) => date.ToString("yyyy-MM");
+
+    private static List<ContractRecord> ContractsForReportingMonth(
+        RemiDatabase database,
+        FrameworkCode framework,
+        string reportingMonth)
+    {
+        var contracts = database.Contracts
+            .Where(contract => contract.Framework == framework && contract.ReportMonth == reportingMonth)
+            .ToList();
+        var changedContracts = from change in database.ContractChanges
+                               where ReportingMonth(change.AgreementDate) == reportingMonth
+                               join contract in database.Contracts on change.ContractId equals contract.Id
+                               where contract.Framework == framework
+                               select contract with
+                               {
+                                   StartDate = change.EffectiveStartDate ?? contract.StartDate,
+                                   EndDate = change.EffectiveEndDate ?? contract.EndDate,
+                                   TotalContractValueExVat = change.IncrementalValueExVat,
+                                   ReportMonth = reportingMonth,
+                                   SourceWorkbook = $"{change.Kind} agreement recorded in Remi",
+                               };
+        contracts.AddRange(changedContracts);
+        return contracts;
+    }
+
+    private static bool HasOutstandingPaymentPositions(RemiDatabase database, ContractRecord contract)
+    {
+        var committedValue = CommittedValue(database, contract);
+        if (committedValue <= 0) return false;
+
+        var invoicedValue = database.Invoices
+            .Where(item => item.Framework == contract.Framework &&
+                ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
+            .Sum(item => item.TotalCostExVat);
+        return invoicedValue < committedValue;
+    }
+
+    private static decimal CommittedValue(RemiDatabase database, ContractRecord contract)
+    {
+        var scheduledValue = database.ChargeScheduleItems
+            .Where(item => item.ContractId == contract.Id && !item.IsOptionalExtension)
+            .Sum(item => item.ValueExVat);
+        var committedBaseValue = scheduledValue > 0 ? scheduledValue : contract.TotalContractValueExVat;
+        var agreedChangeValue = database.ContractChanges
+            .Where(change => change.ContractId == contract.Id)
+            .Sum(change => change.IncrementalValueExVat);
+        return committedBaseValue + agreedChangeValue;
+    }
 
     private static bool AddEvidence(RemiDatabase database, EvidenceRecord evidence)
     {
@@ -1477,12 +1705,14 @@ public sealed class ReportingWorkspace(
     private static IReadOnlyList<EvidenceLink> EvidenceForContract(RemiDatabase database, ContractRecord contract) =>
         database.Evidence
             .Where(item => item.Framework == contract.Framework &&
-                (string.Equals(
+                (IsClipboardEvidenceFor(item, "contract", contract.Id) ||
+                 database.ContractChanges.Where(change => change.ContractId == contract.Id).Any(change => IsClipboardEvidenceFor(item, "contract-change", change.Id)) ||
+                 (!IsClipboardEvidence(item) && (string.Equals(
                     ReportingRules.NormaliseReference(item.ContractReference ?? string.Empty),
                     ReportingRules.NormaliseReference(contract.SupplierReference),
                     StringComparison.Ordinal) ||
                  (item.ReportMonth == contract.ReportMonth &&
-                    string.Equals(item.FileName, contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))
+                    string.Equals(item.FileName, contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))))
             .OrderBy(item => item.OriginalRelativePath, StringComparer.OrdinalIgnoreCase)
             .Select(ToEvidenceLink)
             .ToList();
@@ -1490,15 +1720,20 @@ public sealed class ReportingWorkspace(
     private static IReadOnlyList<EvidenceLink> EvidenceForInvoice(RemiDatabase database, InvoiceRecord invoice) =>
         database.Evidence
             .Where(item => item.Framework == invoice.Framework &&
-                (string.Equals(
+                (IsClipboardEvidenceFor(item, "invoice", invoice.Id) ||
+                 (!IsClipboardEvidence(item) && (string.Equals(
                     ReportingRules.NormaliseReference(item.ContractReference ?? string.Empty),
                     ReportingRules.NormaliseReference(invoice.SupplierReference),
                     StringComparison.Ordinal) ||
                  (item.ReportMonth == invoice.ReportMonth &&
-                    string.Equals(item.FileName, invoice.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))
+                    string.Equals(item.FileName, invoice.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))))
             .OrderBy(item => item.OriginalRelativePath, StringComparer.OrdinalIgnoreCase)
             .Select(ToEvidenceLink)
             .ToList();
+
+    private static bool IsClipboardEvidence(EvidenceRecord evidence) => evidence.OriginalRelativePath.StartsWith("clipboard/", StringComparison.OrdinalIgnoreCase);
+    private static bool IsClipboardEvidenceFor(EvidenceRecord evidence, string entityType, Guid entityId) =>
+        evidence.OriginalRelativePath.StartsWith($"clipboard/{entityType}/{entityId:D}/", StringComparison.OrdinalIgnoreCase);
 
     private static PaymentScheduleUpdate AddPaymentScheduleItems(
         RemiDatabase database,

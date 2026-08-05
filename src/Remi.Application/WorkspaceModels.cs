@@ -104,7 +104,10 @@ public sealed record InvoiceRegistrationContract(
     string? ServiceGroupLevel2,
     string? ServiceDescription,
     string? OrderChannel,
-    string? DigitalMarketplaceServiceId);
+    string? DigitalMarketplaceServiceId,
+    IReadOnlyList<ContractChangeRecord> AgreedChanges,
+    decimal RemainingCommittedValueExVat,
+    int UnconfirmedChangeCount);
 
 public sealed record EvidenceLink(
     Guid Id,
@@ -140,7 +143,7 @@ public sealed record HistoricalReturnPeriod(
     FrameworkCode Framework,
     string ReportingMonth);
 
-public sealed record ReturnActionResult(bool Succeeded, string Message, IReadOnlyList<ValidationFinding> Findings);
+public sealed record ReturnActionResult(bool Succeeded, string Message, IReadOnlyList<ValidationFinding> Findings, Guid? EntityId = null);
 
 public sealed record ContractEntry(
     FrameworkCode Framework,
@@ -220,7 +223,23 @@ public sealed record InvoiceEntry(
     string? OriginalVendor,
     string? SubcontractorName,
     string ReportMonth,
-    string SourceDescription);
+    string SourceDescription,
+    Guid? ContractChangeId = null);
+
+/// <summary>
+/// A reportable agreement to extend or vary an existing contract.  The report month is derived
+/// from AgreementDate, never from the effective start date.
+/// </summary>
+public sealed record ContractChangeEntry(
+    Guid ContractId,
+    ContractChangeKind Kind,
+    DateOnly? AgreementDate,
+    DateOnly? EffectiveStartDate,
+    DateOnly? EffectiveEndDate,
+    decimal IncrementalValueExVat,
+    bool WasProvidedForInOriginalCallOff,
+    bool IsConfirmed,
+    string? Reference);
 
 public sealed record ChargeScheduleEntry(
     Guid ContractId,
@@ -278,6 +297,7 @@ public sealed record ContractDetailsModel(
     ContractRecord Contract,
     IReadOnlyList<InvoiceRecord> Invoices,
     IReadOnlyList<ChargeScheduleItem> ChargeSchedule,
+    IReadOnlyList<ContractChangeRecord> ContractChanges,
     IReadOnlyList<EvidenceLink> Evidence,
     IReadOnlyList<ValidationFinding> Findings);
 
@@ -287,6 +307,7 @@ public sealed record ContractDetailsModel(
 public sealed record InvoiceDetailsModel(
     InvoiceRecord Invoice,
     ContractRecord? Contract,
+    ContractChangeRecord? ContractChange,
     IReadOnlyList<EvidenceLink> Evidence,
     IReadOnlyList<ValidationFinding> Findings);
 
