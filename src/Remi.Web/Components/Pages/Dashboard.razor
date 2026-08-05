@@ -14,7 +14,7 @@
                 <h1>Reporting overview</h1>
                 <p class="lede">Review return readiness, resolve exceptions and retain a clear audit trail for <strong>@DisplayPeriod(model.CurrentReportingMonth)</strong>.</p>
             </div>
-            <a class="button primary" href="@PeriodRoute("reporting")">Prepare return</a>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("reporting")">Prepare return</a>
         </header>
 
         <section class="dashboard-period-summary" aria-label="Current reporting period">
@@ -43,7 +43,7 @@
                                     <td>@summary.ContractCount</td>
                                     <td>@summary.InvoiceCount</td>
                                     <td><span class="@ReadinessClass(summary)">@ReadinessLabel(summary)</span></td>
-                                    <td><a class="dashboard-row-action" href="@PeriodRoute("reporting")">@ReadinessAction(summary)</a></td>
+                                    <td><a class="remi-action remi-action--table dashboard-row-action" href="@PeriodRoute("reporting")">@ReadinessAction(summary)</a></td>
                                 </tr>
                             }
                         </tbody>

@@ -60,6 +60,7 @@ try
         : report.DataWritten ? "Migration complete." : "Validation complete (no Remi data was written).");
     Console.WriteLine($"Reviewed {report.Plan.SourceFileCount} source files (excluding MI Reporting Ledger.xlsx).");
     Console.WriteLine($"Recognised {report.Plan.RecognisedMiWorkbookCount} MI workbook(s): {report.ImportedContracts} new contracts and {report.ImportedInvoices} new invoices.");
+    Console.WriteLine($"Recorded {report.SubmittedReturnReports} supplied return(s) as submitted and inferred {report.InferredNilReturns} nil return(s) for missing historical cycles.");
     Console.WriteLine($"Existing records skipped: {report.ExistingContracts} contracts and {report.ExistingInvoices} invoices.");
     Console.WriteLine($"Recovered {report.LedgerPaymentPositions} payment position(s) from the MI Reporting Ledger (the Ledger itself was not archived).");
     Console.WriteLine($"Archived {report.ArchivedEvidenceFiles} original evidence file(s).");

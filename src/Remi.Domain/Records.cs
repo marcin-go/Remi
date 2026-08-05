@@ -140,6 +140,13 @@ public sealed record MiTemplateConfiguration(
     DateTimeOffset RegisteredAtUtc);
 
 /// <summary>
+/// A local override of the date on which an existing supported framework enters Remi reporting.
+/// </summary>
+public sealed record FrameworkConfiguration(
+    FrameworkCode Framework,
+    DateOnly StartDate);
+
+/// <summary>
 /// An append-only record of material reporting actions and corrections.
 /// </summary>
 public sealed record AuditEvent(
@@ -167,6 +174,8 @@ public sealed class RemiDatabase
     public List<EvidenceRecord> Evidence { get; init; } = [];
 
     public List<MiTemplateConfiguration> MiTemplates { get; init; } = [];
+
+    public List<FrameworkConfiguration> FrameworkConfigurations { get; init; } = [];
 
     public List<AuditEvent> AuditEvents { get; init; } = [];
 }

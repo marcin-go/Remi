@@ -1,22 +1,98 @@
 @page "/maintenance"
 @implements IAsyncDisposable
+@using Microsoft.AspNetCore.Components
 @inject Remi.Infrastructure.MigrationRunner MigrationRunner
 @inject IRemiStore Store
 @inject IEvidenceArchive EvidenceArchive
 @inject ReportingWorkspace Workspace
 @inject Remi.Web.BrowserFolderStaging FolderStaging
 @inject Microsoft.JSInterop.IJSRuntime JavaScript
+@inject ReportingPeriodContext ReportingPeriod
 
-<PageTitle>Remi · Maintenance</PageTitle>
+<PageTitle>Remi · Settings</PageTitle>
 
 <section class="page-heading">
     <div>
-        <p class="eyebrow">Maintenance</p>
-        <h1>Plan and control data migrations.</h1>
-        <p class="lede">Review a source-data folder before it is brought into Remi. Validation uses a temporary in-memory register; only the reviewed import writes to the local SQLite database and evidence archive.</p>
+        <p class="eyebrow">Settings</p>
+        <h1>Configure Remi.</h1>
+        <p class="lede">Manage customer reference data, evidence storage and the historical source-data migration.</p>
     </div>
 </section>
 
+<section class="settings-layout">
+    <aside class="panel settings-side-menu">
+        <p class="eyebrow">Settings menu</p>
+        <nav class="settings-side-nav" aria-label="Settings sections">
+            <a class="@SectionLinkClass(FrameworksSection)" href="@SectionLink(FrameworksSection)">Frameworks</a>
+            <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
+            <a class="@SectionLinkClass(EvidenceArchiveSection)" href="@SectionLink(EvidenceArchiveSection)">Evidence archive</a>
+            <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
+            <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
+            <a class="@SectionLinkClass(SourceDataSection)" href="@SectionLink(SourceDataSection)">Source-data migration</a>
+        </nav>
+    </aside>
+    <div class="settings-content">
+@if (ActiveSection == FrameworksSection)
+{
+<section class="panel maintenance-panel">
+    <p class="eyebrow">Framework catalogue</p>
+    <h2>Framework reporting start dates</h2>
+    <p>These dates determine when Remi includes each supported framework in its report register and dashboard readiness. The calendar month containing a start date is included.</p>
+    @if (frameworkConfigurations.Count == 0)
+    {
+        <p class="muted">Loading framework settingsâ€¦</p>
+    }
+    else
+    {
+        <div class="action-row">
+            @if (editingFrameworks)
+            {
+                <button class="button primary" disabled="@(!CanSaveFrameworkChanges)" @onclick="SaveFrameworkChangesAsync">@(savingFrameworks ? "Saving…" : "Save changes")</button>
+                <button class="button secondary" disabled="@working" @onclick="CancelFrameworkEdit">Cancel</button>
+            }
+            else
+            {
+                <button class="button secondary" disabled="@working" @onclick="BeginFrameworkEdit">Edit</button>
+            }
+        </div>
+        <div class="table-wrap maintenance-table">
+            <table>
+                <thead><tr><th>Framework</th><th>Agreement</th><th>Reporting start date</th></tr></thead>
+                <tbody>
+                    @foreach (var configuration in frameworkConfigurations)
+                    {
+                        <tr>
+                            <td><strong>@configuration.Framework.DisplayName</strong><span class="cell-secondary">@configuration.Framework.ReportingAuthority</span></td>
+                            <td>@configuration.Framework.AgreementNumber</td>
+                            @if (editingFrameworks)
+                            {
+                                var fieldId = $"framework-start-{configuration.Framework.Code}";
+                                <td>
+                                    <label class="visually-hidden" for="@fieldId">@configuration.Framework.DisplayName reporting start date</label>
+                                    <input id="@fieldId" type="date" value="@FrameworkStartDateValue(configuration.Framework.Code)" @onchange="@(args => FrameworkStartDateChanged(configuration.Framework.Code, args))" />
+                                </td>
+                            }
+                            else
+                            {
+                                <td>@FrameworkStartDateDisplay(configuration.StartDate)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(frameworkMessage))
+    {
+        <p class="notice @(frameworkSaveSucceeded ? "success" : "error")" role="status">@frameworkMessage</p>
+    }
+    <p class="caption">The default dates are from the official agreement records. G-Cloud 15 is left blank until a local reporting start date is confirmed.</p>
+</section>
+
+}
+
+@if (ActiveSection == CustomerUrnsSection)
+{
 <section class="panel maintenance-panel">
     <p class="eyebrow">Reference data</p>
     <h2>Customer URN list</h2>
@@ -42,6 +118,11 @@
     }
 </section>
 
+}
+
+@if (ActiveSection == EvidenceArchiveSection)
+{
+
 <section class="panel maintenance-panel">
     <p class="eyebrow">Archive storage</p>
     <h2>Flatten the evidence file layout</h2>
@@ -59,7 +140,16 @@
             }
         </p>
     }
+    @if (!string.IsNullOrWhiteSpace(archiveMessage))
+    {
+        <p class="notice @(archiveSucceeded ? "success" : "error")" role="status">@archiveMessage</p>
+    }
 </section>
+
+}
+
+@if (ActiveSection == SourceDataSection)
+{
 
 <section class="panel maintenance-panel">
     <p class="eyebrow">1 · Select source data</p>
@@ -130,7 +220,7 @@
     <section class="panel maintenance-panel">
         <p class="eyebrow">3 · Validation report</p>
         <h2>No data has been written.</h2>
-        <p class="muted">The validation pass found @validation.ImportedContracts contract(s), @validation.ImportedInvoices invoice(s), @validation.LedgerPaymentPositions payment position(s) from the retired Ledger, and @validation.ArchivedEvidenceFiles evidence file(s) that the import would process. The Ledger itself is not archived.</p>
+        <p class="muted">The validation pass found @validation.ImportedContracts contract(s), @validation.ImportedInvoices invoice(s), @validation.SubmittedReturnReports supplied submitted return(s), @validation.InferredNilReturns inferred nil return(s), @validation.LedgerPaymentPositions payment position(s) from the retired Ledger, and @validation.ArchivedEvidenceFiles evidence file(s) that the import would process. The Ledger itself is not archived.</p>
         @if (validation.Findings.Count == 0)
         {
             <p class="notice success">No validation findings were reported.</p>
@@ -173,6 +263,8 @@
             <div><dt>Existing contracts</dt><dd>@importReport.ExistingContracts</dd></div>
             <div><dt>New invoices</dt><dd>@importReport.ImportedInvoices</dd></div>
             <div><dt>Existing invoices</dt><dd>@importReport.ExistingInvoices</dd></div>
+            <div><dt>Submitted returns</dt><dd>@importReport.SubmittedReturnReports</dd></div>
+            <div><dt>Inferred nil returns</dt><dd>@importReport.InferredNilReturns</dd></div>
             <div><dt>Evidence archived</dt><dd>@importReport.ArchivedEvidenceFiles</dd></div>
             <div><dt>Ledger payment positions</dt><dd>@importReport.LedgerPaymentPositions</dd></div>
             <div><dt>Validation findings</dt><dd>@importReport.Findings.Count</dd></div>
@@ -181,8 +273,32 @@
     </section>
 }
 
+}
+
+@if (ActiveSection == TemplatesSection)
+{
+    <Templates View="templates" />
+}
+
+@if (ActiveSection == AuditSection)
+{
+    <Templates View="audit" />
+}
+    </div>
+</section>
+
 @code {
     private const int MaximumFolderFiles = 2_000;
+    private const string FrameworksSection = "frameworks";
+    private const string CustomerUrnsSection = "customer-urns";
+    private const string EvidenceArchiveSection = "evidence-archive";
+    private const string TemplatesSection = "templates";
+    private const string AuditSection = "audit";
+    private const string SourceDataSection = "source-data";
+
+    [Parameter, SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
     private string sourceDirectory = string.Empty;
     private string? stagedSourceDirectory;
     private MigrationPlan? plan;
@@ -191,17 +307,35 @@
     private string? validatedSourceDirectory;
     private string? message;
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
+    private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
+    private readonly Dictionary<FrameworkCode, string> frameworkStartDateInputs = [];
     private EvidenceArchiveNormalizationResult? archiveNormalization;
     private string? urnMessage;
+    private string? archiveMessage;
     private bool succeeded;
     private bool working;
     private bool urnRefreshing;
     private bool urnRefreshSucceeded;
     private bool archiveNormalizing;
+    private bool archiveSucceeded;
+    private bool editingFrameworks;
+    private bool savingFrameworks;
+    private bool frameworkSaveSucceeded;
+    private string? frameworkMessage;
     private bool validationReviewed;
     private bool repopulationReviewed;
 
     private string SourceDirectoryForProcessing => stagedSourceDirectory ?? sourceDirectory.Trim();
+
+    private string ActiveSection => Section switch
+    {
+        FrameworksSection => FrameworksSection,
+        EvidenceArchiveSection => EvidenceArchiveSection,
+        TemplatesSection => TemplatesSection,
+        AuditSection => AuditSection,
+        SourceDataSection => SourceDataSection,
+        _ => CustomerUrnsSection,
+    };
 
     private bool CanImport =>
         !working &&
@@ -212,8 +346,118 @@
 
     private bool CanRepopulate => CanImport && repopulationReviewed;
 
-    protected override async Task OnInitializedAsync() =>
-        urnDirectoryStatus = await Workspace.GetCustomerUrnDirectoryStatusAsync();
+    private string SectionLink(string section) => $"/maintenance?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
+
+    private string SectionLinkClass(string section) => ActiveSection == section ? "active" : string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var urnDirectoryTask = Workspace.GetCustomerUrnDirectoryStatusAsync();
+        var frameworkConfigurationsTask = Workspace.GetFrameworkConfigurationsAsync();
+        await Task.WhenAll(urnDirectoryTask, frameworkConfigurationsTask);
+        urnDirectoryStatus = await urnDirectoryTask;
+        frameworkConfigurations = await frameworkConfigurationsTask;
+        foreach (var configuration in frameworkConfigurations)
+        {
+            frameworkStartDateInputs[configuration.Framework.Code] = configuration.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
+        }
+    }
+
+    private string FrameworkStartDateValue(FrameworkCode framework) =>
+        frameworkStartDateInputs.TryGetValue(framework, out var value) ? value : string.Empty;
+
+    private string FrameworkStartDateDisplay(DateOnly? startDate) =>
+        startDate?.ToString("d MMM yyyy") ?? "Not set";
+
+    private bool CanSaveFrameworkChanges =>
+        !working && frameworkConfigurations.All(configuration =>
+            string.IsNullOrWhiteSpace(FrameworkStartDateValue(configuration.Framework.Code))
+                ? configuration.StartDate is null
+                : DateOnly.TryParseExact(FrameworkStartDateValue(configuration.Framework.Code), "yyyy-MM-dd", out _));
+
+    private void FrameworkStartDateChanged(FrameworkCode framework, ChangeEventArgs args) =>
+        frameworkStartDateInputs[framework] = args.Value?.ToString() ?? string.Empty;
+
+    private void BeginFrameworkEdit()
+    {
+        frameworkMessage = null;
+        ResetFrameworkStartDateInputs();
+        editingFrameworks = true;
+    }
+
+    private void CancelFrameworkEdit()
+    {
+        frameworkMessage = null;
+        ResetFrameworkStartDateInputs();
+        editingFrameworks = false;
+    }
+
+    private async Task SaveFrameworkChangesAsync()
+    {
+        if (!CanSaveFrameworkChanges)
+        {
+            return;
+        }
+
+        working = true;
+        savingFrameworks = true;
+        frameworkMessage = null;
+        try
+        {
+            var changes = frameworkConfigurations
+                .Select(configuration => new
+                {
+                    Configuration = configuration,
+                    StartDate = ParsedFrameworkStartDate(configuration.Framework.Code),
+                })
+                .Where(item => item.StartDate is not null && item.StartDate != item.Configuration.StartDate)
+                .ToList();
+            foreach (var change in changes)
+            {
+                var result = await Workspace.UpdateFrameworkStartDateAsync(
+                    change.Configuration.Framework.Code,
+                    change.StartDate!.Value);
+                if (!result.Succeeded)
+                {
+                    frameworkSaveSucceeded = false;
+                    frameworkMessage = result.Message;
+                    return;
+                }
+            }
+
+            frameworkConfigurations = await Workspace.GetFrameworkConfigurationsAsync();
+            ResetFrameworkStartDateInputs();
+            frameworkSaveSucceeded = true;
+            frameworkMessage = changes.Count == 0
+                ? "No framework start-date changes were made."
+                : $"Saved {changes.Count} framework start-date change(s).";
+            editingFrameworks = false;
+        }
+        catch (Exception exception)
+        {
+            frameworkSaveSucceeded = false;
+            frameworkMessage = $"The framework start date could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            savingFrameworks = false;
+            working = false;
+        }
+    }
+
+    private DateOnly? ParsedFrameworkStartDate(FrameworkCode framework) =>
+        DateOnly.TryParseExact(FrameworkStartDateValue(framework), "yyyy-MM-dd", out var startDate)
+            ? startDate
+            : null;
+
+    private void ResetFrameworkStartDateInputs()
+    {
+        frameworkStartDateInputs.Clear();
+        foreach (var configuration in frameworkConfigurations)
+        {
+            frameworkStartDateInputs[configuration.Framework.Code] = configuration.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
+        }
+    }
 
     private async Task RefreshCustomerUrnListAsync()
     {
@@ -252,18 +496,19 @@
 
         working = true;
         archiveNormalizing = true;
+        archiveMessage = null;
         try
         {
             archiveNormalization = await Workspace.FlattenEvidenceArchiveAsync();
-            succeeded = string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning);
-            message = archiveNormalization.EvidenceRecordsUpdated == 0
+            archiveSucceeded = string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning);
+            archiveMessage = archiveNormalization.EvidenceRecordsUpdated == 0
                 ? "The evidence archive already uses the flat layout."
                 : "The evidence archive now uses the flat, content-addressed layout.";
         }
         catch (Exception exception)
         {
-            succeeded = false;
-            message = $"Evidence archive normalization stopped: {exception.Message}";
+            archiveSucceeded = false;
+            archiveMessage = $"Evidence archive normalization stopped: {exception.Message}";
         }
         finally
         {

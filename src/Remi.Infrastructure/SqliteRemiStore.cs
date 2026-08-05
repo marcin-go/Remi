@@ -254,6 +254,11 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             CREATE INDEX IF NOT EXISTS ix_mi_templates_framework_active
                 ON mi_templates (framework, is_active);
 
+            CREATE TABLE IF NOT EXISTS framework_configurations (
+                framework INTEGER PRIMARY KEY,
+                start_date TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS audit_events (
                 id TEXT PRIMARY KEY,
                 occurred_at_utc TEXT NOT NULL,
@@ -275,6 +280,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         await ExecuteAsync(connection, null, """
             PRAGMA foreign_keys = OFF;
             DROP TABLE IF EXISTS audit_events;
+            DROP TABLE IF EXISTS framework_configurations;
             DROP TABLE IF EXISTS mi_templates;
             DROP TABLE IF EXISTS evidence;
             DROP TABLE IF EXISTS monthly_returns;
@@ -297,6 +303,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             MonthlyReturns = await LoadMonthlyReturnsAsync(connection, cancellationToken),
             Evidence = await LoadEvidenceAsync(connection, cancellationToken),
             MiTemplates = await LoadTemplatesAsync(connection, cancellationToken),
+            FrameworkConfigurations = await LoadFrameworkConfigurationsAsync(connection, cancellationToken),
             AuditEvents = await LoadAuditEventsAsync(connection, cancellationToken),
         };
 
@@ -472,6 +479,21 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         return templates;
     }
 
+    private static async Task<List<FrameworkConfiguration>> LoadFrameworkConfigurationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT framework, start_date FROM framework_configurations ORDER BY framework;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var configurations = new List<FrameworkConfiguration>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            configurations.Add(new FrameworkConfiguration(
+                (FrameworkCode)reader.GetInt32(0),
+                DateOnly.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        }
+
+        return configurations;
+    }
+
     private static async Task<List<AuditEvent>> LoadAuditEventsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using var command = CreateCommand(connection, "SELECT id, occurred_at_utc, action, entity_type, entity_id, summary, reason, actor FROM audit_events ORDER BY occurred_at_utc DESC, id DESC;");
@@ -497,6 +519,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
     {
         await ExecuteAsync(connection, transaction, """
             DELETE FROM audit_events;
+            DELETE FROM framework_configurations;
             DELETE FROM mi_templates;
             DELETE FROM evidence;
             DELETE FROM monthly_returns;
@@ -539,6 +562,11 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         foreach (var template in database.MiTemplates)
         {
             await InsertTemplateAsync(connection, transaction, template, cancellationToken);
+        }
+
+        foreach (var configuration in database.FrameworkConfigurations)
+        {
+            await InsertFrameworkConfigurationAsync(connection, transaction, configuration, cancellationToken);
         }
 
         foreach (var auditEvent in database.AuditEvents)
@@ -667,6 +695,14 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         AddParameter(command, "$notes", item.Notes);
         AddParameter(command, "$isActive", item.IsActive ? 1 : 0);
         AddParameter(command, "$registeredAtUtc", Timestamp(item.RegisteredAtUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertFrameworkConfigurationAsync(SqliteConnection connection, SqliteTransaction transaction, FrameworkConfiguration item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO framework_configurations (framework, start_date) VALUES ($framework, $startDate);");
+        AddParameter(command, "$framework", (int)item.Framework);
+        AddParameter(command, "$startDate", Date(item.StartDate));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

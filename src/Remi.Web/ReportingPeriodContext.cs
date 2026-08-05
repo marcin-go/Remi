@@ -24,18 +24,16 @@ public sealed class ReportingPeriodContext
 
     public void Synchronise(IEnumerable<string> availablePeriods, string? requestedPeriod)
     {
+        var defaultPeriod = DefaultPeriod();
         var periods = availablePeriods
             .Where(IsValidPeriod)
+            .Append(defaultPeriod)
             .Distinct(StringComparer.Ordinal)
             .OrderByDescending(period => period, StringComparer.Ordinal)
             .ToList();
-        var defaultPeriod = periods.FirstOrDefault() ?? DefaultPeriod();
 
-        if (periods.Count == 0)
-        {
-            periods.Add(defaultPeriod);
-        }
-
+        // A reporting cycle is reviewed in the following calendar month. Keep that
+        // calculated period available before any contracts, invoices or return exist for it.
         var selectedPeriod = requestedPeriod is null && IsInitialised && periods.Contains(SelectedPeriod, StringComparer.Ordinal)
             ? SelectedPeriod
             : IsValidPeriod(requestedPeriod) && periods.Contains(requestedPeriod, StringComparer.Ordinal)

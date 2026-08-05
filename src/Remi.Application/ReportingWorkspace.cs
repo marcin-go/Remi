@@ -29,6 +29,64 @@ public sealed class ReportingWorkspace(
             .OrderByDescending(month => month, StringComparer.Ordinal)
             .ToList(), cancellationToken);
 
+    public Task<IReadOnlyList<FrameworkConfigurationSummary>> GetFrameworkConfigurationsAsync(
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => (IReadOnlyList<FrameworkConfigurationSummary>)Frameworks.All
+            .Select(framework => new FrameworkConfigurationSummary(
+                framework,
+                FrameworkStartDate(database, framework)))
+            .OrderBy(item => item.StartDate is null)
+            .ThenBy(item => item.StartDate)
+            .ThenBy(item => item.Framework.DisplayName, StringComparer.Ordinal)
+            .ToList(), cancellationToken);
+
+    public Task<FrameworkConfigurationUpdateResult> UpdateFrameworkStartDateAsync(
+        FrameworkCode frameworkCode,
+        DateOnly startDate,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = Frameworks.All.SingleOrDefault(item => item.Code == frameworkCode);
+        if (definition is null)
+        {
+            return Task.FromResult(new FrameworkConfigurationUpdateResult(
+                false,
+                "The selected framework is not configured in Remi.",
+                null));
+        }
+
+        return store.UpdateAsync(database =>
+        {
+            var existing = database.FrameworkConfigurations.SingleOrDefault(item => item.Framework == frameworkCode);
+            var configuration = new FrameworkConfiguration(frameworkCode, startDate);
+            if (existing is null)
+            {
+                database.FrameworkConfigurations.Add(configuration);
+            }
+            else
+            {
+                database.FrameworkConfigurations[database.FrameworkConfigurations.IndexOf(existing)] = configuration;
+            }
+
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "FrameworkStartDateUpdated",
+                "FrameworkConfiguration",
+                null,
+                $"Set the reporting start date for {definition.DisplayName} to {startDate:dd MMM yyyy}.",
+                null,
+                actor);
+            return new FrameworkConfigurationUpdateResult(
+                true,
+                $"{definition.DisplayName} will be available for reporting from {startDate:dd MMM yyyy}.",
+                new FrameworkConfigurationSummary(definition, startDate));
+        }, cancellationToken);
+    }
+
+    public Task<MonthlyReturnRegisterModel> GetMonthlyReturnRegisterAsync(CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => BuildMonthlyReturnRegister(database, Today()), cancellationToken);
+
     public Task<CustomerUrnDirectoryStatus?> GetCustomerUrnDirectoryStatusAsync(
         CancellationToken cancellationToken = default) =>
         customerUrnDirectory.GetStatusAsync(cancellationToken);
@@ -204,7 +262,12 @@ public sealed class ReportingWorkspace(
             .ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase)
             .ToList(), cancellationToken);
 
-    public async Task<WorkbookImportResult> ImportWorkbookAsync(
+    /// <summary>
+    /// Imports a completed workbook from the one-off historical source-data baseline.
+    /// This is deliberately not a monthly reporting workflow; new returns are generated from
+    /// Remi's register and the approved template instead.
+    /// </summary>
+    public async Task<HistoricalWorkbookImportResult> ImportHistoricalWorkbookAsync(
         FrameworkCode framework,
         string reportingMonth,
         string workbookName,
@@ -246,7 +309,7 @@ public sealed class ReportingWorkspace(
                     now));
             if (evidenceArchived)
             {
-                RecordAudit(database, now, "WorkbookImported", "MonthlyReturn", null, $"Imported {workbookName} for {Frameworks.Get(framework).DisplayName} {reportingMonth}.", null);
+                RecordAudit(database, now, "HistoricalWorkbookImported", "MonthlyReturn", null, $"Imported historical workbook {workbookName} for {Frameworks.Get(framework).DisplayName} {reportingMonth}.", null);
             }
             var existingContractReferences = database.Contracts
                 .Select(contract => (contract.Framework, ReportingRules.NormaliseReference(contract.SupplierReference)))
@@ -326,14 +389,113 @@ public sealed class ReportingWorkspace(
                 newInvoices++;
             }
 
-            EnsureReturn(database, framework, reportingMonth, imported.WorkbookName, now);
-            return new WorkbookImportResult(
+            var monthlyReturn = EnsureReturn(database, framework, reportingMonth, imported.WorkbookName, now);
+            if (monthlyReturn.Status != ReturnStatus.Submitted)
+            {
+                var submittedReturn = monthlyReturn with
+                {
+                    Status = ReturnStatus.Submitted,
+                    SubmittedAtUtc = monthlyReturn.SubmittedAtUtc,
+                    SubmissionReference = monthlyReturn.SubmissionReference,
+                    OriginalWorkbookName = imported.WorkbookName,
+                    UpdatedAtUtc = now,
+                };
+                database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == monthlyReturn.Id)] = submittedReturn;
+                RecordAudit(
+                    database,
+                    now,
+                    "HistoricalReturnRecordedAsSubmitted",
+                    "MonthlyReturn",
+                    monthlyReturn.Id,
+                    $"Recorded the supplied historical workbook {workbookName} as a submitted return for {Frameworks.Get(framework).DisplayName} {reportingMonth}.",
+                    null);
+            }
+            return new HistoricalWorkbookImportResult(
                 newContracts,
                 existingContracts,
                 newInvoices,
                 existingInvoiceCount,
                 evidenceArchived,
                 ReportingRules.Validate(database));
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records nil historical cycles that are absent from the supplied MI-workbook history.
+    /// Existing non-draft return states are preserved because they carry an explicit user decision.
+    /// </summary>
+    public Task<int> EnsureHistoricalNilReturnsAsync(
+        IEnumerable<HistoricalReturnPeriod> periods,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(periods);
+        var distinctPeriods = periods
+            .Distinct()
+            .ToList();
+        foreach (var period in distinctPeriods)
+        {
+            _ = Frameworks.Get(period.Framework);
+            ValidateReportingMonth(period.ReportingMonth);
+        }
+
+        return store.UpdateAsync(database =>
+        {
+            var now = timeProvider.GetUtcNow();
+            var recorded = 0;
+            foreach (var period in distinctPeriods)
+            {
+                var existing = database.MonthlyReturns.SingleOrDefault(item =>
+                    item.Framework == period.Framework && item.ReportMonth == period.ReportingMonth);
+                if (existing is { Status: not ReturnStatus.Draft })
+                {
+                    continue;
+                }
+
+                if (existing is null)
+                {
+                    var nilReturn = new MonthlyReturn(
+                        Guid.NewGuid(),
+                        period.Framework,
+                        period.ReportingMonth,
+                        ReturnStatus.NilReturn,
+                        null,
+                        null,
+                        null,
+                        now);
+                    database.MonthlyReturns.Add(nilReturn);
+                    RecordAudit(
+                        database,
+                        now,
+                        "HistoricalNilReturnRecorded",
+                        "MonthlyReturn",
+                        nilReturn.Id,
+                        $"Recorded {Frameworks.Get(period.Framework).DisplayName} {period.ReportingMonth} as a nil return because no historical MI workbook was supplied.",
+                        null);
+                }
+                else
+                {
+                    database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = existing with
+                    {
+                        Status = ReturnStatus.NilReturn,
+                        SubmittedAtUtc = null,
+                        SubmissionReference = null,
+                        OriginalWorkbookName = null,
+                        UpdatedAtUtc = now,
+                    };
+                    RecordAudit(
+                        database,
+                        now,
+                        "HistoricalDraftReturnRecordedAsNil",
+                        "MonthlyReturn",
+                        existing.Id,
+                        $"Recorded {Frameworks.Get(period.Framework).DisplayName} {period.ReportingMonth} as a nil return because no historical MI workbook was supplied.",
+                        null);
+                }
+
+                recorded++;
+            }
+
+            return recorded;
         }, cancellationToken);
     }
 
@@ -1166,11 +1328,12 @@ public sealed class ReportingWorkspace(
     {
         var defaultReportingMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
         var currentReportingMonth = IsValidReportingMonth(reportingMonth) ? reportingMonth! : defaultReportingMonth;
+        var activeFrameworks = FrameworksForReportingMonth(database, currentReportingMonth);
         var allFindings = ReportingRules.Validate(database);
         var findings = allFindings
-            .Where(finding => Frameworks.All.Any(framework => IsInReportingPeriod(database, finding, framework.Code, currentReportingMonth)))
+            .Where(finding => activeFrameworks.Any(framework => IsInReportingPeriod(database, finding, framework.Code, currentReportingMonth)))
             .ToList();
-        var summaries = Frameworks.All.Select(framework => new FrameworkSummary(
+        var summaries = activeFrameworks.Select(framework => new FrameworkSummary(
             framework,
             database.Contracts.Count(contract => contract.Framework == framework.Code),
             database.Invoices.Count(invoice => invoice.Framework == framework.Code),
@@ -1178,7 +1341,7 @@ public sealed class ReportingWorkspace(
             database.MonthlyReturns.Count(item => item.Framework == framework.Code && item.Status == ReturnStatus.Draft),
             database.MonthlyReturns.Count(item => item.Framework == framework.Code && item.Status == ReturnStatus.NilReturn),
             database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework.Code && item.ReportMonth == currentReportingMonth)?.Status)).ToList();
-        var readiness = Frameworks.All.Select(framework =>
+        var readiness = activeFrameworks.Select(framework =>
         {
             var frameworkFindings = findings
                 .Where(finding => IsInReportingPeriod(database, finding, framework.Code, currentReportingMonth))
@@ -1251,6 +1414,67 @@ public sealed class ReportingWorkspace(
             .ToList();
         return new DashboardModel(summaries, progress, findings, attentionItems, currentReportingMonth, readiness, recentActivity);
     }
+
+    private static MonthlyReturnRegisterModel BuildMonthlyReturnRegister(RemiDatabase database, DateOnly today)
+    {
+        var currentReportingMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
+        var reportingMonths = database.Contracts
+            .Select(contract => contract.ReportMonth)
+            .Concat(database.Invoices.Select(invoice => invoice.ReportMonth))
+            .Concat(database.MonthlyReturns.Select(monthlyReturn => monthlyReturn.ReportMonth))
+            .Append(currentReportingMonth)
+            .Where(IsValidReportingMonth)
+            .Distinct(StringComparer.Ordinal)
+            .OrderByDescending(month => month, StringComparer.Ordinal)
+            .ToList();
+        var findings = ReportingRules.Validate(database);
+        var entries = reportingMonths
+            .SelectMany(reportingMonth => FrameworksForReportingMonth(database, reportingMonth).Select(framework =>
+            {
+                var monthlyReturn = database.MonthlyReturns.SingleOrDefault(item =>
+                    item.Framework == framework.Code && item.ReportMonth == reportingMonth);
+                var contracts = database.Contracts
+                    .Where(contract => contract.Framework == framework.Code && contract.ReportMonth == reportingMonth)
+                    .ToList();
+                var invoices = database.Invoices
+                    .Where(invoice => invoice.Framework == framework.Code && invoice.ReportMonth == reportingMonth)
+                    .ToList();
+                var frameworkFindings = findings
+                    .Where(finding => IsInReportingPeriod(database, finding, framework.Code, reportingMonth))
+                    .ToList();
+                return new MonthlyReturnRegisterEntry(
+                    framework,
+                    reportingMonth,
+                    monthlyReturn?.Status,
+                    contracts.Count,
+                    contracts.Sum(contract => contract.TotalContractValueExVat),
+                    invoices.Count,
+                    invoices.Sum(invoice => invoice.TotalCostExVat),
+                    frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Error),
+                    frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Warning),
+                    monthlyReturn?.SubmittedAtUtc,
+                    monthlyReturn?.SubmissionReference,
+                    monthlyReturn?.OriginalWorkbookName,
+                    monthlyReturn?.UpdatedAtUtc);
+            }))
+            .ToList();
+
+        return new MonthlyReturnRegisterModel(reportingMonths, entries);
+    }
+
+    private static IReadOnlyList<FrameworkDefinition> FrameworksForReportingMonth(
+        RemiDatabase database,
+        string reportingMonth) =>
+        Frameworks.All
+            .Where(framework => FrameworkStartDate(database, framework) is DateOnly startDate &&
+                startDate.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture).CompareTo(reportingMonth) <= 0)
+            .ToList();
+
+    private static DateOnly? FrameworkStartDate(RemiDatabase database, FrameworkDefinition framework) =>
+        database.FrameworkConfigurations
+            .SingleOrDefault(item => item.Framework == framework.Code)
+            ?.StartDate
+        ?? framework.DefaultStartDate;
 
     private MonthlyReturn EnsureReturn(
         RemiDatabase database,

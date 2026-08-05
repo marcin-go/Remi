@@ -35,14 +35,35 @@ public sealed class DesignAccessibilityTests
     }
 
     [Fact]
-    public void Interactive_controls_have_a_visible_focus_ring_and_minimum_touch_targets()
+    public void Interactive_controls_do_not_use_bold_focus_outlines_and_keep_compact_supporting_controls()
     {
         var css = File.ReadAllText(AppCssPath());
 
-        Assert.Contains(".button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid var(--color-focus);", css, StringComparison.Ordinal);
-        Assert.Contains(".button { display: inline-flex; justify-content: center; min-height: 2.75rem;", css, StringComparison.Ordinal);
+        Assert.Contains(":where(button, input, select, a, [role=\"button\"], [role=\"tab\"]):focus-visible { outline: none; }", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("outline: 3px solid", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("outline: 2px solid", css, StringComparison.Ordinal);
         Assert.Contains(".checkbox-cell input { width: 1.5rem; height: 1.5rem;", css, StringComparison.Ordinal);
         Assert.Contains(".quick-filter { min-height: 1.875rem;", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Command_tiers_follow_the_compact_typographic_system()
+    {
+        var css = File.ReadAllText(AppCssPath());
+
+        Assert.Contains(".remi-action, .button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 0 6px;", css, StringComparison.Ordinal);
+        Assert.Contains("font-size: 11px;", css, StringComparison.Ordinal);
+        Assert.Contains("letter-spacing: 0.065em;", css, StringComparison.Ordinal);
+        Assert.Contains(".remi-action--primary, .button.primary { color: #087f7d; }", css, StringComparison.Ordinal);
+        Assert.Contains(".remi-action--compact, .button.secondary { min-height: 28px; padding-inline: 5px; font-size: 10.5px; }", css, StringComparison.Ordinal);
+        Assert.Contains(".remi-action--table { min-height: 24px; padding-inline: 3px; font-size: 10px; letter-spacing: 0.055em; }", css, StringComparison.Ordinal);
+        Assert.Contains(".remi-action:hover:not(:disabled), .button:hover:not(:disabled) { color: #087f7d; background: rgb(11 145 143 / 7%); }", css, StringComparison.Ordinal);
+        Assert.Contains(".table-action-cell { width: 70px; text-align: right !important; white-space: nowrap; }", css, StringComparison.Ordinal);
+        Assert.Contains(".filter-actions { margin-left: 6px; }", css, StringComparison.Ordinal);
+        Assert.Contains(".button-icon-only { min-height: 0; gap: 0; padding: 0;", css, StringComparison.Ordinal);
+        Assert.Contains(".button-control-peer { align-self: stretch; }", css, StringComparison.Ordinal);
+        Assert.Contains("select { min-height: 0; padding: 0.25rem 0.55rem; }", css, StringComparison.Ordinal);
+        Assert.Contains(".register-filters select { min-height: 1.875rem; padding: 0.25rem 0.55rem; }", css, StringComparison.Ordinal);
     }
 
     private static string Token(string token)

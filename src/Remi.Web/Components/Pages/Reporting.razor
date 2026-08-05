@@ -3,80 +3,148 @@
 @inject ReportingPeriodContext ReportingPeriod
 @implements IDisposable
 
-<PageTitle>Remi · Monthly returns</PageTitle>
+<PageTitle>Remi · Reports</PageTitle>
 
 <section class="page-heading">
     <div>
-        <p class="eyebrow">Monthly returns</p>
-        <h1>Build the audit trail as you report.</h1>
-        <p class="lede">Import the exact MI workbook used for one framework and one month. Remi keeps the source fields, links activities to the reporting period, and checks the data before you record submission.</p>
+        <p class="eyebrow">Reports</p>
+        <h1>Review every reporting cycle in one place.</h1>
+        <p class="lede">Browse returns by reporting month or framework, then open a specific cycle to review its data, generate the approved workbook and record the outcome.</p>
     </div>
 </section>
 
-<section class="two-column reporting-layout">
-    <article class="panel import-panel">
-        <p class="eyebrow">1 · Import the source</p>
-        <h2>Monthly MI workbook</h2>
-        <div class="form-grid">
-            <label>
-                Framework
-                <select @bind="framework" @bind:after="LoadReportingPeriodAsync">
-                    @foreach (var definition in Frameworks.All)
+<section class="panel return-register-panel">
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Return register</p>
+            <h2>Browse reports</h2>
+        </div>
+    </div>
+    <div class="return-register-controls">
+        <div class="return-register-views" role="tablist" aria-label="Reports view">
+            <button class="button secondary @(registerView == "month" ? "active" : null)" role="tab" aria-selected="@(registerView == "month" ? "true" : "false")" @onclick="@(() => registerView = "month")">By reporting month</button>
+            <button class="button secondary @(registerView == "framework" ? "active" : null)" role="tab" aria-selected="@(registerView == "framework" ? "true" : "false")" @onclick="@(() => registerView = "framework")">By framework</button>
+        </div>
+        @if (registerView == "month")
+        {
+            <label class="return-register-filter">Reporting month
+                <select @bind="registerMonth">
+                    @foreach (var month in returnRegister?.ReportingMonths ?? [])
+                    {
+                        <option value="@month">@month</option>
+                    }
+                </select>
+            </label>
+        }
+        else
+        {
+            <label class="return-register-filter">Framework
+                <select @bind="registerFramework">
+                    @foreach (var definition in RegisterFrameworks)
                     {
                         <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
                     }
                 </select>
             </label>
-            <label>
-                Reporting month
-                <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:after="LoadReportingPeriodAsync" />
-            </label>
+        }
+    </div>
+    @if (returnRegister is null)
+    {
+        <p class="muted">Loading the return register…</p>
+    }
+    else
+    {
+        <div class="table-wrap return-register-table">
+            <table>
+                <thead>
+                    <tr>
+                        @if (registerView == "month") { <th>Framework</th> } else { <th>Reporting month</th> }
+                        <th>Status</th>
+                        <th>Activity</th>
+                        <th>Readiness</th>
+                        <th>Submission</th>
+                        <th class="table-action-cell"><span class="visually-hidden">Open</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in VisibleReturnEntries)
+                    {
+                        <tr>
+                            @if (registerView == "month")
+                            {
+                                <td><strong>@item.Framework.DisplayName</strong><span class="cell-secondary">@item.Framework.AgreementNumber</span></td>
+                            }
+                            else
+                            {
+                                <td><strong>@item.ReportingMonth</strong></td>
+                            }
+                            <td><span class="@ReturnStatusClass(item.ReturnStatus)">@ReturnStatusLabel(item.ReturnStatus)</span></td>
+                            <td>@item.ContractCount contract(s) · @item.InvoiceCount invoice(s)</td>
+                            <td>@RegisterReadiness(item)</td>
+                            <td>@SubmissionLabel(item)</td>
+                            <td class="table-action-cell"><button class="remi-action remi-action--table" @onclick="@(() => ManageReturnAsync(item))">Open <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
         </div>
-        <p class="return-context"><strong>@Frameworks.Get(framework).DisplayName</strong><span>@reportingMonth</span></p>
-        <label class="review-confirmation">
-            <input type="checkbox" @bind="importConfirmed" />
-            <span>I have checked the framework and reporting month. Selecting a workbook imports it and archives the original file.</span>
-        </label>
-        <label class="file-picker">
-            <span>Choose .xlsx workbook to import</span>
-            <InputFile disabled="@(!importConfirmed || working)" OnChange="ImportWorkbookAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-        </label>
-        <p class="caption">The report month is selected separately because the official workbook name does not contain it. The original workbook is not changed.</p>
+    }
+</section>
 
-        @if (!string.IsNullOrWhiteSpace(importMessage))
-        {
-            <p class="notice success">@importMessage</p>
-        }
-        @if (!string.IsNullOrWhiteSpace(importError))
-        {
-            <p class="notice error">@importError</p>
-        }
-    </article>
-
-    <article class="panel">
-        <p class="eyebrow">2 · Record the outcome</p>
+@if (showReturnEditor)
+{
+<section class="selected-return-heading">
+    <div>
+        <p class="eyebrow">Selected return</p>
         <h2>@Frameworks.Get(framework).DisplayName · @reportingMonth</h2>
-        <p class="muted">Current status: <strong>@CurrentStatus</strong></p>
-        <div class="return-readiness">
-            <strong>Readiness</strong>
-            <span>@ReadinessMessage</span>
-        </div>
-        <label>
-            Portal submission reference <span class="optional">(optional)</span>
-            <input @bind="submissionReference" @bind:event="oninput" placeholder="e.g. portal confirmation or ticket ID" />
-        </label>
-        <div class="action-row">
-            <button class="button primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Record as submitted</button>
-            <button class="button secondary" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record nil return</button>
-        </div>
-        <label class="correction-reason">
-            Correction reason <span class="optional">(required to request review)</span>
-            <input @bind="correctionReason" @bind:event="oninput" placeholder="What needs to be corrected and why?" />
-        </label>
-        <div class="action-row">
-            <button class="button secondary" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
-            <a class="button secondary" href="templates">Template and audit trail</a>
-        </div>
+        <p class="muted">Review the registered data, generate the approved workbook and record the outcome for this reporting cycle.</p>
+    </div>
+    <button class="remi-action remi-action--compact" @onclick="CloseReturnEditor">Close return tools</button>
+</section>
+
+@if (SelectedReturn is not null)
+{
+<section class="gca-return-summary" aria-labelledby="gca-return-summary-heading">
+    <p class="eyebrow">GCA submission summary</p>
+    <h3 id="gca-return-summary-heading">@SelectedReturn.Framework.AgreementNumber @SelectedReturn.Framework.DisplayName for @DisplayReportingMonth(SelectedReturn.ReportingMonth)</h3>
+    <table>
+        <thead>
+            <tr><th>Submitted</th><th>Rows</th><th>Total</th></tr>
+        </thead>
+        <tbody>
+            <tr><th scope="row">Invoices</th><td>@SelectedReturn.InvoiceCount</td><td>@Currency(SelectedReturn.InvoiceTotalExVat)</td></tr>
+            <tr><th scope="row">Contracts</th><td>@SelectedReturn.ContractCount</td><td>@Currency(SelectedReturn.ContractTotalExVat)</td></tr>
+            <tr><th scope="row">Others</th><td>0</td><td></td></tr>
+        </tbody>
+    </table>
+</section>
+}
+
+<section class="panel return-outcome-panel">
+    <p class="eyebrow">Prepare and record</p>
+    <h2>@Frameworks.Get(framework).DisplayName · @reportingMonth</h2>
+    <p class="caption">Generate the reporting workbook from the registered contracts and invoices using the active approved template, then upload it to the GCA portal.</p>
+    <p class="muted">Current status: <strong>@CurrentStatus</strong></p>
+    <div class="return-readiness">
+        <strong>Readiness</strong>
+        <span>@ReadinessMessage</span>
+    </div>
+    <label>
+        Portal submission reference <span class="optional">(optional)</span>
+        <input @bind="submissionReference" @bind:event="oninput" placeholder="e.g. portal confirmation or ticket ID" />
+    </label>
+    <div class="action-row">
+        <button class="remi-action remi-action--primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Record as submitted</button>
+        <button class="remi-action remi-action--section" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record nil return</button>
+    </div>
+    <label class="correction-reason">
+        Correction reason <span class="optional">(required to request review)</span>
+        <input @bind="correctionReason" @bind:event="oninput" placeholder="What needs to be corrected and why?" />
+    </label>
+    <div class="action-row">
+        <button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
+        <a class="remi-action remi-action--section" href="@($"maintenance?period={reportingMonth}&section=templates")">Prepare MI workbook <span aria-hidden="true">→</span></a>
+    </div>
         @if (actionResult is not null)
         {
             <p class="notice @(actionResult.Succeeded ? "success" : "error")" role="status">@actionResult.Message</p>
@@ -90,14 +158,13 @@
                 </ul>
             }
         }
-    </article>
 </section>
 
 <section class="panel evidence-panel">
     <div class="panel-heading">
         <div>
             <p class="eyebrow">Evidence archive</p>
-            <h2>Original files for this return</h2>
+            <h2>Files retained for this return</h2>
         </div>
         <span class="muted">@evidence.Count file(s) retained</span>
     </div>
@@ -130,7 +197,7 @@
             <p class="eyebrow">Reviewable reporting card</p>
             <h2>Month-end MI staging</h2>
         </div>
-        <a class="button secondary" href="@($"/reporting-card/{(int)framework}/{reportingMonth}")" target="_blank">Download text card</a>
+        <a class="remi-action remi-action--section" href="@($"/reporting-card/{(int)framework}/{reportingMonth}")" target="_blank">Download text card</a>
     </div>
     @if (reportingCard is null || (reportingCard.Contracts.Count == 0 && reportingCard.Invoices.Count == 0))
     {
@@ -182,33 +249,38 @@
     <p class="eyebrow">What Remi checks today</p>
     <ul class="checklist">
         <li>Every contract has a supplier reference, customer, valid dates and a positive total value.</li>
-        <li>Every invoice is linked to an imported contract in the same framework.</li>
-        <li>Duplicate contract and invoice imports are held back instead of creating a second reportable entry.</li>
+        <li>Every invoice is linked to a registered contract in the same framework.</li>
+        <li>Duplicate contract and invoice records are held back instead of creating a second reportable entry.</li>
         <li>A nil return cannot be recorded for a month that contains imported activity.</li>
     </ul>
-    <p class="caption">Generate a review copy from the active, approved workbook on the Templates &amp; audit page. Remi retains both the approved base and every generated return.</p>
+    <p class="caption">Generate a review copy from the active, approved workbook in Settings → Templates. Remi retains both the approved base and every generated return.</p>
 </section>
+}
 
 @code {
     private DashboardModel? model;
+    private MonthlyReturnRegisterModel? returnRegister;
     private FrameworkCode framework = FrameworkCode.GCloud14;
+    private FrameworkCode registerFramework = FrameworkCode.GCloud14;
     private string reportingMonth = string.Empty;
+    private string registerMonth = string.Empty;
+    private string registerView = "month";
     private string? submissionReference;
-    private string? importMessage;
-    private string? importError;
     private string? correctionReason;
     private ReturnActionResult? actionResult;
     private IReadOnlyList<ReportingEvidence> evidence = [];
     private ReportingCardModel? reportingCard;
     private bool working;
-    private bool importConfirmed;
+    private bool showReturnEditor;
 
     protected override async Task OnInitializedAsync()
     {
         ReportingPeriod.Changed += ReportingPeriodChanged;
         reportingMonth = ReportingPeriod.SelectedPeriod;
+        registerMonth = reportingMonth;
         model = await Workspace.GetDashboardAsync(reportingMonth);
-        await LoadReportingPeriodAsync();
+        returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
+        EnsureRegisterFrameworkSelection();
     }
 
     public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
@@ -218,8 +290,14 @@
         await InvokeAsync(async () =>
         {
             reportingMonth = ReportingPeriod.SelectedPeriod;
+            registerMonth = reportingMonth;
             model = await Workspace.GetDashboardAsync(reportingMonth);
-            await LoadReportingPeriodAsync();
+            returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
+            EnsureRegisterFrameworkSelection();
+            if (showReturnEditor)
+            {
+                await LoadReportingPeriodAsync();
+            }
             StateHasChanged();
         });
     }
@@ -246,50 +324,19 @@
     private bool CanRequestCorrection => CurrentStatus == "Submitted" && !string.IsNullOrWhiteSpace(correctionReason);
 
     private string ReadinessMessage => CanMarkSubmitted
-        ? "Workbook evidence and reportable activity are ready for submission."
+        ? "The generated workbook evidence and reportable activity are ready for submission."
         : HasActivity && !HasEvidence
-            ? "Import and archive the source workbook before recording submission."
+            ? "Generate and archive the reporting workbook before recording submission."
             : !HasActivity
                 ? "No reportable activity is present. You can record a nil return if this is correct."
                 : "Resolve the current return status before recording a new outcome.";
-
-    private async Task ImportWorkbookAsync(InputFileChangeEventArgs args)
-    {
-        var workbook = args.File;
-        if (workbook is null)
-        {
-            return;
-        }
-
-        working = true;
-        importMessage = null;
-        importError = null;
-        actionResult = null;
-        try
-        {
-            await using var stream = workbook.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
-            var result = await Workspace.ImportWorkbookAsync(framework, reportingMonth, workbook.Name, stream);
-            importMessage = $"Imported {result.NewContracts} contract(s) and {result.NewInvoices} invoice(s). {result.ExistingContracts + result.ExistingInvoices} duplicate row(s) were already present. The original workbook was {(result.EvidenceArchived ? "archived" : "already archived")}.";
-            model = await Workspace.GetDashboardAsync(reportingMonth);
-            ReportingPeriod.Synchronise(await Workspace.GetReportingPeriodsAsync(), reportingMonth);
-            await LoadReportingPeriodAsync();
-            importConfirmed = false;
-        }
-        catch (Exception exception)
-        {
-            importError = $"The workbook could not be imported: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
 
     private async Task MarkSubmittedAsync()
     {
         working = true;
         actionResult = await Workspace.MarkSubmittedAsync(framework, reportingMonth, submissionReference);
         model = await Workspace.GetDashboardAsync(reportingMonth);
+        returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
         working = false;
     }
 
@@ -298,6 +345,7 @@
         working = true;
         actionResult = await Workspace.MarkNilReturnAsync(framework, reportingMonth);
         model = await Workspace.GetDashboardAsync(reportingMonth);
+        returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
         working = false;
     }
 
@@ -306,6 +354,7 @@
         working = true;
         actionResult = await Workspace.RequestCorrectionAsync(framework, reportingMonth, correctionReason ?? string.Empty);
         model = await Workspace.GetDashboardAsync(reportingMonth);
+        returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
         working = false;
     }
 
@@ -324,5 +373,82 @@
         evidence = await evidenceTask;
         reportingCard = await cardTask;
     }
+
+    private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => (returnRegister?.Entries ?? [])
+        .Where(item => registerView == "month"
+            ? item.ReportingMonth == registerMonth
+            : item.Framework.Code == registerFramework)
+        .OrderByDescending(item => item.ReportingMonth, StringComparer.Ordinal)
+        .ThenBy(item => item.Framework.DisplayName, StringComparer.Ordinal);
+
+    private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? [])
+        .Select(item => item.Framework)
+        .DistinctBy(item => item.Code)
+        .OrderBy(item => item.DisplayName, StringComparer.Ordinal)
+        .ToList();
+
+    private void EnsureRegisterFrameworkSelection()
+    {
+        if (RegisterFrameworks.All(item => item.Code != registerFramework))
+        {
+            registerFramework = RegisterFrameworks.FirstOrDefault()?.Code ?? registerFramework;
+        }
+    }
+
+    private async Task ManageReturnAsync(MonthlyReturnRegisterEntry item)
+    {
+        framework = item.Framework.Code;
+        reportingMonth = item.ReportingMonth;
+        registerFramework = framework;
+        registerMonth = reportingMonth;
+        actionResult = null;
+        correctionReason = null;
+        submissionReference = item.SubmissionReference;
+        model = await Workspace.GetDashboardAsync(reportingMonth);
+        await LoadReportingPeriodAsync();
+        showReturnEditor = true;
+    }
+
+    private void CloseReturnEditor() => showReturnEditor = false;
+
+    private static string ReturnStatusLabel(ReturnStatus? status) => status switch
+    {
+        ReturnStatus.Draft => "Draft",
+        ReturnStatus.Submitted => "Submitted",
+        ReturnStatus.NilReturn => "Nil return",
+        ReturnStatus.CorrectionRequired => "Correction required",
+        _ => "Not started",
+    };
+
+    private static string ReturnStatusClass(ReturnStatus? status) => status switch
+    {
+        ReturnStatus.Submitted or ReturnStatus.NilReturn => "readiness-status complete",
+        ReturnStatus.CorrectionRequired => "readiness-status warning",
+        ReturnStatus.Draft => "readiness-status neutral",
+        _ => "readiness-status neutral",
+    };
+
+    private static string RegisterReadiness(MonthlyReturnRegisterEntry item) => item.BlockingFindingCount > 0
+        ? $"{item.BlockingFindingCount} blocking issue(s)"
+        : item.ReviewFindingCount > 0
+            ? $"{item.ReviewFindingCount} review item(s)"
+            : item.ContractCount == 0 && item.InvoiceCount == 0
+                ? "No activity"
+                : "Ready for review";
+
+    private static string SubmissionLabel(MonthlyReturnRegisterEntry item) => item.SubmittedAtUtc is not null
+        ? item.SubmittedAtUtc.Value.ToLocalTime().ToString("d MMM yyyy")
+        : string.IsNullOrWhiteSpace(item.SubmissionReference)
+            ? "—"
+            : item.SubmissionReference;
+
+    private MonthlyReturnRegisterEntry? SelectedReturn => returnRegister?.Entries.SingleOrDefault(item =>
+        item.Framework.Code == framework && item.ReportingMonth == reportingMonth);
+
+    private static string DisplayReportingMonth(string month) =>
+        DateOnly.ParseExact($"{month}-01", "yyyy-MM-dd").ToString("MMMM yyyy");
+
+    private static string Currency(decimal value) =>
+        value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
 
 }

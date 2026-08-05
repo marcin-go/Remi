@@ -22,7 +22,7 @@ else
             </div>
             <div class="register-header-actions">
                 <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="button primary" href="@PeriodRoute("reporting")">Import invoices</a>
+                <a class="remi-action remi-action--primary" href="@PeriodRoute("contracts")">Register invoice</a>
             </div>
         </header>
 
@@ -43,7 +43,7 @@ else
                     <label>Framework<select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
                     <label>Contract match<select @bind="matchFilter" @bind:after="ResetPage"><option value="">All records</option><option value="matched">Matched</option><option value="unmatched">Needs a contract</option></select></label>
                     <label>Evidence<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All evidence</option><option value="available">Evidence linked</option><option value="missing">Evidence missing</option></select></label>
-                    <button class="button secondary register-reset" @onclick="ResetFilters">Reset</button>
+                    <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
                         <button class="@QuickButtonClass("current")" @onclick="@(() => SetQuickFilter("current"))">Selected period</button>
@@ -62,16 +62,16 @@ else
                     {
                         <span>Select invoices to review them together.</span>
                     }
-                    <div><button @onclick="ToggleAllVisible" disabled="@(PagedInvoices.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
+                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedInvoices.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
                 </div>
 
                 <div class="register-table-scroll">
                     <table class="register-table invoice-register-table">
-                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th><th>Invoice &amp; framework</th><th>Customer &amp; contract</th><th>Invoice date</th><th>Reporting month</th><th>Value</th><th>Checks</th></tr></thead>
+                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th><th>Invoice &amp; framework</th><th>Customer &amp; contract</th><th>Invoice date</th><th>Reporting month</th><th>Value</th><th>Checks</th><th class="table-action-cell"><span class="visually-hidden">Open</span></th></tr></thead>
                         <tbody>
                         @if (PagedInvoices.Count == 0)
                         {
-                            <tr><td colspan="7" class="register-empty">No invoices match these filters.</td></tr>
+                            <tr><td colspan="8" class="register-empty">No invoices match these filters.</td></tr>
                         }
                         @foreach (var invoice in PagedInvoices)
                         {
@@ -93,6 +93,7 @@ else
                                         @if (invoice.EvidenceCount == 0) { <span class="register-status warning"><i aria-hidden="true"></i>Evidence missing</span> }
                                     }
                                 </td>
+                                <td class="table-action-cell"><a class="remi-action remi-action--table" href="@InvoiceRoute(invoice.InvoiceId)" @onclick:stopPropagation="true">Open <span aria-hidden="true">→</span></a></td>
                             </tr>
                         }
                         </tbody>
@@ -111,7 +112,7 @@ else
                     <strong>@SelectedInvoices.Count selected</strong>
                     <span>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat)) combined value</span>
                     <span class="@(SelectedInvoices.Any(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedInvoices.Count(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) with exceptions</span>
-                    <div><button class="button secondary" @onclick="ToggleSelectionDrawer">Review selection</button><button class="clear-selection" @onclick="ClearSelection">Clear</button></div>
+                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review selected <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
                 </section>
             }
 
@@ -132,8 +133,8 @@ else
                         <li><span><strong>@invoice.InvoiceNumber</strong><small>@invoice.CustomerName</small></span><button @onclick="@(() => ToggleSelection(invoice.InvoiceId))" aria-label="Remove @invoice.InvoiceNumber">×</button></li>
                     }
                 </ul>
-                <button class="button primary selection-review" disabled="@(SelectedInvoices.Count == 0)" @onclick="ReviewSelection">Review selected invoices <span aria-hidden="true">→</span></button>
-                @if (SelectedInvoices.Count > 0) { <button class="clear-selection" @onclick="ClearSelection">Clear selection</button> }
+                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedInvoices.Count == 0)" @onclick="ReviewSelection">Review selected <span aria-hidden="true">→</span></button>
+                @if (SelectedInvoices.Count > 0) { <button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button> }
                 </aside>
             }
         </section>

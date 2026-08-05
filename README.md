@@ -16,7 +16,7 @@ The first delivery is a Blazor web application designed to run as a portable Win
 - Versioned, approved MI workbook registration and review-copy export that preserves the workbook structure
 - Append-only audit trail for data intake, template approval, export, submissions and correction requests
 - A no-write migration validator for a whole `source-data` folder
-- A Maintenance page that plans, validates and runs reviewed source-data imports
+- A Settings page that plans, validates and runs reviewed source-data imports
 - Portable SQLite tables for the whole register, plus evidence and application-key storage under the data folder beside the executable
 - An evidence archive that retains imported MI workbooks, contract documents, screenshots and guidance
 - Source path and SHA-256 checksum recorded for each archived evidence file
@@ -40,7 +40,7 @@ Run `publish.bat` from the repository root. It creates `publish\Remi\Remi.exe` a
 
 Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address and opens your default browser. Closing its command window stops Remi. No installer, service or registry configuration is used.
 
-In **Maintenance**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. No customer data is sent from Remi.
+In **Settings**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. No customer data is sent from Remi.
 
 ## Validate and migrate the existing history
 
@@ -54,11 +54,11 @@ Once the findings have been reviewed, rerun without --validate and point it at t
 
     dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.db"
 
-The data folder will be created automatically. The migration retains every file beneath source-data except MI Reporting Ledger.xlsx: the 52 MI workbooks are imported as structured records and retained as originals; PDFs, screenshots and guidance are retained as evidence too. Remi records each archived file's original relative source path and SHA-256 checksum in its register, while storing the physical file as a flat hash-named copy under data/evidence. The preflight command does not need the --data argument because it does not write data.
+The data folder will be created automatically. The migration retains every file beneath source-data except MI Reporting Ledger.xlsx: the 52 MI workbooks are imported as structured records and retained as originals; PDFs, screenshots and guidance are retained as evidence too. Every supplied historical MI workbook is recorded as submitted. For the frameworks represented by that history, a month that has no workbook is recorded as a NIL return. Remi records each archived file's original relative source path and SHA-256 checksum in its register, while storing the physical file as a flat hash-named copy under data/evidence. The preflight command does not need the --data argument because it does not write data.
 
-The portable app also exposes this workflow under **Maintenance**: use the browser-native folder chooser to select source data, create a source inventory, run the same no-write validation, review any findings, then explicitly confirm the import into SQLite. The selected files are temporarily staged with their folder hierarchy before processing.
+The portable app also exposes this workflow under **Settings**: use the browser-native folder chooser to select source data, create a source inventory, run the same no-write validation, review any findings, then explicitly confirm the import into SQLite. The selected files are temporarily staged with their folder hierarchy before processing.
 
-Remi is intentionally a clean-slate application: it does not upgrade earlier prototype data files in place. If a schema reset is required, validate the original source folder and use **Rebuild all data from source** in Maintenance. This replaces the local SQLite register and evidence archive after a second validation pass. The equivalent command-line operation is:
+Remi is intentionally a clean-slate application: it does not upgrade earlier prototype data files in place. If a schema reset is required, validate the original source folder and use **Rebuild all data from source** in Settings. This replaces the local SQLite register and evidence archive after a second validation pass. The equivalent command-line operation is:
 
 ```powershell
 dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-data" --data "D:\Portable Apps\Remi\data\remi-data.db" --repopulate

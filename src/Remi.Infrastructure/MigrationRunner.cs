@@ -89,6 +89,11 @@ public sealed class MigrationRunner(
         var archivedFiles = 0;
         var ledgerPaymentPositions = 0;
         var ledgerFindings = new List<ValidationFinding>();
+        var suppliedReturnPeriods = sourceFiles
+            .Where(file => file.IsMiWorkbook)
+            .Select(file => new HistoricalReturnPeriod(file.Framework!.Value, file.ReportingMonth!))
+            .Distinct()
+            .ToList();
 
         foreach (var sourceFile in sourceFiles)
         {
@@ -96,7 +101,7 @@ public sealed class MigrationRunner(
             await using var stream = File.OpenRead(sourceFile.FullPath);
             if (sourceFile.IsMiWorkbook)
             {
-                var result = await workspace.ImportWorkbookAsync(
+                var result = await workspace.ImportHistoricalWorkbookAsync(
                     sourceFile.Framework!.Value,
                     sourceFile.ReportingMonth!,
                     Path.GetFileName(sourceFile.FullPath),
@@ -124,6 +129,21 @@ public sealed class MigrationRunner(
             archivedFiles += wasArchived ? 1 : 0;
         }
 
+        var historicalFrameworks = suppliedReturnPeriods
+            .Select(period => period.Framework)
+            .Distinct()
+            .ToList();
+        var historicalMonths = suppliedReturnPeriods
+            .Select(period => period.ReportingMonth)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var suppliedReturnPeriodSet = suppliedReturnPeriods.ToHashSet();
+        var missingReturnPeriods = historicalFrameworks
+            .SelectMany(framework => historicalMonths.Select(month => new HistoricalReturnPeriod(framework, month)))
+            .Where(period => !suppliedReturnPeriodSet.Contains(period))
+            .ToList();
+        var inferredNilReturns = await workspace.EnsureHistoricalNilReturnsAsync(missingReturnPeriods, cancellationToken);
+
         var ledgerPath = FindLedgerPath(sourceDirectory);
         if (ledgerPath is not null)
         {
@@ -145,7 +165,9 @@ public sealed class MigrationRunner(
             existingInvoices,
             archivedFiles,
             dashboard.Findings.Concat(ledgerFindings).ToList(),
-            ledgerPaymentPositions);
+            ledgerPaymentPositions,
+            suppliedReturnPeriods.Count,
+            inferredNilReturns);
     }
 
     private static IReadOnlyList<SourceFile> ReadSourceFiles(string sourceDirectory, CancellationToken cancellationToken)

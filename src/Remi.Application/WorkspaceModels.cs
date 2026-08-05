@@ -33,6 +33,40 @@ public sealed record FrameworkReadiness(
     int BlockingFindingCount,
     int ReviewFindingCount);
 
+/// <summary>
+/// The reporting start date configured for a framework Remi currently supports.
+/// </summary>
+public sealed record FrameworkConfigurationSummary(
+    FrameworkDefinition Framework,
+    DateOnly? StartDate);
+
+public sealed record FrameworkConfigurationUpdateResult(
+    bool Succeeded,
+    string Message,
+    FrameworkConfigurationSummary? Configuration);
+
+/// <summary>
+/// A register view of every framework's reporting cycle, including cycles that are ready to start.
+/// </summary>
+public sealed record MonthlyReturnRegisterModel(
+    IReadOnlyList<string> ReportingMonths,
+    IReadOnlyList<MonthlyReturnRegisterEntry> Entries);
+
+public sealed record MonthlyReturnRegisterEntry(
+    FrameworkDefinition Framework,
+    string ReportingMonth,
+    ReturnStatus? ReturnStatus,
+    int ContractCount,
+    decimal ContractTotalExVat,
+    int InvoiceCount,
+    decimal InvoiceTotalExVat,
+    int BlockingFindingCount,
+    int ReviewFindingCount,
+    DateTimeOffset? SubmittedAtUtc,
+    string? SubmissionReference,
+    string? OriginalWorkbookName,
+    DateTimeOffset? UpdatedAtUtc);
+
 public sealed record ContractProgress(
     Guid ContractId,
     FrameworkCode Framework,
@@ -75,13 +109,20 @@ public sealed record ReportingEvidence(
     string? ContractReference,
     DateTimeOffset ArchivedAtUtc);
 
-public sealed record WorkbookImportResult(
+public sealed record HistoricalWorkbookImportResult(
     int NewContracts,
     int ExistingContracts,
     int NewInvoices,
     int ExistingInvoices,
     bool EvidenceArchived,
     IReadOnlyList<ValidationFinding> Findings);
+
+/// <summary>
+/// Identifies a framework and reporting month from a historical source-data import.
+/// </summary>
+public sealed record HistoricalReturnPeriod(
+    FrameworkCode Framework,
+    string ReportingMonth);
 
 public sealed record ReturnActionResult(bool Succeeded, string Message, IReadOnlyList<ValidationFinding> Findings);
 
@@ -282,7 +323,9 @@ public sealed record MigrationReport(
     int ExistingInvoices,
     int ArchivedEvidenceFiles,
     IReadOnlyList<ValidationFinding> Findings,
-    int LedgerPaymentPositions);
+    int LedgerPaymentPositions,
+    int SubmittedReturnReports,
+    int InferredNilReturns);
 
 /// <summary>
 /// The outcome of flattening the physical evidence archive while retaining source provenance in

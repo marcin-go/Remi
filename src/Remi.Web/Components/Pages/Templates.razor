@@ -1,19 +1,11 @@
-@page "/templates"
+@using Microsoft.AspNetCore.Components
 @inject ReportingWorkspace Workspace
 @inject NavigationManager Navigation
 @inject ReportingPeriodContext ReportingPeriod
 @implements IDisposable
 
-<PageTitle>Remi · Templates and audit</PageTitle>
-
-<section class="page-heading">
-    <div>
-        <p class="eyebrow">Template control</p>
-        <h1>Generate from the approved workbook.</h1>
-        <p class="lede">Register the official MI workbook together with the GCA guidance used to approve it. Remi preserves that workbook’s structure and only fills the Contracts and Invoices Raised tables.</p>
-    </div>
-</section>
-
+@if (IsTemplatesView)
+{
 <section class="two-column intake-layout">
     <article class="panel">
         <p class="eyebrow">1 · Register an approved template</p>
@@ -107,6 +99,10 @@
     }
 </section>
 
+}
+
+@if (IsAuditView)
+{
 <section class="panel audit-panel">
     <div class="panel-heading">
         <div>
@@ -149,7 +145,12 @@
     }
 </section>
 
+}
+
 @code {
+    [Parameter]
+    public string View { get; set; } = "templates";
+
     private FrameworkCode templateFramework = FrameworkCode.GCloud14;
     private string templateVersion = "v1.0";
     private string guidanceUrl = "https://www.gca.gov.uk/agreements/RM1557.14";
@@ -164,6 +165,10 @@
     private bool working;
     private string auditActionFilter = string.Empty;
     private int auditLimit = 15;
+
+    private bool IsTemplatesView => !string.Equals(View, "audit", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsAuditView => string.Equals(View, "audit", StringComparison.OrdinalIgnoreCase);
 
     private bool CanGenerateReturn => DateOnly.TryParseExact($"{exportMonth}-01", "yyyy-MM-dd", out _)
         && templates.Any(item => item.Framework == exportFramework && item.IsActive);
@@ -255,9 +260,14 @@
     private static string FriendlyAuditAction(string action) => action switch
     {
         "WorkbookImported" => "Workbook imported",
+        "HistoricalWorkbookImported" => "Historical workbook imported",
+        "HistoricalReturnRecordedAsSubmitted" => "Historical return recorded as submitted",
+        "HistoricalNilReturnRecorded" or "HistoricalDraftReturnRecordedAsNil" => "Historical nil return recorded",
         "ContractImported" => "Contract imported",
         "InvoiceImported" => "Invoice imported",
         "EvidenceArchived" => "Evidence archived",
+        "EvidenceArchiveFlattened" => "Evidence archive flattened",
+        "LedgerPaymentScheduleImported" => "Ledger payment schedule imported",
         "ContractCreated" => "Contract created",
         "InvoiceRecorded" => "Invoice recorded",
         "ChargeScheduled" => "Charge scheduled",
