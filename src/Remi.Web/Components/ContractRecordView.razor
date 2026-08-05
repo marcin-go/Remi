@@ -20,12 +20,20 @@ else
                 <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
-                <button class="button secondary" @onclick="ToggleContractEditor">@(editingContract ? "Cancel" : "Edit")</button>
-                @if (SourceEvidence is not null)
+                @if (editingContract)
                 {
-                    <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">Download</a>
+                    <button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save")</button>
+                    <button class="button secondary" @onclick="ToggleContractEditor">Cancel</button>
                 }
-                <a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a>
+                else
+                {
+                    <button class="button secondary" @onclick="ToggleContractEditor">Edit</button>
+                    @if (SourceEvidence is not null)
+                    {
+                        <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">Download</a>
+                    }
+                    <a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a>
+                }
             </div>
         </header>
 

@@ -9,7 +9,7 @@
     <nav class="register-breadcrumbs" aria-label="Breadcrumb"><a href="/contracts">Contracts</a><span aria-hidden="true">›</span><span>Register contract</span></nav>
 
     <header class="registration-heading">
-        <div><p class="eyebrow">Contract intake</p><h1>Register a signed contract</h1><p class="lede">Start with the framework. Remi will then show only the information needed for that framework, alongside the shared register fields.</p></div>
+        <div><p class="eyebrow">Contract intake</p><h1>Register a signed contract</h1><p class="lede">Start with the framework, then record the required contract details.</p></div>
         <a class="button secondary" href="/contracts">Back ←</a>
     </header>
 
@@ -41,8 +41,8 @@
         }
 
         <section class="registration-form-panel">
-            <header><p class="eyebrow">Step 2 of 2</p><h2>Contract information</h2><p>Fields marked required are needed to create a usable contract record for this framework.</p></header>
-            <div class="registration-section"><h3>Shared register details</h3><p>These fields are held consistently for every framework.</p>
+            <header><p class="eyebrow">Step 2 of 2</p><h2>Contract information</h2><p>All fields below are required to create a usable contract record.</p></header>
+            <div class="registration-section"><h3>Shared register details</h3>
                 <div class="form-grid">
                     <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" @bind:event="oninput" placeholder="e.g. ABC_202608_GMS" /></label>
                     <div class="urn-customer-field">
@@ -58,81 +58,24 @@
                         }
                     </div>
                     <label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="reportingMonth" @bind:event="oninput" /></label>
-                    <label>Customer URN <span class="optional">optional</span><input @bind="customerUrn" @bind:event="oninput" /></label>
                     <label>Contract start date <span class="required">required</span><input required type="date" @bind="startDate" /></label>
                     <label>Contract end date <span class="required">required</span><input required type="date" @bind="endDate" /></label>
-                    <label>Lot number <span class="optional">optional</span><input @bind="lotNumber" @bind:event="oninput" /></label>
                     <label>Contract value, ex VAT <span class="required">required</span><input required type="number" min="0.01" step="0.01" @bind="contractValue" /></label>
                 </div>
             </div>
 
-            <section class="registration-section">
-                <h3>Payment schedule <span class="optional">optional</span></h3>
-                <p>Record the agreed contract term and its chargeable positions. Multiple positions can belong to one year, for example a software licence, data migration and training.</p>
-                <div class="form-grid payment-term-grid">
-                    <label>Base contract term (years) <span class="optional">optional</span><input type="number" min="1" step="1" @bind="baseTermYears" /></label>
-                    <label>Optional extension (years) <span class="optional">optional</span><input type="number" min="0" step="1" @bind="optionalExtensionYears" /></label>
-                </div>
-                <div class="payment-position-header"><div><h4>Annual payment positions</h4><p>Each row contributes to that year’s expected invoiced total, ex VAT.</p></div><button type="button" class="button secondary" @onclick="AddPaymentPosition">Add</button></div>
-                @if (paymentPositions.Count == 0)
-                {
-                    <div class="contract-empty-inline"><strong>No payment positions added</strong><span>Add the agreed positions now, or register the contract without a payment schedule.</span></div>
-                }
-                else
-                {
-                    <div class="payment-position-list">
-                        @foreach (var position in paymentPositions)
-                        {
-                            <div class="payment-position-row" @key="position">
-                                <label>Contract year<input type="number" min="1" step="1" @bind="position.ContractYear" /></label>
-                                <label>Description<input @bind="position.Description" @bind:event="oninput" placeholder="e.g. Annual software licence" /></label>
-                                <label>Value, ex VAT<input type="number" min="0.01" step="0.01" @bind="position.ValueExVat" /></label>
-                                <button type="button" class="button secondary payment-position-remove" @onclick="@(() => RemovePaymentPosition(position))">Remove</button>
-                            </div>
-                        }
-                    </div>
-                }
-            </section>
-
             @if (IsGCloud)
             {
-                <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3><p>These fields appear in the G-Cloud reporting template.</p>
-                    @if (catalogueState is not null && catalogueState.PublicationStatus == MarketplaceCataloguePublicationStatus.PendingPublication)
-                    {
-                        <div class="catalogue-notice pending">
-                            <strong>StatMap G-Cloud 15 catalogue pending</strong>
-                            <span>@catalogueState.Notes</span>
-                        </div>
-                    }
-                    else if (marketplaceSuggestions.Count != 0)
-                    {
-                        <div class="catalogue-notice">
-                            <strong>StatMap Marketplace suggestions</strong>
-                            <span>Choose a product to fill its framework-specific Marketplace ID. The list was checked @catalogueState?.CheckedOn.ToString("dd MMM yyyy"); IDs from another G-Cloud version are never reused.</span>
-                        </div>
-                    }
+                <section class="registration-section framework-fields"><h3>G-Cloud contract details</h3>
                     <div class="form-grid">
-                        @if (marketplaceSuggestions.Count != 0)
-                        {
-                            <label>StatMap product suggestion <span class="optional">optional</span>
-                                <select @onchange="ApplyMarketplaceSuggestion">
-                                    <option value="">Choose a published product</option>
-                                    @foreach (var suggestion in marketplaceSuggestions)
-                                    {
-                                        <option value="@suggestion.MarketplaceServiceId">@suggestion.ProductName · @suggestion.MarketplaceServiceId</option>
-                                    }
-                                </select>
-                            </label>
-                        }
                         <label>Service group <span class="required">required</span><input required @bind="serviceGroup" @bind:event="oninput" /></label>
                         <label>Digital Marketplace service ID <span class="required">required</span><input required @bind="digitalMarketplaceServiceId" @bind:event="oninput" /></label>
-                        <label>Product or service name <span class="optional">reference only</span><input @bind="serviceDescription" @bind:event="oninput" placeholder="e.g. eVO Gazetteer Management System" /></label>
                     </div>
                 </section>
             }
             else
             {
-                <section class="registration-section framework-fields"><h3>VAS contract details</h3><p>These fields replace the G-Cloud service fields in the VAS reporting template.</p>
+                <section class="registration-section framework-fields"><h3>VAS contract details</h3>
                     <div class="form-grid">
                         <label>Product or service description <span class="required">required</span><input required @bind="serviceDescription" @bind:event="oninput" /></label>
                         <label>Order channel <span class="required">required</span><input required @bind="orderChannel" @bind:event="oninput" /></label>
@@ -153,15 +96,11 @@
     private string reportingMonth = string.Empty;
     private DateOnly? startDate;
     private DateOnly? endDate;
-    private string lotNumber = string.Empty;
     private decimal contractValue;
     private string serviceGroup = string.Empty;
     private string digitalMarketplaceServiceId = string.Empty;
     private string serviceDescription = string.Empty;
     private string orderChannel = string.Empty;
-    private int? baseTermYears;
-    private int? optionalExtensionYears;
-    private readonly List<PaymentPositionInput> paymentPositions = [];
     private ReturnActionResult? submission;
     private bool working;
     private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
@@ -169,16 +108,8 @@
     private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
     private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
         Frameworks.All.Where(item => item.AllowsNewContracts).ToList();
-    private IReadOnlyList<MarketplaceServiceSuggestion> marketplaceSuggestions =>
-        selectedFramework is FrameworkCode framework ? MarketplaceCatalogues.ForFramework(framework) : [];
-    private MarketplaceCatalogueState? catalogueState =>
-        selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework)
-            ? MarketplaceCatalogues.ForStatMap(framework)
-            : null;
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private bool HasPaymentPlanInput => baseTermYears is not null || optionalExtensionYears is not null || paymentPositions.Count != 0;
-    private bool IsPaymentPlanComplete => !HasPaymentPlanInput || baseTermYears is > 0 && (optionalExtensionYears is null or >= 0) && paymentPositions.Count != 0 && paymentPositions.All(position => position.ContractYear > 0 && !string.IsNullOrWhiteSpace(position.Description) && position.ValueExVat > 0);
-    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && IsPaymentPlanComplete && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
+    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
 
     protected override void OnInitialized() => reportingMonth = ReportingPeriod.SelectedPeriod;
 
@@ -218,7 +149,7 @@
         working = true;
         try
         {
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", PaymentPlan()));
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, null, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", null));
             if (submission.Succeeded) ResetForm();
         }
         finally { working = false; }
@@ -226,56 +157,10 @@
 
     private void ResetForm()
     {
-        supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
+        supplierReference = customerName = customerUrn = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
         urnSuggestions = [];
         startDate = endDate = null;
         contractValue = 0;
-        baseTermYears = optionalExtensionYears = null;
-        paymentPositions.Clear();
-    }
-
-    private void ApplyMarketplaceSuggestion(ChangeEventArgs args)
-    {
-        if (selectedFramework is not FrameworkCode framework || args.Value is not string marketplaceServiceId)
-        {
-            return;
-        }
-
-        var suggestion = MarketplaceCatalogues.ForFramework(framework)
-            .SingleOrDefault(item => item.MarketplaceServiceId == marketplaceServiceId);
-        if (suggestion is null)
-        {
-            return;
-        }
-
-        digitalMarketplaceServiceId = suggestion.MarketplaceServiceId;
-        serviceDescription = suggestion.ProductName;
-    }
-
-    private ContractPaymentPlanEntry? PaymentPlan() => !HasPaymentPlanInput || baseTermYears is not > 0
-        ? null
-        : new ContractPaymentPlanEntry(
-            baseTermYears.Value,
-            optionalExtensionYears ?? 0,
-            paymentPositions.Select(position => new ContractPaymentPositionEntry(position.ContractYear, position.Description, position.ValueExVat)).ToList());
-
-    private void AddPaymentPosition()
-    {
-        paymentPositions.Add(new PaymentPositionInput { ContractYear = 1 });
-    }
-
-    private void RemovePaymentPosition(PaymentPositionInput position)
-    {
-        paymentPositions.Remove(position);
-    }
-
-    private sealed class PaymentPositionInput
-    {
-        public int ContractYear { get; set; }
-
-        public string Description { get; set; } = string.Empty;
-
-        public decimal ValueExVat { get; set; }
     }
 
     private static string FrameworkFieldsSummary(FrameworkCode framework) => Frameworks.IsGCloud(framework) ? "Shared details, service group and Digital Marketplace service ID" : "Shared details, product/service description and order channel";

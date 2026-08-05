@@ -2,7 +2,6 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
-@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>Remi · Invoices</PageTitle>
@@ -62,21 +61,29 @@ else
 
                 <div class="register-table-scroll">
                     <table class="register-table invoice-register-table">
-                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th><th>Invoice &amp; framework</th><th>Customer &amp; contract</th><th>Invoice date</th><th>Reporting month</th><th>Value</th><th>Checks</th><th class="table-action-cell"><span class="visually-hidden">Open</span></th></tr></thead>
+                        <thead><tr>
+                            <th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th>
+                            <th aria-sort="@SortAria("invoice")"><button class="table-sort" @onclick="@(() => SortBy("invoice"))">Invoice <span aria-hidden="true">@SortIndicator("invoice")</span></button></th>
+                            <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer &amp; contract <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
+                            <th aria-sort="@SortAria("invoiceDate")"><button class="table-sort" @onclick="@(() => SortBy("invoiceDate"))">Invoice date <span aria-hidden="true">@SortIndicator("invoiceDate")</span></button></th>
+                            <th aria-sort="@SortAria("reportMonth")"><button class="table-sort" @onclick="@(() => SortBy("reportMonth"))">Reporting month <span aria-hidden="true">@SortIndicator("reportMonth")</span></button></th>
+                            <th aria-sort="@SortAria("value")"><button class="table-sort" @onclick="@(() => SortBy("value"))">Value <span aria-hidden="true">@SortIndicator("value")</span></button></th>
+                            <th aria-sort="@SortAria("checks")"><button class="table-sort" @onclick="@(() => SortBy("checks"))">Checks <span aria-hidden="true">@SortIndicator("checks")</span></button></th>
+                        </tr></thead>
                         <tbody>
                         @if (PagedInvoices.Count == 0)
                         {
-                            <tr><td colspan="8" class="register-empty">No invoices match these filters.</td></tr>
+                            <tr><td colspan="7" class="register-empty">No invoices match these filters.</td></tr>
                         }
                         @foreach (var invoice in PagedInvoices)
                         {
-                            <tr class="register-row-actionable @(IsSelected(invoice.InvoiceId) ? "selected-row" : null)" tabindex="0" @onclick="@(() => OpenInvoice(invoice.InvoiceId))" @onkeydown="@((KeyboardEventArgs args) => OpenInvoiceOnKey(args, invoice.InvoiceId))">
-                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(invoice.InvoiceId)" @onchange="@(() => ToggleSelection(invoice.InvoiceId))" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true" aria-label="Select @invoice.InvoiceNumber" /></td>
-                                <td><a class="register-reference" href="@InvoiceRoute(invoice.InvoiceId)" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">@invoice.InvoiceNumber</a><span>@Frameworks.Get(invoice.Framework).DisplayName · @invoice.SourceWorkbook</span></td>
+                            <tr class="@(IsSelected(invoice.InvoiceId) ? "selected-row" : null)">
+                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(invoice.InvoiceId)" @onchange="@(() => ToggleSelection(invoice.InvoiceId))" aria-label="Select @invoice.InvoiceNumber" /></td>
+                                <td><a class="register-reference" href="@InvoiceRoute(invoice.InvoiceId)">@invoice.InvoiceNumber</a></td>
                                 <td><strong>@invoice.CustomerName</strong><span>@invoice.SupplierReference</span></td>
                                 <td class="register-date">@DisplayDate(invoice.InvoiceDate)</td>
                                 <td>@invoice.ReportMonth</td>
-                                <td class="register-currency"><strong>@Currency(invoice.TotalCostExVat)</strong><span>excl. VAT</span></td>
+                                <td class="register-currency"><strong>@Currency(invoice.TotalCostExVat)</strong></td>
                                 <td>
                                     @if (invoice.HasMatchingContract && invoice.EvidenceCount > 0)
                                     {
@@ -88,7 +95,6 @@ else
                                         @if (invoice.EvidenceCount == 0) { <span class="register-status warning"><i aria-hidden="true"></i>Evidence missing</span> }
                                     }
                                 </td>
-                                <td class="table-action-cell"><a class="remi-action remi-action--table" href="@InvoiceRoute(invoice.InvoiceId)" @onclick:stopPropagation="true">Open <span aria-hidden="true">→</span></a></td>
                             </tr>
                         }
                         </tbody>
@@ -149,6 +155,8 @@ else
     private string? selectionNotice;
     private bool selectionDrawerOpen;
     private int page = 1;
+    private string sortColumn = "invoiceDate";
+    private bool sortDescending = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -173,7 +181,9 @@ else
         reportingMonth = ReportingPeriod.SelectedPeriod;
     }
 
-    private IReadOnlyList<InvoiceRegisterItem> FilteredInvoices => invoices?.Where(MatchesFilters).OrderByDescending(invoice => invoice.InvoiceDate).ThenBy(invoice => invoice.InvoiceNumber, StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+    private IReadOnlyList<InvoiceRegisterItem> FilteredInvoices => invoices is null
+        ? []
+        : SortInvoices(invoices.Where(MatchesFilters)).ToList();
     private IReadOnlyList<InvoiceRegisterItem> PagedInvoices => FilteredInvoices.Skip((page - 1) * PageSize).Take(PageSize).ToList();
     private IReadOnlyList<InvoiceRegisterItem> SelectedInvoices => invoices?.Where(invoice => selectedInvoiceIds.Contains(invoice.InvoiceId)).OrderByDescending(invoice => invoice.InvoiceDate).ToList() ?? [];
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredInvoices.Count / (double)PageSize));
@@ -189,6 +199,31 @@ else
         && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "current" && invoice.ReportMonth == reportingMonth) || (quickFilter == "unmatched" && !invoice.HasMatchingContract) || (quickFilter == "missing" && invoice.EvidenceCount == 0) || (quickFilter == "selected" && IsSelected(invoice.InvoiceId)));
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
+    private void SortBy(string column)
+    {
+        if (sortColumn == column) sortDescending = !sortDescending;
+        else { sortColumn = column; sortDescending = false; }
+        ResetPage();
+    }
+    private string SortIndicator(string column) => sortColumn == column ? sortDescending ? "↓" : "↑" : "↕";
+    private string SortAria(string column) => sortColumn == column ? sortDescending ? "descending" : "ascending" : "none";
+    private IOrderedEnumerable<InvoiceRegisterItem> SortInvoices(IEnumerable<InvoiceRegisterItem> items) => (sortColumn, sortDescending) switch
+    {
+        ("invoice", false) => items.OrderBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("invoice", true) => items.OrderByDescending(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("customer", false) => items.OrderBy(item => item.CustomerName, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase),
+        ("customer", true) => items.OrderByDescending(item => item.CustomerName, StringComparer.OrdinalIgnoreCase).ThenByDescending(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase),
+        ("invoiceDate", false) => items.OrderBy(item => item.InvoiceDate is null).ThenBy(item => item.InvoiceDate).ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("invoiceDate", true) => items.OrderBy(item => item.InvoiceDate is null).ThenByDescending(item => item.InvoiceDate).ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("reportMonth", false) => items.OrderBy(item => item.ReportMonth, StringComparer.Ordinal),
+        ("reportMonth", true) => items.OrderByDescending(item => item.ReportMonth, StringComparer.Ordinal),
+        ("value", false) => items.OrderBy(item => item.TotalCostExVat),
+        ("value", true) => items.OrderByDescending(item => item.TotalCostExVat),
+        ("checks", false) => items.OrderBy(item => CheckCount(item)),
+        ("checks", true) => items.OrderByDescending(item => CheckCount(item)),
+        _ => items.OrderByDescending(item => item.InvoiceDate).ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+    };
+    private static int CheckCount(InvoiceRegisterItem item) => (item.HasMatchingContract ? 1 : 0) + (item.EvidenceCount > 0 ? 1 : 0);
     private void ResetPage() { page = 1; selectionNotice = null; }
     private void ResetFilters() { searchTerm = frameworkFilter = matchFilter = evidenceFilter = quickFilter = string.Empty; ResetPage(); }
     private bool IsSelected(Guid id) => selectedInvoiceIds.Contains(id);
@@ -198,8 +233,6 @@ else
     private void ToggleSelectionDrawer() => selectionDrawerOpen = !selectionDrawerOpen;
     private void CloseSelectionDrawer() => selectionDrawerOpen = false;
     private void ReviewSelection() { selectionNotice = $"{SelectedInvoices.Count} invoice record(s) are ready for review. Open the reporting workspace to prepare the return."; selectionDrawerOpen = false; }
-    private void OpenInvoice(Guid invoiceId) => Navigation.NavigateTo(InvoiceRoute(invoiceId));
-    private void OpenInvoiceOnKey(KeyboardEventArgs args, Guid invoiceId) { if (args.Key is "Enter" or " ") OpenInvoice(invoiceId); }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
     private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";

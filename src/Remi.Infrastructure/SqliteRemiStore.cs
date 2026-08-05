@@ -242,11 +242,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             CREATE TABLE IF NOT EXISTS mi_templates (
                 id TEXT PRIMARY KEY,
                 framework INTEGER NOT NULL,
-                version TEXT NOT NULL,
                 evidence_id TEXT NOT NULL,
                 workbook_name TEXT NOT NULL,
-                guidance_url TEXT NOT NULL,
-                notes TEXT NULL,
                 is_active INTEGER NOT NULL,
                 registered_at_utc TEXT NOT NULL
             );
@@ -459,7 +456,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<MiTemplateConfiguration>> LoadTemplatesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT id, framework, version, evidence_id, workbook_name, guidance_url, notes, is_active, registered_at_utc FROM mi_templates ORDER BY framework, registered_at_utc, id;");
+        await using var command = CreateCommand(connection, "SELECT id, framework, evidence_id, workbook_name, is_active, registered_at_utc FROM mi_templates ORDER BY framework, registered_at_utc, id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var templates = new List<MiTemplateConfiguration>();
         while (await reader.ReadAsync(cancellationToken))
@@ -467,13 +464,10 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             templates.Add(new MiTemplateConfiguration(
                 Guid.Parse(reader.GetString(0)),
                 (FrameworkCode)reader.GetInt32(1),
-                reader.GetString(2),
-                Guid.Parse(reader.GetString(3)),
-                reader.GetString(4),
-                reader.GetString(5),
-                NullableString(reader, 6),
-                reader.GetInt64(7) != 0,
-                Timestamp(reader.GetString(8))));
+                Guid.Parse(reader.GetString(2)),
+                reader.GetString(3),
+                reader.GetInt64(4) != 0,
+                Timestamp(reader.GetString(5))));
         }
 
         return templates;
@@ -685,14 +679,11 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertTemplateAsync(SqliteConnection connection, SqliteTransaction transaction, MiTemplateConfiguration item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO mi_templates (id, framework, version, evidence_id, workbook_name, guidance_url, notes, is_active, registered_at_utc) VALUES ($id, $framework, $version, $evidenceId, $workbookName, $guidanceUrl, $notes, $isActive, $registeredAtUtc);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO mi_templates (id, framework, evidence_id, workbook_name, is_active, registered_at_utc) VALUES ($id, $framework, $evidenceId, $workbookName, $isActive, $registeredAtUtc);");
         AddParameter(command, "$id", item.Id.ToString("D"));
         AddParameter(command, "$framework", (int)item.Framework);
-        AddParameter(command, "$version", item.Version);
         AddParameter(command, "$evidenceId", item.EvidenceId.ToString("D"));
         AddParameter(command, "$workbookName", item.WorkbookName);
-        AddParameter(command, "$guidanceUrl", item.GuidanceUrl);
-        AddParameter(command, "$notes", item.Notes);
         AddParameter(command, "$isActive", item.IsActive ? 1 : 0);
         AddParameter(command, "$registeredAtUtc", Timestamp(item.RegisteredAtUtc));
         await command.ExecuteNonQueryAsync(cancellationToken);

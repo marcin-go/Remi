@@ -1,12 +1,6 @@
 @page "/settings"
-@implements IAsyncDisposable
 @using Microsoft.AspNetCore.Components
-@inject Remi.Infrastructure.MigrationRunner MigrationRunner
-@inject IRemiStore Store
-@inject IEvidenceArchive EvidenceArchive
 @inject ReportingWorkspace Workspace
-@inject Remi.Web.BrowserFolderStaging FolderStaging
-@inject Microsoft.JSInterop.IJSRuntime JavaScript
 @inject ReportingPeriodContext ReportingPeriod
 
 <PageTitle>Remi · Settings</PageTitle>
@@ -15,7 +9,7 @@
     <div>
         <p class="eyebrow">Settings</p>
         <h1>Configure Remi.</h1>
-        <p class="lede">Manage customer reference data, evidence storage and the historical source-data migration.</p>
+        <p class="lede">Manage framework reporting dates, customer reference data and approved workbooks.</p>
     </div>
 </section>
 
@@ -25,10 +19,8 @@
         <nav class="settings-side-nav" aria-label="Settings sections">
             <a class="@SectionLinkClass(FrameworksSection)" href="@SectionLink(FrameworksSection)">Frameworks</a>
             <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
-            <a class="@SectionLinkClass(EvidenceArchiveSection)" href="@SectionLink(EvidenceArchiveSection)">Evidence archive</a>
             <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
             <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
-            <a class="@SectionLinkClass(SourceDataSection)" href="@SectionLink(SourceDataSection)">Source-data migration</a>
         </nav>
     </aside>
     <div class="settings-content">
@@ -40,7 +32,7 @@
     <p>These dates determine when Remi includes each supported framework in its report register and dashboard readiness. The calendar month containing a start date is included.</p>
     @if (frameworkConfigurations.Count == 0)
     {
-        <p class="muted">Loading framework settingsâ€¦</p>
+        <p class="muted">Loading framework settings…</p>
     }
     else
     {
@@ -88,7 +80,6 @@
     }
     <p class="caption">The default dates are from the official agreement records. G-Cloud 15 is left blank until a local reporting start date is confirmed.</p>
 </section>
-
 }
 
 @if (ActiveSection == CustomerUrnsSection)
@@ -117,162 +108,6 @@
         <p class="notice @(urnRefreshSucceeded ? "success" : "error")" role="status">@urnMessage</p>
     }
 </section>
-
-}
-
-@if (ActiveSection == EvidenceArchiveSection)
-{
-
-<section class="panel maintenance-panel">
-    <p class="eyebrow">Archive storage</p>
-    <h2>Flatten the evidence file layout</h2>
-    <p>Store evidence as flat, hash-named files under <code>data\evidence</code>. Remi keeps each original source path, framework, reporting month and checksum in the register, so this changes the disk layout without changing evidence provenance.</p>
-    <div class="action-row">
-        <button class="button secondary" disabled="@working" @onclick="FlattenEvidenceArchiveAsync">@(archiveNormalizing ? "Flattening…" : "Flatten")</button>
-    </div>
-    @if (archiveNormalization is not null)
-    {
-        <p class="notice @(string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning) ? "success" : "error")" role="status">
-            Updated @archiveNormalization.EvidenceRecordsUpdated evidence record(s) and removed @archiveNormalization.LegacyCopiesRemoved legacy file(s).
-            @if (!string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning))
-            {
-                <span>@archiveNormalization.CleanupWarning</span>
-            }
-        </p>
-    }
-    @if (!string.IsNullOrWhiteSpace(archiveMessage))
-    {
-        <p class="notice @(archiveSucceeded ? "success" : "error")" role="status">@archiveMessage</p>
-    }
-</section>
-
-}
-
-@if (ActiveSection == SourceDataSection)
-{
-
-<section class="panel maintenance-panel">
-    <p class="eyebrow">1 · Select source data</p>
-    <h2>Historical reporting folder</h2>
-    <div class="form-grid">
-        <label class="wide-field" for="source-folder">Source folder</label>
-        <div class="folder-browser wide-field">
-            <input id="source-folder" value="@sourceDirectory" @oninput="ManualSourceChangedAsync" placeholder="e.g. D:\Reporting\source-data" />
-            <label class="button secondary folder-picker-button" aria-disabled="@working">
-                <span aria-hidden="true">▣</span> Browse
-                <InputFile id="source-folder-browser" class="folder-browser-input" disabled="@working" OnChange="StageSelectedFolderAsync" multiple="multiple" webkitdirectory="webkitdirectory" directory="directory" />
-            </label>
-        </div>
-    </div>
-    <div class="action-row">
-        <button class="button primary" disabled="@working" @onclick="PlanAsync">Create</button>
-    </div>
-    <p class="caption">Browse folders uses your browser’s native folder chooser. Remi temporarily stages the selected files with their original hierarchy, then excludes the old MI Reporting Ledger workbook, recognises framework MI workbooks and retains other files as evidence.</p>
-</section>
-
-@if (!string.IsNullOrWhiteSpace(message))
-{
-    <p class="notice @(succeeded ? "success" : "error")">@message</p>
-}
-
-@if (plan is not null)
-{
-    <section class="panel maintenance-panel">
-        <div class="panel-heading">
-            <div>
-                <p class="eyebrow">2 · Migration plan</p>
-                <h2>Read-only source inventory</h2>
-            </div>
-            <span class="muted">@sourceDirectory</span>
-        </div>
-        <dl class="migration-metrics">
-            <div><dt>Source files</dt><dd>@plan.SourceFileCount</dd></div>
-            <div><dt>MI workbooks</dt><dd>@plan.MiWorkbookCount</dd></div>
-            <div><dt>Recognised workbooks</dt><dd>@plan.RecognisedMiWorkbookCount</dd></div>
-            <div><dt>Supporting evidence</dt><dd>@plan.SupportingEvidenceCount</dd></div>
-        </dl>
-        <div class="action-row">
-            <button class="button secondary" disabled="@working" @onclick="ValidateAsync">Validate</button>
-        </div>
-        @if (plan.Workbooks.Count != 0)
-        {
-            <div class="table-wrap maintenance-table">
-                <table>
-                    <thead><tr><th>Framework</th><th>Month</th><th>Workbook</th></tr></thead>
-                    <tbody>
-                        @foreach (var workbook in plan.Workbooks)
-                        {
-                            <tr>
-                                <td>@Frameworks.Get(workbook.Framework).DisplayName</td>
-                                <td>@workbook.ReportingMonth</td>
-                                <td>@workbook.RelativePath</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </section>
-}
-
-@if (validation is not null)
-{
-    <section class="panel maintenance-panel">
-        <p class="eyebrow">3 · Validation report</p>
-        <h2>No data has been written.</h2>
-        <p class="muted">The validation pass found @validation.ImportedContracts contract(s), @validation.ImportedInvoices invoice(s), @validation.SubmittedReturnReports supplied submitted return(s), @validation.InferredNilReturns inferred nil return(s), @validation.LedgerPaymentPositions payment position(s) from the retired Ledger, and @validation.ArchivedEvidenceFiles evidence file(s) that the import would process. The Ledger itself is not archived.</p>
-        @if (validation.Findings.Count == 0)
-        {
-            <p class="notice success">No validation findings were reported.</p>
-        }
-        else
-        {
-            <ul class="findings">
-                @foreach (var finding in validation.Findings)
-                {
-                    <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li>
-                }
-            </ul>
-        }
-        <label class="review-confirmation">
-            <input type="checkbox" @bind="validationReviewed" />
-            <span>I have reviewed this validation report and want to import the selected source folder.</span>
-        </label>
-        <div class="action-row">
-            <button class="button primary" disabled="@(!CanImport)" @onclick="ImportAsync">Import</button>
-        </div>
-        <p class="caption">The import adds records that are not already registered. It creates contract and invoice records in <code>data\remi-data.db</code>, archives originals, and keeps validation findings visible in the dashboard.</p>
-        <label class="review-confirmation destructive-confirmation">
-            <input type="checkbox" @bind="repopulationReviewed" />
-            <span>I understand that rebuilding from this source will permanently replace all local Remi records, templates, returns, audit history and archived evidence.</span>
-        </label>
-        <div class="action-row">
-            <button class="button danger" disabled="@(!CanRepopulate)" @onclick="RepopulateAsync">Rebuild</button>
-        </div>
-        <p class="caption">Use this only after a schema reset or when you deliberately want a fresh historical register. Remi validates the selected source again before it clears local data; it does not run in-place upgrades for earlier data files.</p>
-    </section>
-}
-
-@if (importReport is not null)
-{
-    <section class="panel maintenance-panel">
-        <p class="eyebrow">4 · Import report</p>
-        <h2>@(importReport.ExistingDataReplaced ? "SQLite register rebuilt from source." : "SQLite register updated.")</h2>
-        <dl class="migration-metrics">
-            <div><dt>New contracts</dt><dd>@importReport.ImportedContracts</dd></div>
-            <div><dt>Existing contracts</dt><dd>@importReport.ExistingContracts</dd></div>
-            <div><dt>New invoices</dt><dd>@importReport.ImportedInvoices</dd></div>
-            <div><dt>Existing invoices</dt><dd>@importReport.ExistingInvoices</dd></div>
-            <div><dt>Submitted returns</dt><dd>@importReport.SubmittedReturnReports</dd></div>
-            <div><dt>Inferred nil returns</dt><dd>@importReport.InferredNilReturns</dd></div>
-            <div><dt>Evidence archived</dt><dd>@importReport.ArchivedEvidenceFiles</dd></div>
-            <div><dt>Ledger payment positions</dt><dd>@importReport.LedgerPaymentPositions</dd></div>
-            <div><dt>Validation findings</dt><dd>@importReport.Findings.Count</dd></div>
-        </dl>
-        <a class="button secondary" href="@($"/home?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}")">Review →</a>
-    </section>
-}
-
 }
 
 @if (ActiveSection == TemplatesSection)
@@ -288,63 +123,33 @@
 </section>
 
 @code {
-    private const int MaximumFolderFiles = 2_000;
     private const string FrameworksSection = "frameworks";
     private const string CustomerUrnsSection = "customer-urns";
-    private const string EvidenceArchiveSection = "evidence-archive";
     private const string TemplatesSection = "templates";
     private const string AuditSection = "audit";
-    private const string SourceDataSection = "source-data";
 
     [Parameter, SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
 
-    private string sourceDirectory = string.Empty;
-    private string? stagedSourceDirectory;
-    private MigrationPlan? plan;
-    private MigrationReport? validation;
-    private MigrationReport? importReport;
-    private string? validatedSourceDirectory;
-    private string? message;
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
     private readonly Dictionary<FrameworkCode, string> frameworkStartDateInputs = [];
-    private EvidenceArchiveNormalizationResult? archiveNormalization;
     private string? urnMessage;
-    private string? archiveMessage;
-    private bool succeeded;
     private bool working;
     private bool urnRefreshing;
     private bool urnRefreshSucceeded;
-    private bool archiveNormalizing;
-    private bool archiveSucceeded;
     private bool editingFrameworks;
     private bool savingFrameworks;
     private bool frameworkSaveSucceeded;
     private string? frameworkMessage;
-    private bool validationReviewed;
-    private bool repopulationReviewed;
-
-    private string SourceDirectoryForProcessing => stagedSourceDirectory ?? sourceDirectory.Trim();
 
     private string ActiveSection => Section switch
     {
         FrameworksSection => FrameworksSection,
-        EvidenceArchiveSection => EvidenceArchiveSection,
         TemplatesSection => TemplatesSection,
         AuditSection => AuditSection,
-        SourceDataSection => SourceDataSection,
         _ => CustomerUrnsSection,
     };
-
-    private bool CanImport =>
-        !working &&
-        validationReviewed &&
-        validation is not null &&
-        !string.IsNullOrWhiteSpace(validatedSourceDirectory) &&
-        string.Equals(SourceDirectoryForProcessing, validatedSourceDirectory, StringComparison.OrdinalIgnoreCase);
-
-    private bool CanRepopulate => CanImport && repopulationReviewed;
 
     private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 
@@ -357,10 +162,7 @@
         await Task.WhenAll(urnDirectoryTask, frameworkConfigurationsTask);
         urnDirectoryStatus = await urnDirectoryTask;
         frameworkConfigurations = await frameworkConfigurationsTask;
-        foreach (var configuration in frameworkConfigurations)
-        {
-            frameworkStartDateInputs[configuration.Framework.Code] = configuration.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
-        }
+        ResetFrameworkStartDateInputs();
     }
 
     private string FrameworkStartDateValue(FrameworkCode framework) =>
@@ -486,199 +288,4 @@
             working = false;
         }
     }
-
-    private async Task FlattenEvidenceArchiveAsync()
-    {
-        if (working)
-        {
-            return;
-        }
-
-        working = true;
-        archiveNormalizing = true;
-        archiveMessage = null;
-        try
-        {
-            archiveNormalization = await Workspace.FlattenEvidenceArchiveAsync();
-            archiveSucceeded = string.IsNullOrWhiteSpace(archiveNormalization.CleanupWarning);
-            archiveMessage = archiveNormalization.EvidenceRecordsUpdated == 0
-                ? "The evidence archive already uses the flat layout."
-                : "The evidence archive now uses the flat, content-addressed layout.";
-        }
-        catch (Exception exception)
-        {
-            archiveSucceeded = false;
-            archiveMessage = $"Evidence archive normalization stopped: {exception.Message}";
-        }
-        finally
-        {
-            archiveNormalizing = false;
-            working = false;
-        }
-    }
-
-    private async Task ManualSourceChangedAsync(ChangeEventArgs args)
-    {
-        await ClearStagedSourceAsync();
-        sourceDirectory = args.Value?.ToString() ?? string.Empty;
-        ClearReports();
-    }
-
-    private async Task StageSelectedFolderAsync(InputFileChangeEventArgs args)
-    {
-        working = true;
-        message = null;
-        try
-        {
-            var files = args.GetMultipleFiles(MaximumFolderFiles);
-            var relativePaths = await JavaScript.InvokeAsync<string[]>("remiFolderPicker.relativePaths", ["source-folder-browser"]);
-            if (files.Count != relativePaths.Length)
-            {
-                throw new InvalidOperationException("The selected folder changed before Remi could read all of its files. Select it again and retry.");
-            }
-
-            await ClearStagedSourceAsync();
-            stagedSourceDirectory = await FolderStaging.StageAsync(files, relativePaths);
-            sourceDirectory = $"{FolderName(relativePaths)} ({files.Count:N0} file(s) selected)";
-            ClearReports();
-            succeeded = true;
-            message = "Folder selected and staged locally. Create a migration plan when you are ready.";
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = $"The selected folder could not be prepared: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private async Task PlanAsync()
-    {
-        working = true;
-        message = null;
-        try
-        {
-            plan = await MigrationRunner.PlanAsync(SourceDirectoryForProcessing);
-            validation = null;
-            importReport = null;
-            validationReviewed = false;
-            repopulationReviewed = false;
-            validatedSourceDirectory = null;
-            succeeded = true;
-            message = $"Planned {plan.SourceFileCount} source file(s) without reading or changing Remi data.";
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = exception.Message;
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private async Task ValidateAsync()
-    {
-        working = true;
-        message = null;
-        try
-        {
-            validation = await MigrationRunner.ValidateAsync(SourceDirectoryForProcessing);
-            validatedSourceDirectory = validation.Plan.SourceDirectory;
-            validationReviewed = false;
-            repopulationReviewed = false;
-            importReport = null;
-            succeeded = true;
-            message = "Validation completed. The SQLite database and evidence archive were not changed.";
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = $"Validation stopped: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private async Task ImportAsync()
-    {
-        if (!CanImport)
-        {
-            return;
-        }
-
-        working = true;
-        message = null;
-        try
-        {
-            importReport = await MigrationRunner.ImportAsync(SourceDirectoryForProcessing, Store, EvidenceArchive);
-            succeeded = true;
-            message = "The reviewed source folder has been imported into SQLite.";
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = $"Import stopped: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private async Task RepopulateAsync()
-    {
-        if (!CanRepopulate)
-        {
-            return;
-        }
-
-        working = true;
-        message = null;
-        try
-        {
-            importReport = await MigrationRunner.RepopulateAsync(SourceDirectoryForProcessing, Store, EvidenceArchive);
-            succeeded = true;
-            message = "The local SQLite register and evidence archive were rebuilt from the reviewed source folder.";
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = $"Rebuild stopped: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private void ClearReports()
-    {
-        plan = null;
-        validation = null;
-        importReport = null;
-        validationReviewed = false;
-        repopulationReviewed = false;
-        validatedSourceDirectory = null;
-    }
-
-    private async Task ClearStagedSourceAsync()
-    {
-        await FolderStaging.DeleteAsync(stagedSourceDirectory);
-        stagedSourceDirectory = null;
-    }
-
-    private static string FolderName(IReadOnlyList<string> relativePaths)
-    {
-        var firstPath = relativePaths.FirstOrDefault() ?? "Selected folder";
-        return firstPath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Selected folder";
-    }
-
-    public async ValueTask DisposeAsync() => await ClearStagedSourceAsync();
 }

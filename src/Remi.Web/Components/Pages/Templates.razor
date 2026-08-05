@@ -1,14 +1,16 @@
 @using Microsoft.AspNetCore.Components
 @inject ReportingWorkspace Workspace
-@inject NavigationManager Navigation
-@inject ReportingPeriodContext ReportingPeriod
-@implements IDisposable
 
 @if (IsTemplatesView)
 {
-<section class="two-column intake-layout">
-    <article class="panel">
-        <p class="eyebrow">1 · Register an approved template</p>
+<section class="panel template-registration-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>Register a GCA approved workbook</h2>
+            <p class="caption">Choose the approved workbook for a framework. The original workbook name is retained in the template history.</p>
+        </div>
+    </div>
+    <div class="template-registration-fields">
         <div class="form-grid">
             <label>
                 Framework
@@ -19,36 +21,26 @@
                     }
                 </select>
             </label>
-            <label>Template version <input @bind="templateVersion" @bind:event="oninput" placeholder="e.g. v1.0" /></label>
-            <label class="wide-field">Official guidance URL <input type="url" @bind="guidanceUrl" @bind:event="oninput" placeholder="https://www.gca.gov.uk/..." /></label>
-            <label class="wide-field">Review notes <span class="optional">(optional)</span><input @bind="templateNotes" @bind:event="oninput" placeholder="Approval date, contact or qualification" /></label>
         </div>
-        <label class="file-picker">
-            <span>Select approved .xlsx workbook</span>
-            <InputFile OnChange="RegisterTemplateAsync" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-        </label>
-        <p class="caption">The workbook is retained as immutable evidence. Register a new version when GCA changes the official template; the prior version stays in the archive.</p>
-    </article>
-
-    <article class="panel">
-        <p class="eyebrow">2 · Generate a review copy</p>
-        <div class="form-grid">
-            <label>
-                Framework
-                <select @bind="exportFramework">
-                    @foreach (var definition in Frameworks.All)
-                    {
-                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
-                    }
-                </select>
-            </label>
-            <label>Reporting month <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="exportMonth" @bind:event="oninput" /></label>
+    </div>
+    <label class="template-file-dropzone @(selectedTemplateFile is null ? null : "has-selection")">
+        <InputFile class="template-file-input" OnChange="SelectTemplateFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+        <span class="template-file-icon" aria-hidden="true">&#8682;</span>
+        <strong>Drop approved workbook here</strong>
+        <span>or select an .xlsx file</span>
+    </label>
+    @if (selectedTemplateFile is not null)
+    {
+        <div class="template-file-selection" role="status">
+            <span>Selected workbook</span>
+            <strong>@selectedTemplateFile.Name</strong>
+            <small>@FormatFileSize(selectedTemplateFile.Size)</small>
         </div>
-        <div class="action-row">
-            <button class="button primary" disabled="@(!CanGenerateReturn || working)" @onclick="ExportReturnAsync">Generate</button>
-        </div>
-        <p class="caption">The generated workbook is archived, then downloaded for review and upload to the GCA reporting portal. It is not marked submitted automatically.</p>
-    </article>
+    }
+    <div class="action-row template-registration-actions">
+        <button class="button primary" disabled="@(!CanRegisterTemplate || working)" @onclick="RegisterTemplateAsync">REGISTER</button>
+    </div>
+    <p class="caption">The workbook is retained as immutable evidence. Register a replacement approved workbook when the framework template changes; the prior workbook remains in the archive.</p>
 </section>
 
 @if (!string.IsNullOrWhiteSpace(message))
@@ -69,7 +61,7 @@
     <div class="panel-heading">
         <div>
             <p class="eyebrow">Approved template register</p>
-            <h2>Version history</h2>
+            <h2>Template history</h2>
         </div>
     </div>
     @if (templates.Count == 0)
@@ -80,15 +72,13 @@
     {
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Framework</th><th>Version</th><th>Workbook</th><th>Guidance</th><th>Status</th><th>Registered</th></tr></thead>
+                <thead><tr><th>Framework</th><th>Workbook</th><th>Status</th><th>Registered</th></tr></thead>
                 <tbody>
                     @foreach (var template in templates)
                     {
                         <tr>
                             <td>@Frameworks.Get(template.Framework).DisplayName</td>
-                            <td><strong>@template.Version</strong></td>
-                            <td>@template.WorkbookName<span class="cell-secondary">@template.Notes</span></td>
-                            <td><a href="@template.GuidanceUrl" target="_blank" rel="noreferrer">Official guidance</a></td>
+                            <td>@template.WorkbookName</td>
                             <td>@(template.IsActive ? "Active" : "Superseded")</td>
                             <td>@template.RegisteredAtUtc.LocalDateTime.ToString("dd MMM yyyy")</td>
                         </tr>
@@ -98,7 +88,6 @@
         </div>
     }
 </section>
-
 }
 
 @if (IsAuditView)
@@ -144,7 +133,6 @@
         }
     }
 </section>
-
 }
 
 @code {
@@ -152,11 +140,7 @@
     public string View { get; set; } = "templates";
 
     private FrameworkCode templateFramework = FrameworkCode.GCloud14;
-    private string templateVersion = "v1.0";
-    private string guidanceUrl = "https://www.gca.gov.uk/agreements/RM1557.14";
-    private string? templateNotes;
-    private FrameworkCode exportFramework = FrameworkCode.GCloud14;
-    private string exportMonth = string.Empty;
+    private IBrowserFile? selectedTemplateFile;
     private IReadOnlyList<TemplateConfigurationSummary> templates = [];
     private IReadOnlyList<AuditEventSummary> auditEvents = [];
     private IReadOnlyList<ValidationFinding> findings = [];
@@ -170,78 +154,48 @@
 
     private bool IsAuditView => string.Equals(View, "audit", StringComparison.OrdinalIgnoreCase);
 
-    private bool CanGenerateReturn => DateOnly.TryParseExact($"{exportMonth}-01", "yyyy-MM-dd", out _)
-        && templates.Any(item => item.Framework == exportFramework && item.IsActive);
+    private bool CanRegisterTemplate => selectedTemplateFile is not null;
 
     private IReadOnlyList<AuditEventSummary> VisibleAuditEvents => auditEvents
         .Where(item => string.IsNullOrWhiteSpace(auditActionFilter) || item.Action == auditActionFilter)
         .ToList();
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private void SelectTemplateFile(InputFileChangeEventArgs args)
     {
-        ReportingPeriod.Changed += ReportingPeriodChanged;
-        exportMonth = ReportingPeriod.SelectedPeriod;
-        await ReloadAsync();
+        selectedTemplateFile = args.File;
+        message = null;
+        findings = [];
     }
 
-    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
-
-    private void ReportingPeriodChanged()
+    private async Task RegisterTemplateAsync()
     {
-        exportMonth = ReportingPeriod.SelectedPeriod;
-        _ = InvokeAsync(StateHasChanged);
-    }
+        if (selectedTemplateFile is null)
+        {
+            return;
+        }
 
-    private async Task RegisterTemplateAsync(InputFileChangeEventArgs args)
-    {
         working = true;
         message = null;
         findings = [];
         try
         {
-            await using var stream = args.File.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            var result = await Workspace.RegisterTemplateAsync(templateFramework, templateVersion, args.File.Name, guidanceUrl, templateNotes, stream);
+            await using var stream = selectedTemplateFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+            var result = await Workspace.RegisterTemplateAsync(templateFramework, selectedTemplateFile.Name, stream);
             succeeded = result.Succeeded;
             message = result.Message;
             findings = result.Findings;
+            if (result.Succeeded)
+            {
+                selectedTemplateFile = null;
+            }
             await ReloadAsync();
         }
         catch (Exception exception)
         {
             succeeded = false;
             message = $"The template could not be registered: {exception.Message}";
-        }
-        finally
-        {
-            working = false;
-        }
-    }
-
-    private async Task ExportReturnAsync()
-    {
-        working = true;
-        message = null;
-        findings = [];
-        try
-        {
-            var exported = await Workspace.ExportReturnAsync(exportFramework, exportMonth);
-            if (exported is null)
-            {
-                succeeded = false;
-                message = "Register an active approved template for this framework before generating a return.";
-                return;
-            }
-
-            succeeded = true;
-            findings = exported.Findings;
-            message = $"Generated {exported.FileName} using template {exported.TemplateVersion}.";
-            await ReloadAsync();
-            Navigation.NavigateTo($"/evidence/{exported.EvidenceId}", forceLoad: true);
-        }
-        catch (Exception exception)
-        {
-            succeeded = false;
-            message = $"The MI workbook could not be generated: {exception.Message}";
         }
         finally
         {
@@ -257,6 +211,10 @@
 
     private void ShowMoreAuditEvents() => auditLimit += 15;
 
+    private static string FormatFileSize(long bytes) => bytes < 1024 * 1024
+        ? $"{Math.Max(1, Math.Ceiling(bytes / 1024d)):N0} KB"
+        : $"{bytes / 1024d / 1024d:N1} MB";
+
     private static string FriendlyAuditAction(string action) => action switch
     {
         "WorkbookImported" => "Workbook imported",
@@ -266,7 +224,6 @@
         "ContractImported" => "Contract imported",
         "InvoiceImported" => "Invoice imported",
         "EvidenceArchived" => "Evidence archived",
-        "EvidenceArchiveFlattened" => "Evidence archive flattened",
         "LedgerPaymentScheduleImported" => "Ledger payment schedule imported",
         "ContractCreated" => "Contract created",
         "InvoiceRecorded" => "Invoice recorded",
@@ -278,5 +235,4 @@
         "CorrectionRequested" => "Correction requested",
         _ => action,
     };
-
 }

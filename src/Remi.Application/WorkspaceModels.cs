@@ -233,10 +233,7 @@ public sealed record ChargeScheduleEntry(
 public sealed record TemplateConfigurationSummary(
     Guid Id,
     FrameworkCode Framework,
-    string Version,
     string WorkbookName,
-    string GuidanceUrl,
-    string? Notes,
     bool IsActive,
     DateTimeOffset RegisteredAtUtc);
 
@@ -245,7 +242,6 @@ public sealed record TemplateRegistrationResult(bool Succeeded, string Message, 
 public sealed record ExportedReturn(
     Guid EvidenceId,
     string FileName,
-    string TemplateVersion,
     IReadOnlyList<ValidationFinding> Findings);
 
 public sealed record AuditEventSummary(
@@ -342,12 +338,3 @@ public sealed record MigrationReport(
     int LedgerPaymentPositions,
     int SubmittedReturnReports,
     int InferredNilReturns);
-
-/// <summary>
-/// The outcome of flattening the physical evidence archive while retaining source provenance in
-/// evidence metadata.
-/// </summary>
-public sealed record EvidenceArchiveNormalizationResult(
-    int EvidenceRecordsUpdated,
-    int LegacyCopiesRemoved,
-    string? CleanupWarning);

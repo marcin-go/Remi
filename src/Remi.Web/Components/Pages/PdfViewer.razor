@@ -13,16 +13,17 @@ else if (!IsPdf)
 }
 else
 {
-    <section class="page-heading pdf-viewer-heading">
-        <div>
-            <p class="eyebrow">Evidence viewer</p>
-            <h1>@evidence.FileName</h1>
-            <p class="lede">@evidence.OriginalRelativePath</p>
-        </div>
-        <a class="button primary" href="@($"/evidence/{EvidenceId}/download")">Download</a>
-    </section>
-    <section class="pdf-viewer-panel">
-        <iframe title="PDF evidence: @evidence.FileName" src="@($"/evidence/{EvidenceId}/content")"></iframe>
+    <section class="pdf-viewer-page">
+        <header class="pdf-viewer-header">
+            <div class="pdf-viewer-file">
+                <h1>@evidence.FileName</h1>
+                <p class="pdf-viewer-path" title="@evidence.OriginalRelativePath">@evidence.OriginalRelativePath</p>
+            </div>
+            <a class="button primary" href="@($"/evidence/{EvidenceId}/download")">Download</a>
+        </header>
+        <section class="pdf-viewer-panel">
+            <iframe title="PDF evidence: @evidence.FileName" src="@($"/evidence/{EvidenceId}/content")"></iframe>
+        </section>
     </section>
 }
 

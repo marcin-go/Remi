@@ -144,7 +144,7 @@ Deadlines are **not** hard-coded as a legal rule. They should be stored per agre
 3. Each framework can have one active, versioned official workbook template. Registration requires an official guidance URL and archives the exact workbook.
 4. Generated `.xlsx` returns are copied from the registered template, then validated after only the Contracts and Invoices Raised table rows are replaced.
 5. Material actions append audit events; a reviewer can mark a return as requiring correction with an explicit reason.
-6. The Settings section plans a source-data migration, validates it with an in-memory register, and requires explicit review before it imports contracts, invoices and original evidence into SQLite.
+6. The one-off source-data migration is run through the validated command-line workflow, which rebuilds the local register, evidence archive and reporting history from the approved source folder.
 7. Remi deliberately does not perform in-place upgrades of earlier prototype databases. Settings can validate a source folder and, after a separate destructive confirmation, rebuild the complete local register and evidence archive from that source.
 8. Settings can refresh the customer-URN directory. Contract intake then offers local organisation/URN suggestions, while the downloaded source ODS, URL and checksum remain reviewable evidence.
 

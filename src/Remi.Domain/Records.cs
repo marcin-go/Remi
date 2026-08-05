@@ -131,11 +131,8 @@ public sealed record EvidenceRecord(
 public sealed record MiTemplateConfiguration(
     Guid Id,
     FrameworkCode Framework,
-    string Version,
     Guid EvidenceId,
     string WorkbookName,
-    string GuidanceUrl,
-    string? Notes,
     bool IsActive,
     DateTimeOffset RegisteredAtUtc);
 

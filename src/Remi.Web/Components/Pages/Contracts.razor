@@ -2,7 +2,6 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
-@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>Remi · Contracts</PageTitle>
@@ -62,24 +61,31 @@ else
                 </div>
 
                 <div class="register-table-scroll">
-                    <table class="register-table">
-                        <thead><tr><th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible contracts" /></th><th>Reference &amp; framework</th><th>Customer</th><th>End date</th><th>Value</th><th>Evidence</th><th>Progress</th><th class="table-action-cell"><span class="visually-hidden">Open</span></th></tr></thead>
+                    <table class="register-table contract-register-table">
+                        <thead><tr>
+                            <th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible contracts" /></th>
+                            <th aria-sort="@SortAria("reference")"><button class="table-sort" @onclick="@(() => SortBy("reference"))">Reference &amp; framework <span aria-hidden="true">@SortIndicator("reference")</span></button></th>
+                            <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
+                            <th aria-sort="@SortAria("endDate")"><button class="table-sort" @onclick="@(() => SortBy("endDate"))">End date <span aria-hidden="true">@SortIndicator("endDate")</span></button></th>
+                            <th aria-sort="@SortAria("value")"><button class="table-sort" @onclick="@(() => SortBy("value"))">Value <span aria-hidden="true">@SortIndicator("value")</span></button></th>
+                            <th aria-sort="@SortAria("evidence")"><button class="table-sort" @onclick="@(() => SortBy("evidence"))">Evidence <span aria-hidden="true">@SortIndicator("evidence")</span></button></th>
+                            <th aria-sort="@SortAria("progress")"><button class="table-sort" @onclick="@(() => SortBy("progress"))">Progress <span aria-hidden="true">@SortIndicator("progress")</span></button></th>
+                        </tr></thead>
                         <tbody>
                         @if (PagedContracts.Count == 0)
                         {
-                            <tr><td colspan="8" class="register-empty">No contracts match these filters.</td></tr>
+                            <tr><td colspan="7" class="register-empty">No contracts match these filters.</td></tr>
                         }
                         @foreach (var contract in PagedContracts)
                         {
-                            <tr class="register-row-actionable @(IsSelected(contract.ContractId) ? "selected-row" : null)" tabindex="0" @onclick="@(() => OpenContract(contract.ContractId))" @onkeydown="@((KeyboardEventArgs args) => OpenContractOnKey(args, contract.ContractId))">
-                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true" aria-label="Select @contract.SupplierReference" /></td>
-                                <td><a class="register-reference" href="@ContractRoute(contract.ContractId)" @onclick:stopPropagation="true" @onkeydown:stopPropagation="true">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName@(string.IsNullOrWhiteSpace(contract.LotNumber) ? "" : $" · Lot {contract.LotNumber}")</span></td>
+                            <tr class="@(IsSelected(contract.ContractId) ? "selected-row" : null)">
+                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(contract.ContractId)" @onchange="@(() => ToggleSelection(contract.ContractId))" aria-label="Select @contract.SupplierReference" /></td>
+                                <td><a class="register-reference" href="@ContractRoute(contract.ContractId)">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName</span></td>
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
                                 <td class="register-date">@DisplayDate(contract.EndDate)</td>
-                                <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong><span>excl. VAT</span></td>
+                                <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
                                 <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
-                                <td class="table-action-cell"><a class="remi-action remi-action--table" href="@ContractRoute(contract.ContractId)" @onclick:stopPropagation="true">Open <span aria-hidden="true">→</span></a></td>
                             </tr>
                         }
                         </tbody>
@@ -139,6 +145,8 @@ else
     private string? selectionNotice;
     private bool selectionDrawerOpen;
     private int page = 1;
+    private string sortColumn = "reference";
+    private bool sortDescending;
 
     protected override async Task OnInitializedAsync()
     {
@@ -159,10 +167,9 @@ else
 
     private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
 
-    private IReadOnlyList<ContractProgress> FilteredContracts => model?.ContractProgress
-        .Where(MatchesFilters)
-        .OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase)
-        .ToList() ?? [];
+    private IReadOnlyList<ContractProgress> FilteredContracts => model is null
+        ? []
+        : SortContracts(model.ContractProgress.Where(MatchesFilters)).ToList();
 
     private IReadOnlyList<ContractProgress> PagedContracts => FilteredContracts.Skip((page - 1) * PageSize).Take(PageSize).ToList();
     private IReadOnlyList<ContractProgress> SelectedContracts => model?.ContractProgress.Where(contract => selectedContractIds.Contains(contract.ContractId)).OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList() ?? [];
@@ -183,6 +190,30 @@ else
     }
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
+    private void SortBy(string column)
+    {
+        if (sortColumn == column) sortDescending = !sortDescending;
+        else { sortColumn = column; sortDescending = false; }
+        ResetPage();
+    }
+    private string SortIndicator(string column) => sortColumn == column ? sortDescending ? "↓" : "↑" : "↕";
+    private string SortAria(string column) => sortColumn == column ? sortDescending ? "descending" : "ascending" : "none";
+    private IOrderedEnumerable<ContractProgress> SortContracts(IEnumerable<ContractProgress> contracts) => (sortColumn, sortDescending) switch
+    {
+        ("reference", false) => contracts.OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
+        ("reference", true) => contracts.OrderByDescending(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
+        ("customer", false) => contracts.OrderBy(contract => contract.CustomerName, StringComparer.OrdinalIgnoreCase),
+        ("customer", true) => contracts.OrderByDescending(contract => contract.CustomerName, StringComparer.OrdinalIgnoreCase),
+        ("endDate", false) => contracts.OrderBy(contract => contract.EndDate is null).ThenBy(contract => contract.EndDate),
+        ("endDate", true) => contracts.OrderBy(contract => contract.EndDate is null).ThenByDescending(contract => contract.EndDate),
+        ("value", false) => contracts.OrderBy(contract => contract.TotalContractValueExVat),
+        ("value", true) => contracts.OrderByDescending(contract => contract.TotalContractValueExVat),
+        ("evidence", false) => contracts.OrderBy(contract => contract.Evidence.Count),
+        ("evidence", true) => contracts.OrderByDescending(contract => contract.Evidence.Count),
+        ("progress", false) => contracts.OrderBy(contract => contract.CompletionRatio),
+        ("progress", true) => contracts.OrderByDescending(contract => contract.CompletionRatio),
+        _ => contracts.OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
+    };
     private void ResetPage() { page = 1; selectionNotice = null; }
     private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = quickFilter = string.Empty; ResetPage(); }
     private bool IsSelected(Guid id) => selectedContractIds.Contains(id);
@@ -192,8 +223,6 @@ else
     private void ToggleSelectionDrawer() => selectionDrawerOpen = !selectionDrawerOpen;
     private void CloseSelectionDrawer() => selectionDrawerOpen = false;
     private void ReviewSelection() { selectionNotice = $"{SelectedContracts.Count} contract record(s) are ready for review. Open the reporting workspace to prepare the return."; selectionDrawerOpen = false; }
-    private void OpenContract(Guid contractId) => Navigation.NavigateTo(ContractRoute(contractId));
-    private void OpenContractOnKey(KeyboardEventArgs args, Guid contractId) { if (args.Key is "Enter" or " ") OpenContract(contractId); }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
     private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";

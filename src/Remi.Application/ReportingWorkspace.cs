@@ -96,73 +96,6 @@ public sealed class ReportingWorkspace(
         CancellationToken cancellationToken = default) =>
         customerUrnDirectory.SearchAsync(query, cancellationToken: cancellationToken);
 
-    /// <summary>
-    /// Converts legacy source-tree evidence paths into Remi's flat content-addressed archive
-    /// layout while preserving every original relative path as evidence metadata.
-    /// </summary>
-    public async Task<EvidenceArchiveNormalizationResult> FlattenEvidenceArchiveAsync(
-        string? actor = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (evidenceArchive is not IEvidenceArchiveLayoutMigrator layoutMigrator)
-        {
-            throw new InvalidOperationException("The configured evidence archive does not support layout normalization.");
-        }
-
-        var evidence = await store.ReadAsync(
-            database => (IReadOnlyList<EvidenceRecord>)database.Evidence.ToList(),
-            cancellationToken);
-        var relocations = await layoutMigrator.PrepareFlatLayoutAsync(evidence, cancellationToken);
-        if (relocations.Count == 0)
-        {
-            return new EvidenceArchiveNormalizationResult(0, 0, null);
-        }
-
-        var pathsById = relocations.ToDictionary(item => item.EvidenceId, item => item.FlatStoredRelativePath);
-        var updatedRecords = await store.UpdateAsync(database =>
-        {
-            var updated = 0;
-            for (var index = 0; index < database.Evidence.Count; index++)
-            {
-                var item = database.Evidence[index];
-                if (pathsById.TryGetValue(item.Id, out var flatPath) &&
-                    !string.Equals(item.StoredRelativePath, flatPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    database.Evidence[index] = item with { StoredRelativePath = flatPath };
-                    updated++;
-                }
-            }
-
-            if (updated > 0)
-            {
-                RecordAudit(
-                    database,
-                    timeProvider.GetUtcNow(),
-                    "EvidenceArchiveFlattened",
-                    "EvidenceArchive",
-                    null,
-                    $"Flattened the physical archive layout for {updated} evidence file(s) while retaining their original source paths.",
-                    null,
-                    actor);
-            }
-
-            return updated;
-        }, cancellationToken);
-
-        try
-        {
-            var removed = await layoutMigrator.RemoveLegacyCopiesAsync(relocations, cancellationToken);
-            return new EvidenceArchiveNormalizationResult(updatedRecords, removed, null);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return new EvidenceArchiveNormalizationResult(
-                updatedRecords,
-                0,
-                $"The register now uses the flat archive layout, but legacy copies could not be removed: {exception.Message}");
-        }
-    }
-
     public async Task<CustomerUrnDirectoryStatus> RefreshCustomerUrnDirectoryAsync(
         string? actor = null,
         CancellationToken cancellationToken = default)
@@ -944,24 +877,11 @@ public sealed class ReportingWorkspace(
 
     public async Task<TemplateRegistrationResult> RegisterTemplateAsync(
         FrameworkCode framework,
-        string version,
         string workbookName,
-        string guidanceUrl,
-        string? notes,
         Stream workbook,
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            return new TemplateRegistrationResult(false, "A template version is required.", null, []);
-        }
-
-        if (!Uri.TryCreate(guidanceUrl, UriKind.Absolute, out _))
-        {
-            return new TemplateRegistrationResult(false, "Provide the official guidance URL used to approve this template.", null, []);
-        }
-
         await using var copiedWorkbook = new MemoryStream();
         await workbook.CopyToAsync(copiedWorkbook, cancellationToken);
         copiedWorkbook.Position = 0;
@@ -1005,15 +925,12 @@ public sealed class ReportingWorkspace(
             var template = new MiTemplateConfiguration(
                 Guid.NewGuid(),
                 framework,
-                version.Trim(),
                 evidence.Id,
                 workbookName,
-                guidanceUrl.Trim(),
-                NullIfWhiteSpace(notes),
                 true,
                 now);
             database.MiTemplates.Add(template);
-            RecordAudit(database, now, "TemplateRegistered", "MiTemplate", template.Id, $"Registered {Frameworks.Get(framework).DisplayName} template {template.Version} ({workbookName}).", null, actor);
+            RecordAudit(database, now, "TemplateRegistered", "MiTemplate", template.Id, $"Registered {Frameworks.Get(framework).DisplayName} template workbook {workbookName}.", null, actor);
             return new TemplateRegistrationResult(true, "The approved template has been registered and is now active for this framework.", ToTemplateSummary(template), []);
         }, cancellationToken);
     }
@@ -1051,7 +968,7 @@ public sealed class ReportingWorkspace(
             exportContext.Invoices,
             cancellationToken);
         await using var content = generated.Content;
-        var fileName = $"{Frameworks.Get(framework).AgreementNumber}-MI-{reportingMonth}-{exportContext.Template.Version}.xlsx";
+        var fileName = $"{Frameworks.Get(framework).AgreementNumber}-MI-{reportingMonth}.xlsx";
         var archived = await evidenceArchive.ArchiveAsync(
             new EvidenceArchiveRequest(
                 fileName,
@@ -1080,8 +997,8 @@ public sealed class ReportingWorkspace(
             var monthlyReturn = EnsureReturn(database, framework, reportingMonth, fileName, now);
             var returnIndex = database.MonthlyReturns.FindIndex(item => item.Id == monthlyReturn.Id);
             database.MonthlyReturns[returnIndex] = monthlyReturn with { OriginalWorkbookName = fileName, UpdatedAtUtc = now };
-            RecordAudit(database, now, "ReturnExported", "MonthlyReturn", monthlyReturn.Id, $"Generated {fileName} using template {exportContext.Template.Version}.", null, actor);
-            return new ExportedReturn(evidence.Id, fileName, exportContext.Template.Version, generated.Findings);
+            RecordAudit(database, now, "ReturnExported", "MonthlyReturn", monthlyReturn.Id, $"Generated {fileName} using approved workbook {exportContext.Template.WorkbookName}.", null, actor);
+            return new ExportedReturn(evidence.Id, fileName, generated.Findings);
         }, cancellationToken);
     }
 
@@ -1749,10 +1666,7 @@ public sealed class ReportingWorkspace(
     private static TemplateConfigurationSummary ToTemplateSummary(MiTemplateConfiguration template) => new(
         template.Id,
         template.Framework,
-        template.Version,
         template.WorkbookName,
-        template.GuidanceUrl,
-        template.Notes,
         template.IsActive,
         template.RegisteredAtUtc);
 

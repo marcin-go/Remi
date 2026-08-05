@@ -1,22 +1,25 @@
 using Bunit;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Remi.Application;
 using Remi.Domain;
 using Remi.Web;
+using ContractRecordView = Remi.Web.Components.ContractRecordView;
 using Remi.Web.Components.Layout;
 using ContractsRegister = Remi.Web.Components.Pages.Contracts;
 using DashboardPage = Remi.Web.Components.Pages.Dashboard;
 using InvoiceRegistrationPage = Remi.Web.Components.Pages.InvoiceRegistration;
 using InvoicesRegister = Remi.Web.Components.Pages.Invoices;
 using ReportingRegister = Remi.Web.Components.Pages.Reporting;
+using TemplatesPage = Remi.Web.Components.Pages.Templates;
 using Xunit;
 
 namespace Remi.Tests;
 
 public sealed class RegisterComponentTests
 {
+    private static readonly Guid SampleContractId = Guid.Parse("405b5dd4-0b92-4576-99a9-d2cc7851a2b5");
+    private static readonly Guid SampleInvoiceId = Guid.Parse("d461989e-a1e8-4450-a371-31f7f1028df1");
+
     [Fact]
     public void Header_carries_the_current_reporting_period_without_rendering_a_selector()
     {
@@ -113,15 +116,24 @@ public sealed class RegisterComponentTests
             Assert.Equal("/invoices/new?period=2026-07", invoices.Find("a.remi-action--primary").GetAttribute("href")));
 
         var registration = context.Render<InvoiceRegistrationPage>();
-        registration.WaitForAssertion(() => Assert.Equal("Register an invoice", registration.Find("h1").TextContent.Trim()));
+        registration.WaitForAssertion(() => Assert.Equal("Register invoice", registration.Find("h1").TextContent.Trim()));
         Assert.Empty(registration.FindAll("select[aria-label='Contract']"));
-        Assert.Contains("Choose a registered contract", registration.Markup);
+        Assert.Contains("Choose a contract and enter the invoice details.", registration.Markup);
+        Assert.Empty(registration.FindAll(".register-breadcrumbs"));
+        Assert.DoesNotContain("Step 1 of 2", registration.Markup);
+        Assert.DoesNotContain("Step 2 of 2", registration.Markup);
         Assert.DoesNotContain("Register contract", registration.Markup);
 
         registration.Find("input[role='combobox'][aria-label='Contract']").Input("RM-001");
         registration.WaitForAssertion(() => Assert.Single(registration.FindAll("button[role='option']")));
         registration.Find("button[role='option']").Click();
-        registration.WaitForAssertion(() => Assert.Contains("RM-001", registration.Markup));
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Contains("RM-001", registration.Markup);
+            Assert.Single(registration.FindAll(".invoice-contract-summary"));
+            Assert.Single(registration.FindAll(".invoice-intake-actions"));
+            Assert.Equal(4, registration.FindAll(".invoice-details-grid label").Count);
+        });
     }
 
     [Fact]
@@ -156,19 +168,56 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
-    public void Contract_register_opens_a_record_when_its_row_is_activated_by_keyboard()
+    public void Contract_register_uses_the_designation_as_its_only_record_opening_control()
     {
         using var context = CreateContext();
-        var navigation = context.Services.GetRequiredService<NavigationManager>();
         var cut = context.Render<ContractsRegister>();
 
-        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("tr.register-row-actionable")));
-        var expectedRoute = cut.Find("a.register-reference").GetAttribute("href");
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll(".contract-register-table tbody tr")));
+        var row = cut.Find(".contract-register-table tbody tr");
 
-        cut.Find("tr.register-row-actionable").KeyDown(new KeyboardEventArgs { Key = "Enter" });
+        Assert.Null(row.GetAttribute("tabindex"));
+        Assert.Single(row.QuerySelectorAll("a.register-reference"));
+        Assert.Empty(row.QuerySelectorAll(".table-action-cell"));
+        Assert.Empty(row.QuerySelectorAll(".remi-action"));
+        Assert.DoesNotContain("Lot", row.TextContent);
+        Assert.DoesNotContain("excl. VAT", row.TextContent);
+    }
 
-        Assert.NotNull(expectedRoute);
-        Assert.EndsWith(expectedRoute, navigation.Uri, StringComparison.Ordinal);
+    [Fact]
+    public void Contract_editing_replaces_hero_actions_with_save_and_cancel()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() => Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim()));
+        cut.Find(".contract-hero-actions button.secondary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var actions = cut.Find(".contract-hero-actions");
+            Assert.Equal(["Save", "Cancel"], actions.QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
+            Assert.Empty(actions.QuerySelectorAll("a"));
+            Assert.False(actions.QuerySelector("button.primary")!.HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void Invoice_register_uses_the_designation_as_its_only_record_opening_control()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<InvoicesRegister>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll(".invoice-register-table tbody tr")));
+        var row = cut.Find(".invoice-register-table tbody tr");
+
+        Assert.StartsWith("Invoice", cut.FindAll(".invoice-register-table th")[1].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.Null(row.GetAttribute("tabindex"));
+        Assert.Single(row.QuerySelectorAll("a.register-reference"));
+        Assert.Empty(row.QuerySelectorAll(".table-action-cell"));
+        Assert.Empty(row.QuerySelectorAll(".remi-action"));
+        Assert.DoesNotContain("RM6259", row.TextContent);
+        Assert.DoesNotContain("excl. VAT", row.TextContent);
     }
 
     [Fact]
@@ -183,9 +232,32 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Generate the reporting workbook", cut.Markup);
+            Assert.Contains("Generate", cut.Find(".return-outcome-panel .action-row").TextContent);
             Assert.Contains("Prepare", cut.Markup);
             Assert.DoesNotContain("Monthly MI workbook", cut.Markup);
             Assert.Empty(cut.FindAll("input[type='file']"));
+        });
+    }
+
+    [Fact]
+    public void Template_settings_stages_a_workbook_before_explicit_registration()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<TemplatesPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Drop approved workbook here", cut.Markup);
+            Assert.Contains("Register a GCA approved workbook", cut.Markup);
+            Assert.Contains("REGISTER", cut.Markup);
+            Assert.Empty(cut.FindAll(".template-file-selection"));
+            Assert.True(cut.Find("button.primary").HasAttribute("disabled"));
+            Assert.Single(cut.FindAll("input[type='file']"));
+            Assert.DoesNotContain("Generate a review copy", cut.Markup);
+            Assert.DoesNotContain("Template version", cut.Markup);
+            Assert.DoesNotContain("Review notes", cut.Markup);
+            Assert.DoesNotContain("Official guidance", cut.Markup);
+            Assert.DoesNotContain("Settings ", cut.Markup);
         });
     }
 
@@ -196,7 +268,7 @@ public sealed class RegisterComponentTests
             Contracts =
             [
                 new ContractRecord(
-                    Guid.NewGuid(),
+                    SampleContractId,
                     FrameworkCode.GCloud14,
                     "RM-001",
                     "Example customer",
@@ -212,6 +284,32 @@ public sealed class RegisterComponentTests
                     1000,
                     "2026-07",
                     "test.xlsx",
+                    DateTimeOffset.UtcNow),
+            ],
+            Invoices =
+            [
+                new InvoiceRecord(
+                    SampleInvoiceId,
+                    FrameworkCode.VerticalApplicationSolutions,
+                    "RM-001",
+                    "Example customer",
+                    "URN-001",
+                    new DateOnly(2026, 7, 1),
+                    "INV-001",
+                    "Lot 1",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    500,
+                    null,
+                    null,
+                    "2026-07",
+                    "RM6259 source.xlsx",
                     DateTimeOffset.UtcNow),
             ],
         };

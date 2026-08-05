@@ -56,11 +56,11 @@
             <table>
                 <thead>
                     <tr>
-                        @if (registerView == "month") { <th>Framework</th> } else { <th>Reporting month</th> }
-                        <th>Status</th>
-                        <th>Activity</th>
-                        <th>Readiness</th>
-                        <th>Submission</th>
+                        @if (registerView == "month") { <th aria-sort="@SortAria("framework")"><button class="table-sort" @onclick="@(() => SortRegisterBy("framework"))">Framework <span aria-hidden="true">@SortIndicator("framework")</span></button></th> } else { <th aria-sort="@SortAria("reportingMonth")"><button class="table-sort" @onclick="@(() => SortRegisterBy("reportingMonth"))">Reporting month <span aria-hidden="true">@SortIndicator("reportingMonth")</span></button></th> }
+                        <th aria-sort="@SortAria("status")"><button class="table-sort" @onclick="@(() => SortRegisterBy("status"))">Status <span aria-hidden="true">@SortIndicator("status")</span></button></th>
+                        <th aria-sort="@SortAria("activity")"><button class="table-sort" @onclick="@(() => SortRegisterBy("activity"))">Activity <span aria-hidden="true">@SortIndicator("activity")</span></button></th>
+                        <th aria-sort="@SortAria("readiness")"><button class="table-sort" @onclick="@(() => SortRegisterBy("readiness"))">Readiness <span aria-hidden="true">@SortIndicator("readiness")</span></button></th>
+                        <th aria-sort="@SortAria("submission")"><button class="table-sort" @onclick="@(() => SortRegisterBy("submission"))">Submission <span aria-hidden="true">@SortIndicator("submission")</span></button></th>
                         <th class="table-action-cell"><span class="visually-hidden">Open</span></th>
                     </tr>
                 </thead>
@@ -132,6 +132,7 @@
         <input @bind="submissionReference" @bind:event="oninput" placeholder="e.g. portal confirmation or ticket ID" />
     </label>
     <div class="action-row">
+        <button class="remi-action remi-action--primary" disabled="@(!CanGenerateReturn || working)" @onclick="GenerateReturnAsync">Generate</button>
         <button class="remi-action remi-action--primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Submit</button>
         <button class="remi-action remi-action--section" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record</button>
     </div>
@@ -251,7 +252,7 @@
         <li>Duplicate contract and invoice records are held back instead of creating a second reportable entry.</li>
         <li>A nil return cannot be recorded for a month that contains imported activity.</li>
     </ul>
-    <p class="caption">Generate a review copy from the active, approved workbook in Settings → Templates. Remi retains both the approved base and every generated return.</p>
+    <p class="caption">Remi retains both the approved workbook and every generated return.</p>
 </section>
 }
 
@@ -270,6 +271,8 @@
     private ReportingCardModel? reportingCard;
     private bool working;
     private bool showReturnEditor;
+    private string registerSortColumn = "reportingMonth";
+    private bool registerSortDescending = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -317,6 +320,8 @@
 
     private bool CanMarkSubmitted => HasActivity && HasEvidence && CurrentStatus is "Draft" or "Correction required";
 
+    private bool CanGenerateReturn => HasActivity && CurrentStatus is "Draft" or "Correction required";
+
     private bool CanMarkNilReturn => !HasActivity && CurrentStatus is not "Submitted";
 
     private bool CanRequestCorrection => CurrentStatus == "Submitted" && !string.IsNullOrWhiteSpace(correctionReason);
@@ -336,6 +341,29 @@
         model = await Workspace.GetDashboardAsync(reportingMonth);
         returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
         working = false;
+    }
+
+    private async Task GenerateReturnAsync()
+    {
+        working = true;
+        try
+        {
+            var exported = await Workspace.ExportReturnAsync(framework, reportingMonth);
+            actionResult = exported is null
+                ? new ReturnActionResult(false, "Register an active approved template for this framework before generating a return.", [])
+                : new ReturnActionResult(true, $"Generated {exported.FileName}. It is now retained in the evidence archive.", exported.Findings);
+            model = await Workspace.GetDashboardAsync(reportingMonth);
+            returnRegister = await Workspace.GetMonthlyReturnRegisterAsync();
+            await LoadReportingPeriodAsync();
+        }
+        catch (Exception exception)
+        {
+            actionResult = new ReturnActionResult(false, $"The MI workbook could not be generated: {exception.Message}", []);
+        }
+        finally
+        {
+            working = false;
+        }
     }
 
     private async Task MarkNilReturnAsync()
@@ -372,12 +400,34 @@
         reportingCard = await cardTask;
     }
 
-    private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => (returnRegister?.Entries ?? [])
+    private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => SortReturnEntries((returnRegister?.Entries ?? [])
         .Where(item => registerView == "month"
             ? item.ReportingMonth == registerMonth
-            : item.Framework.Code == registerFramework)
-        .OrderByDescending(item => item.ReportingMonth, StringComparer.Ordinal)
-        .ThenBy(item => item.Framework.DisplayName, StringComparer.Ordinal);
+            : item.Framework.Code == registerFramework));
+
+    private void SortRegisterBy(string column)
+    {
+        if (registerSortColumn == column) registerSortDescending = !registerSortDescending;
+        else { registerSortColumn = column; registerSortDescending = false; }
+    }
+    private string SortIndicator(string column) => registerSortColumn == column ? registerSortDescending ? "↓" : "↑" : "↕";
+    private string SortAria(string column) => registerSortColumn == column ? registerSortDescending ? "descending" : "ascending" : "none";
+    private IOrderedEnumerable<MonthlyReturnRegisterEntry> SortReturnEntries(IEnumerable<MonthlyReturnRegisterEntry> entries) => (registerSortColumn, registerSortDescending) switch
+    {
+        ("framework", false) => entries.OrderBy(item => item.Framework.DisplayName, StringComparer.OrdinalIgnoreCase),
+        ("framework", true) => entries.OrderByDescending(item => item.Framework.DisplayName, StringComparer.OrdinalIgnoreCase),
+        ("reportingMonth", false) => entries.OrderBy(item => item.ReportingMonth, StringComparer.Ordinal),
+        ("reportingMonth", true) => entries.OrderByDescending(item => item.ReportingMonth, StringComparer.Ordinal),
+        ("status", false) => entries.OrderBy(item => ReturnStatusLabel(item.ReturnStatus), StringComparer.OrdinalIgnoreCase),
+        ("status", true) => entries.OrderByDescending(item => ReturnStatusLabel(item.ReturnStatus), StringComparer.OrdinalIgnoreCase),
+        ("activity", false) => entries.OrderBy(item => item.ContractCount + item.InvoiceCount),
+        ("activity", true) => entries.OrderByDescending(item => item.ContractCount + item.InvoiceCount),
+        ("readiness", false) => entries.OrderBy(item => item.BlockingFindingCount).ThenBy(item => item.ReviewFindingCount),
+        ("readiness", true) => entries.OrderByDescending(item => item.BlockingFindingCount).ThenByDescending(item => item.ReviewFindingCount),
+        ("submission", false) => entries.OrderBy(item => item.SubmittedAtUtc is null).ThenBy(item => item.SubmittedAtUtc),
+        ("submission", true) => entries.OrderBy(item => item.SubmittedAtUtc is null).ThenByDescending(item => item.SubmittedAtUtc),
+        _ => entries.OrderByDescending(item => item.ReportingMonth, StringComparer.Ordinal).ThenBy(item => item.Framework.DisplayName, StringComparer.Ordinal),
+    };
 
     private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? [])
         .Select(item => item.Framework)

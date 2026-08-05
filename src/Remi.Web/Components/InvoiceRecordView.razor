@@ -20,9 +20,17 @@ else
                 <p class="lede">@details.Invoice.SupplierReference · @details.Invoice.CustomerName</p>
             </div>
             <div class="contract-hero-actions">
-                <button class="button secondary" @onclick="ToggleEditor">@(editing ? "Cancel" : "Edit")</button>
-                @if (details.Contract is not null) { <a class="button secondary" href="@ContractRoute(details.Contract.Id)">View →</a> }
-                <a class="button secondary" href="@PeriodRoute("invoices")">Back ←</a>
+                @if (editing)
+                {
+                    <button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button>
+                    <button class="button secondary" @onclick="ToggleEditor">Cancel</button>
+                }
+                else
+                {
+                    <button class="button secondary" @onclick="ToggleEditor">Edit</button>
+                    @if (details.Contract is not null) { <a class="button secondary" href="@ContractRoute(details.Contract.Id)">View →</a> }
+                    <a class="button secondary" href="@PeriodRoute("invoices")">Back ←</a>
+                }
             </div>
         </header>
 
