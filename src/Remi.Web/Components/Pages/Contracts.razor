@@ -14,16 +14,11 @@
 else
 {
     <section class="register-page">
-        <header class="register-page-header register-page-header-compact">
+        <header class="dashboard-header register-page-header-compact">
             <div>
-                <p class="eyebrow">Working register</p>
                 <h1>Contracts</h1>
-                <p class="register-period-line">@DisplayPeriod(model.CurrentReportingMonth) <span aria-hidden="true">&middot;</span> @model.ContractProgress.Count contract records</p>
             </div>
-            <div class="register-header-actions">
-                <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="remi-action remi-action--primary" href="@PeriodRoute("contracts/new")">Register contract</a>
-            </div>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("contracts/new")">Register →</a>
         </header>
 
         @if (!string.IsNullOrWhiteSpace(selectionNotice))
@@ -63,7 +58,7 @@ else
                     {
                         <span>Select contracts to review them together.</span>
                     }
-                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedContracts.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
+                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedContracts.Count == 0)">@(AllVisibleSelected ? "Clear" : "Select")</button></div>
                 </div>
 
                 <div class="register-table-scroll">
@@ -103,7 +98,7 @@ else
                     <strong>@SelectedContracts.Count selected</strong>
                     <span>@Currency(SelectedContracts.Sum(contract => contract.TotalContractValueExVat)) combined value</span>
                     <span class="@(SelectedContracts.Any(contract => contract.Evidence.Count == 0) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedContracts.Count(contract => contract.Evidence.Count == 0) missing evidence</span>
-                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review selected <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
+                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
                 </section>
             }
 
@@ -124,7 +119,7 @@ else
                         <li><span><strong>@contract.SupplierReference</strong><small>@contract.CustomerName</small></span><button @onclick="@(() => ToggleSelection(contract.ContractId))" aria-label="Remove @contract.SupplierReference">×</button></li>
                     }
                 </ul>
-                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedContracts.Count == 0)" @onclick="ReviewSelection">Review selected <span aria-hidden="true">→</span></button>
+                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedContracts.Count == 0)" @onclick="ReviewSelection">Review <span aria-hidden="true">→</span></button>
                 @if (SelectedContracts.Count > 0) { <button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button> }
                 </aside>
             }

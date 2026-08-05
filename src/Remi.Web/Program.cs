@@ -137,7 +137,7 @@ app.MapGet("/evidence/{id:guid}/download", async (
         : Results.File(stream, evidence.ContentType, fileDownloadName: evidence.FileName, enableRangeProcessing: true);
 });
 
-app.MapGet("/reporting-card/{frameworkCode:int}/{reportingMonth}", async (
+app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
     int frameworkCode,
     string reportingMonth,
     ReportingWorkspace workspace,
@@ -152,6 +152,8 @@ app.MapGet("/reporting-card/{frameworkCode:int}/{reportingMonth}", async (
     var text = await workspace.GetReportingCardTextAsync((Remi.Domain.FrameworkCode)frameworkCode, reportingMonth, cancellationToken);
     return Results.Text(text, "text/plain; charset=utf-8");
 });
+
+app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

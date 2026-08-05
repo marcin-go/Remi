@@ -6,17 +6,17 @@
 
 <div class="app-shell">
     <header class="app-header">
-        <a class="brand" href="@PeriodLink("/")" aria-label="Remi dashboard">
+        <a class="brand" href="@PeriodLink("/home")" aria-label="Remi home">
             <span class="brand-mark">R</span>
             <span>Remi</span>
         </a>
         <span class="brand-subtitle">Framework MI reporting</span>
         <nav class="navigation" aria-label="Primary navigation">
-            <NavLink href="@PeriodLink("/")" Match="NavLinkMatch.All">Dashboard</NavLink>
-            <NavLink href="@PeriodLink("contracts")">Contracts</NavLink>
-            <NavLink href="@PeriodLink("invoices")">Invoices</NavLink>
-            <NavLink href="@PeriodLink("reporting")">Reports</NavLink>
-            <NavLink href="@PeriodLink("maintenance")">Settings</NavLink>
+            <NavLink href="@PeriodLink("/home")" Match="NavLinkMatch.All">Home</NavLink>
+            <NavLink href="@PeriodLink("/contracts")">Contracts</NavLink>
+            <NavLink href="@PeriodLink("/invoices")">Invoices</NavLink>
+            <NavLink href="@PeriodLink("/reports")">Reports</NavLink>
+            <NavLink href="@PeriodLink("/settings")">Settings</NavLink>
         </nav>
     </header>
     <main>

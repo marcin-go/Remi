@@ -90,6 +90,22 @@ public sealed record ContractProgress(
     IReadOnlyList<ChargeScheduleItem> ChargeSchedule,
     IReadOnlyList<EvidenceLink> Evidence);
 
+/// <summary>
+/// A registered contract that can provide the shared and framework-specific context for a new invoice.
+/// </summary>
+public sealed record InvoiceRegistrationContract(
+    Guid ContractId,
+    FrameworkCode Framework,
+    string SupplierReference,
+    string CustomerName,
+    string? CustomerUrn,
+    string? LotNumber,
+    string? ServiceGroup,
+    string? ServiceGroupLevel2,
+    string? ServiceDescription,
+    string? OrderChannel,
+    string? DigitalMarketplaceServiceId);
+
 public sealed record EvidenceLink(
     Guid Id,
     EvidenceKind Kind,

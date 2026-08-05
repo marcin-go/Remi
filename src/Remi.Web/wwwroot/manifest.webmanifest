@@ -2,7 +2,7 @@
   "name": "Remi",
   "short_name": "Remi",
   "description": "Framework MI reporting",
-  "start_url": "/",
+  "start_url": "/home",
   "display": "standalone",
   "background_color": "#f4f7f8",
   "theme_color": "#143c5d",

@@ -7,6 +7,9 @@ using Remi.Domain;
 using Remi.Web;
 using Remi.Web.Components.Layout;
 using ContractsRegister = Remi.Web.Components.Pages.Contracts;
+using DashboardPage = Remi.Web.Components.Pages.Dashboard;
+using InvoiceRegistrationPage = Remi.Web.Components.Pages.InvoiceRegistration;
+using InvoicesRegister = Remi.Web.Components.Pages.Invoices;
 using ReportingRegister = Remi.Web.Components.Pages.Reporting;
 using Xunit;
 
@@ -21,8 +24,13 @@ public sealed class RegisterComponentTests
 
         var cut = context.Render<MainLayout>();
 
-        Assert.Equal("/?period=2026-07", cut.Find("a.brand").GetAttribute("href"));
-        Assert.Equal("contracts?period=2026-07", cut.Find("nav a[href^='contracts']").GetAttribute("href"));
+        Assert.Equal("/home?period=2026-07", cut.Find("a.brand").GetAttribute("href"));
+        Assert.Equal("Remi home", cut.Find("a.brand").GetAttribute("aria-label"));
+        Assert.Equal("/contracts?period=2026-07", cut.Find("nav a[href^='/contracts']").GetAttribute("href"));
+        Assert.Equal("/reports?period=2026-07", cut.Find("nav a[href^='/reports']").GetAttribute("href"));
+        Assert.Equal("/settings?period=2026-07", cut.Find("nav a[href^='/settings']").GetAttribute("href"));
+        Assert.Contains("Home", cut.Find("nav").TextContent);
+        Assert.DoesNotContain("Dashboard", cut.Find("nav").TextContent);
         Assert.Contains("Reports", cut.Find("nav").TextContent);
         Assert.DoesNotContain("Monthly return register", cut.Find("nav").TextContent);
         Assert.DoesNotContain("Templates & audit", cut.Find("nav").TextContent);
@@ -50,7 +58,7 @@ public sealed class RegisterComponentTests
         {
             Assert.Contains("Selected contracts", cut.Markup);
             Assert.Contains("1 selected", cut.Markup);
-            Assert.Contains("Review selected", cut.Markup);
+            Assert.Contains("Review", cut.Markup);
         });
 
         cut.Find("button.clear-selection").Click();
@@ -59,6 +67,91 @@ public sealed class RegisterComponentTests
         {
             Assert.Contains("Select contracts to review them together.", cut.Markup);
             Assert.DoesNotContain("Selected contracts", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void Register_and_reports_headings_omit_redundant_summaries()
+    {
+        using var context = CreateContext();
+
+        var contracts = context.Render<ContractsRegister>();
+        contracts.WaitForAssertion(() =>
+        {
+            var heading = contracts.Find("header.dashboard-header");
+            Assert.Null(heading.QuerySelector(".eyebrow"));
+            Assert.DoesNotContain("Live register", heading.TextContent);
+            Assert.Empty(contracts.FindAll(".register-period-summary"));
+        });
+
+        var invoices = context.Render<InvoicesRegister>();
+        invoices.WaitForAssertion(() =>
+        {
+            var heading = invoices.Find("header.dashboard-header");
+            Assert.Null(heading.QuerySelector(".eyebrow"));
+            Assert.DoesNotContain("Live register", heading.TextContent);
+            Assert.Empty(invoices.FindAll(".register-period-summary"));
+        });
+
+        var reports = context.Render<ReportingRegister>();
+        reports.WaitForAssertion(() =>
+        {
+            Assert.Empty(reports.FindAll(".register-period-summary"));
+            var heading = reports.Find(".return-register-heading");
+            Assert.Null(heading.QuerySelector(".eyebrow"));
+            Assert.Equal("Browse reports", heading.QuerySelector("h2")?.TextContent.Trim());
+        });
+    }
+
+    [Fact]
+    public void Invoice_register_links_to_a_standalone_invoice_registration_page()
+    {
+        using var context = CreateContext();
+
+        var invoices = context.Render<InvoicesRegister>();
+        invoices.WaitForAssertion(() =>
+            Assert.Equal("/invoices/new?period=2026-07", invoices.Find("a.remi-action--primary").GetAttribute("href")));
+
+        var registration = context.Render<InvoiceRegistrationPage>();
+        registration.WaitForAssertion(() => Assert.Equal("Register an invoice", registration.Find("h1").TextContent.Trim()));
+        Assert.Empty(registration.FindAll("select[aria-label='Contract']"));
+        Assert.Contains("Choose a registered contract", registration.Markup);
+        Assert.DoesNotContain("Register contract", registration.Markup);
+
+        registration.Find("input[role='combobox'][aria-label='Contract']").Input("RM-001");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("button[role='option']")));
+        registration.Find("button[role='option']").Click();
+        registration.WaitForAssertion(() => Assert.Contains("RM-001", registration.Markup));
+    }
+
+    [Fact]
+    public void Dashboard_uses_the_defined_information_and_navigation_hierarchy()
+    {
+        using var context = CreateContext();
+
+        var cut = context.Render<DashboardPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var dashboardHeader = cut.Find(".dashboard-header");
+            Assert.Null(dashboardHeader.QuerySelector(".eyebrow"));
+            Assert.Equal("Prepare →", dashboardHeader.QuerySelector("a.remi-action--primary")?.TextContent.Trim());
+
+            var readinessHeader = cut.Find(".dashboard-readiness .dashboard-section-heading");
+            Assert.Equal("Return readiness", readinessHeader.QuerySelector("h2")?.TextContent.Trim());
+            Assert.Contains("Frameworks included in the July 2026 reporting period.", readinessHeader.TextContent);
+
+            var attentionHeader = cut.Find(".dashboard-attention .dashboard-section-heading");
+            Assert.Equal("Needs attention", attentionHeader.QuerySelector("h2")?.TextContent.Trim());
+
+            var activityHeader = cut.Find(".dashboard-activity .dashboard-section-heading");
+            Assert.Equal("Recent activity", activityHeader.QuerySelector("h2")?.TextContent.Trim());
+            Assert.Equal("View →", activityHeader.QuerySelector("a.remi-action--section")?.TextContent.Trim());
+
+            var tableHeaders = cut.FindAll(".dashboard-table th").Select(header => header.TextContent.Trim()).ToList();
+            Assert.Equal(["Framework", "Contracts", "Invoices", "Readiness", "Action"], tableHeaders);
+            Assert.All(cut.FindAll(".dashboard-table td.table-action-cell"), cell =>
+                Assert.Contains("→", cell.TextContent));
         });
     }
 
@@ -90,7 +183,7 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Generate the reporting workbook", cut.Markup);
-            Assert.Contains("Prepare MI workbook", cut.Markup);
+            Assert.Contains("Prepare", cut.Markup);
             Assert.DoesNotContain("Monthly MI workbook", cut.Markup);
             Assert.Empty(cut.FindAll("input[type='file']"));
         });

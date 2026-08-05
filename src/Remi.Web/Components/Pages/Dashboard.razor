@@ -1,20 +1,19 @@
-@page "/"
+@page "/home"
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
 @implements IDisposable
 
-<PageTitle>Remi · Dashboard</PageTitle>
+<PageTitle>Remi · Home</PageTitle>
 
 @if (model is not null)
 {
     <section class="dashboard-page">
         <header class="dashboard-header">
             <div>
-                <p class="eyebrow">Monthly management information</p>
                 <h1>Reporting overview</h1>
                 <p class="lede">Review return readiness, resolve exceptions and retain a clear audit trail for <strong>@DisplayPeriod(model.CurrentReportingMonth)</strong>.</p>
             </div>
-            <a class="remi-action remi-action--primary" href="@PeriodRoute("reporting")">Prepare return</a>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("/reports")">Prepare →</a>
         </header>
 
         <section class="dashboard-period-summary" aria-label="Current reporting period">
@@ -23,18 +22,18 @@
                 <div><dt>Contracts</dt><dd>@model.FrameworkReadiness.Sum(item => item.ContractCount)</dd></div>
                 <div><dt>Invoices</dt><dd>@model.FrameworkReadiness.Sum(item => item.InvoiceCount)</dd></div>
                 <div><dt>Ready</dt><dd>@model.FrameworkReadiness.Count(IsReady)</dd></div>
-                <div class="@(model.Findings.Count == 0 ? null : "has-exceptions")"><dt>Exceptions</dt><dd>@model.Findings.Count</dd></div>
+                <div class="@ExceptionMetricClass()"><dt>Exceptions</dt><dd>@model.Findings.Count</dd></div>
             </dl>
         </section>
 
         <section class="dashboard-layout">
             <article class="dashboard-readiness">
                 <header class="dashboard-section-heading">
-                    <div><p class="eyebrow">Return readiness</p><h2>Frameworks in this reporting period</h2></div>
+                    <div><h2>Return readiness</h2><p>Frameworks included in the @DisplayPeriod(model.CurrentReportingMonth) reporting period.</p></div>
                 </header>
                 <div class="dashboard-table-scroll">
                     <table class="dashboard-table">
-                        <thead><tr><th>Framework</th><th>Contracts</th><th>Invoices</th><th>Readiness</th><th><span class="visually-hidden">Action</span></th></tr></thead>
+                        <thead><tr><th>Framework</th><th>Contracts</th><th>Invoices</th><th>Readiness</th><th class="table-action-cell"><span class="visually-hidden">Action</span></th></tr></thead>
                         <tbody>
                             @foreach (var summary in model.FrameworkReadiness)
                             {
@@ -43,7 +42,7 @@
                                     <td>@summary.ContractCount</td>
                                     <td>@summary.InvoiceCount</td>
                                     <td><span class="@ReadinessClass(summary)">@ReadinessLabel(summary)</span></td>
-                                    <td><a class="remi-action remi-action--table dashboard-row-action" href="@PeriodRoute("reporting")">@ReadinessAction(summary)</a></td>
+                                    <td class="table-action-cell"><a class="remi-action remi-action--table dashboard-row-action" href="@PeriodRoute("/reports")">@ReadinessAction(summary)</a></td>
                                 </tr>
                             }
                         </tbody>
@@ -54,7 +53,7 @@
             <div class="dashboard-secondary">
                 <article class="dashboard-attention">
                     <header class="dashboard-section-heading">
-                        <div><p class="eyebrow">Needs attention</p><h2>Resolve exceptions before submission</h2></div>
+                        <div><h2>Needs attention</h2></div>
                     </header>
                     @if (model.AttentionItems.Count == 0)
                     {
@@ -85,8 +84,8 @@
 
                 <article class="dashboard-activity">
                     <header class="dashboard-section-heading">
-                        <div><p class="eyebrow">Recent activity</p><h2>Audit trail</h2></div>
-                        <a href="@PeriodRoute("templates")">View audit</a>
+                        <div><h2>Recent activity</h2></div>
+                        <a class="remi-action remi-action--section" href="@PeriodRoute("/settings?section=audit")">View →</a>
                     </header>
                     @if (model.RecentActivity.Count == 0)
                     {
@@ -118,7 +117,7 @@ else
             <h1>Keep every return defensible.</h1>
             <p class="lede">Remi keeps the contract, invoice and submission trail together. The current reporting month is <strong>@model.CurrentReportingMonth</strong>.</p>
         </div>
-        <a class="button primary" href="reporting">Prepare a return</a>
+        <a class="button primary" href="/reports">Prepare →</a>
     </section>
 
     <section class="framework-grid" aria-label="Framework reporting summary">
@@ -150,7 +149,7 @@ else
             {
                 <div class="empty-state">
                     <p>No contract data yet.</p>
-                    <a class="button secondary" href="reporting">Import a monthly MI workbook</a>
+                    <a class="button secondary" href="/reports">Import →</a>
                 </div>
             }
             else
@@ -180,7 +179,7 @@ else
                     <p class="eyebrow">Data quality</p>
                     <h2>Needs attention</h2>
                 </div>
-                <a href="reporting">Review returns</a>
+                <a href="/reports">Review returns</a>
             </div>
             @if (model.Findings.Count == 0)
             {
@@ -273,7 +272,12 @@ else
     }
 
     private static string ReadinessAction(FrameworkReadiness summary) =>
-        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review issues" : "Open return";
+        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review →" : "Open →";
+
+    private string? ExceptionMetricClass() =>
+        BlockingItems.Count != 0 ? "has-blocking-exceptions"
+        : ReviewItems.Count != 0 ? "has-review-exceptions"
+        : null;
 
     private static string DisplayPeriod(string period) =>
         DateOnly.ParseExact($"{period}-01", "yyyy-MM-dd").ToString("MMMM yyyy");

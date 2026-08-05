@@ -14,16 +14,11 @@
 else
 {
     <section class="register-page">
-        <header class="register-page-header register-page-header-compact">
+        <header class="dashboard-header register-page-header-compact">
             <div>
-                <p class="eyebrow">Working register</p>
                 <h1>Invoices</h1>
-                <p class="register-period-line">@DisplayPeriod(reportingMonth) <span aria-hidden="true">&middot;</span> @invoices.Count invoice records</p>
             </div>
-            <div class="register-header-actions">
-                <span class="saved-state"><i aria-hidden="true"></i>Live register</span>
-                <a class="remi-action remi-action--primary" href="@PeriodRoute("contracts")">Register invoice</a>
-            </div>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("invoices/new")">Register →</a>
         </header>
 
         @if (!string.IsNullOrWhiteSpace(selectionNotice))
@@ -62,7 +57,7 @@ else
                     {
                         <span>Select invoices to review them together.</span>
                     }
-                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedInvoices.Count == 0)">@(AllVisibleSelected ? "Clear visible" : "Select all visible")</button></div>
+                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedInvoices.Count == 0)">@(AllVisibleSelected ? "Clear" : "Select")</button></div>
                 </div>
 
                 <div class="register-table-scroll">
@@ -112,7 +107,7 @@ else
                     <strong>@SelectedInvoices.Count selected</strong>
                     <span>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat)) combined value</span>
                     <span class="@(SelectedInvoices.Any(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedInvoices.Count(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) with exceptions</span>
-                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review selected <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
+                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
                 </section>
             }
 
@@ -133,7 +128,7 @@ else
                         <li><span><strong>@invoice.InvoiceNumber</strong><small>@invoice.CustomerName</small></span><button @onclick="@(() => ToggleSelection(invoice.InvoiceId))" aria-label="Remove @invoice.InvoiceNumber">×</button></li>
                     }
                 </ul>
-                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedInvoices.Count == 0)" @onclick="ReviewSelection">Review selected <span aria-hidden="true">→</span></button>
+                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedInvoices.Count == 0)" @onclick="ReviewSelection">Review <span aria-hidden="true">→</span></button>
                 @if (SelectedInvoices.Count > 0) { <button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button> }
                 </aside>
             }

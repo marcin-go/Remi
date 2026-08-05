@@ -10,7 +10,7 @@
 
     <header class="registration-heading">
         <div><p class="eyebrow">Contract intake</p><h1>Register a signed contract</h1><p class="lede">Start with the framework. Remi will then show only the information needed for that framework, alongside the shared register fields.</p></div>
-        <a class="button secondary" href="/contracts">Back to contracts</a>
+        <a class="button secondary" href="/contracts">Back ←</a>
     </header>
 
     @if (selectedFramework is null)
@@ -32,7 +32,7 @@
     else
     {
         <section class="registration-framework-context">
-            <span>Framework</span><strong>@Frameworks.Get(selectedFramework.Value).DisplayName (@Frameworks.Get(selectedFramework.Value).AgreementNumber)</strong><button @onclick="ChooseAnotherFramework">Change framework</button>
+            <span>Framework</span><strong>@Frameworks.Get(selectedFramework.Value).DisplayName (@Frameworks.Get(selectedFramework.Value).AgreementNumber)</strong><button @onclick="ChooseAnotherFramework">Change</button>
         </section>
 
         @if (submission is not null)
@@ -73,7 +73,7 @@
                     <label>Base contract term (years) <span class="optional">optional</span><input type="number" min="1" step="1" @bind="baseTermYears" /></label>
                     <label>Optional extension (years) <span class="optional">optional</span><input type="number" min="0" step="1" @bind="optionalExtensionYears" /></label>
                 </div>
-                <div class="payment-position-header"><div><h4>Annual payment positions</h4><p>Each row contributes to that year’s expected invoiced total, ex VAT.</p></div><button type="button" class="button secondary" @onclick="AddPaymentPosition">Add payment position</button></div>
+                <div class="payment-position-header"><div><h4>Annual payment positions</h4><p>Each row contributes to that year’s expected invoiced total, ex VAT.</p></div><button type="button" class="button secondary" @onclick="AddPaymentPosition">Add</button></div>
                 @if (paymentPositions.Count == 0)
                 {
                     <div class="contract-empty-inline"><strong>No payment positions added</strong><span>Add the agreed positions now, or register the contract without a payment schedule.</span></div>
@@ -140,7 +140,7 @@
                 </section>
             }
 
-            <div class="action-row"><button class="button primary" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Registering…" : "Register contract")</button><a class="button secondary" href="/contracts">Cancel</a></div>
+            <div class="action-row"><button class="button primary" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Registering…" : "Register")</button><a class="button secondary" href="/contracts">Cancel</a></div>
         </section>
     }
 </section>

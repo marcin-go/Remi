@@ -45,7 +45,7 @@
             <label>Reporting month <input type="text" inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="exportMonth" @bind:event="oninput" /></label>
         </div>
         <div class="action-row">
-            <button class="button primary" disabled="@(!CanGenerateReturn || working)" @onclick="ExportReturnAsync">Generate MI workbook</button>
+            <button class="button primary" disabled="@(!CanGenerateReturn || working)" @onclick="ExportReturnAsync">Generate</button>
         </div>
         <p class="caption">The generated workbook is archived, then downloaded for review and upload to the GCA reporting portal. It is not marked submitted automatically.</p>
     </article>
@@ -140,7 +140,7 @@
         </ol>
         @if (VisibleAuditEvents.Count > auditLimit)
         {
-            <div class="action-row"><button class="button secondary" @onclick="ShowMoreAuditEvents">Show 15 more</button></div>
+            <div class="action-row"><button class="button secondary" @onclick="ShowMoreAuditEvents">Show</button></div>
         }
     }
 </section>

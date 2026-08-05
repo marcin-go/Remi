@@ -6,7 +6,7 @@
 
 @if (details is null)
 {
-    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back to contracts</a></section>
+    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a></section>
 }
 else
 {
@@ -20,12 +20,12 @@ else
                 <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
-                <button class="button secondary" @onclick="ToggleContractEditor">@(editingContract ? "Cancel editing" : "Edit contract")</button>
+                <button class="button secondary" @onclick="ToggleContractEditor">@(editingContract ? "Cancel" : "Edit")</button>
                 @if (SourceEvidence is not null)
                 {
-                    <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">↓ Download source</a>
+                    <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">Download</a>
                 }
-                <a class="button primary" href="@PeriodRoute("contracts")">‹ Back to contracts</a>
+                <a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a>
             </div>
         </header>
 
@@ -66,7 +66,7 @@ else
                                 <label>Service group / level 1<input @bind="editServiceGroup" /></label><label>Service group / level 2<input @bind="editServiceGroupLevel2" /></label>
                                 <label>Service description<input @bind="editServiceDescription" /></label><label>Order channel<input @bind="editOrderChannel" /></label>
                             </div>
-                            <div class="action-row"><button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save contract")</button></div>
+                            <div class="action-row"><button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save")</button></div>
                             @if (contractSubmission is not null) { <p class="notice @(contractSubmission.Succeeded ? "success" : "error")" role="status">@contractSubmission.Message</p> }
                         </section>
                     }
@@ -97,7 +97,7 @@ else
                             </section>
                             <section class="contract-detail-section">
                                 <h3>▤ Annual payment positions</h3>
-                                <div class="contract-section-actions"><button class="button secondary" @onclick="ToggleScheduleEditor">@(editingSchedule ? "Cancel editing" : "Edit payment positions")</button></div>
+                                <div class="contract-section-actions"><button class="button secondary" @onclick="ToggleScheduleEditor">@(editingSchedule ? "Cancel" : "Edit")</button></div>
                                 @if (editingSchedule)
                                 {
                                     <div class="payment-position-editor">
@@ -107,7 +107,7 @@ else
                                                 <label>Year<input type="number" min="1" @bind="position.ContractYear" /></label><label>Description<input @bind="position.Description" /></label><label>Expected date<input type="date" @bind="position.ExpectedInvoiceDate" /></label><label>Value, ex VAT<input type="number" step="0.01" @bind="position.ValueExVat" /></label><label class="payment-optional"><input type="checkbox" @bind="position.IsOptionalExtension" /> Optional year</label>
                                             </div>
                                         }
-                                        <div class="action-row"><button class="button secondary" @onclick="AddSchedulePosition">Add payment position</button><button class="button primary" disabled="@(!CanSaveSchedule || scheduleWorking)" @onclick="SaveScheduleAsync">@(scheduleWorking ? "Saving…" : "Save payment positions")</button></div>
+                                        <div class="action-row"><button class="button secondary" @onclick="AddSchedulePosition">Add</button><button class="button primary" disabled="@(!CanSaveSchedule || scheduleWorking)" @onclick="SaveScheduleAsync">@(scheduleWorking ? "Saving…" : "Save")</button></div>
                                         @if (scheduleSubmission is not null) { <p class="notice @(scheduleSubmission.Succeeded ? "success" : "error")" role="status">@scheduleSubmission.Message</p> }
                                     </div>
                                 }
@@ -133,13 +133,13 @@ else
             {
                 <div class="contract-tab-panel" role="tabpanel">
                     <article class="contract-content-card">
-                        <header class="contract-card-head"><div><p class="eyebrow">Reported invoices</p><h2>Activity against this contract</h2><p>Invoices entered here inherit the reporting attributes recorded for this contract.</p></div><button class="button primary" @onclick="ShowInvoiceForm">@(showInvoiceForm ? "Hide invoice form" : "Register invoice")</button></header>
+                        <header class="contract-card-head"><div><p class="eyebrow">Reported invoices</p><h2>Activity against this contract</h2><p>Invoices entered here inherit the reporting attributes recorded for this contract.</p></div><button class="button primary" @onclick="ShowInvoiceForm">@(showInvoiceForm ? "Close" : "Register")</button></header>
                         @if (showInvoiceForm)
                         {
                             <section class="contract-invoice-form">
                                 <h3>Register an invoice</h3><div class="contract-invoice-context"><strong>@details.Contract.SupplierReference</strong><span>@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</span></div>
                                 <div class="form-grid"><label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" @bind:event="oninput" /></label><label>Invoice or credit note date <span class="required">required</span><input required type="date" @bind="invoiceDate" /></label><label>Reporting month <span class="required">required</span><input required inputmode="numeric" pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" @bind="invoiceReportingMonth" @bind:event="oninput" /></label><label>Total cost, ex VAT <span class="required">required</span><input required type="number" step="0.01" @bind="invoiceTotalExVat" /></label><label>Unit of measure <span class="optional">optional</span><input @bind="unitOfMeasure" @bind:event="oninput" placeholder="e.g. licence, day or each" /></label><label>Quantity <span class="optional">optional</span><input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT <span class="optional">optional</span><input type="number" step="0.01" @bind="pricePerUnitExVat" /></label><label>Original vendor <span class="optional">optional</span><input @bind="originalVendor" @bind:event="oninput" /></label><label>Subcontractor name <span class="optional">optional</span><input @bind="subcontractorName" @bind:event="oninput" /></label></div>
-                                <p class="caption">Use a negative total for a credit note. Service fields, lot, order channel and Marketplace ID are copied from the registered contract.</p><div class="action-row"><button class="button primary" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Recording…" : "Register invoice")</button></div>
+                                <p class="caption">Use a negative total for a credit note. Service fields, lot, order channel and Marketplace ID are copied from the registered contract.</p><div class="action-row"><button class="button primary" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Recording…" : "Register")</button></div>
                                 @if (invoiceSubmission is not null) { <p class="notice @(invoiceSubmission.Succeeded ? "success" : "error")" role="status">@invoiceSubmission.Message</p>@if (invoiceSubmission.Findings.Count != 0) { <ul class="findings inline-findings">@foreach (var finding in invoiceSubmission.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li> }</ul> } }
                             </section>
                         }

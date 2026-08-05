@@ -1,4 +1,4 @@
-@page "/maintenance"
+@page "/settings"
 @implements IAsyncDisposable
 @using Microsoft.AspNetCore.Components
 @inject Remi.Infrastructure.MigrationRunner MigrationRunner
@@ -47,7 +47,7 @@
         <div class="action-row">
             @if (editingFrameworks)
             {
-                <button class="button primary" disabled="@(!CanSaveFrameworkChanges)" @onclick="SaveFrameworkChangesAsync">@(savingFrameworks ? "Saving…" : "Save changes")</button>
+                <button class="button primary" disabled="@(!CanSaveFrameworkChanges)" @onclick="SaveFrameworkChangesAsync">@(savingFrameworks ? "Saving…" : "Save")</button>
                 <button class="button secondary" disabled="@working" @onclick="CancelFrameworkEdit">Cancel</button>
             }
             else
@@ -110,7 +110,7 @@
         <p class="caption">Evidence: <a href="/evidence/@urnDirectoryStatus.EvidenceId/download">@urnDirectoryStatus.FileName</a>. The official list is linked from <a href="@urnDirectoryStatus.SourcePageUrl" target="_blank" rel="noreferrer">GOV.UK guidance</a>.</p>
     }
     <div class="action-row">
-        <button class="button secondary" disabled="@working" @onclick="RefreshCustomerUrnListAsync">@(urnRefreshing ? "Refreshing…" : "Refresh customer URN list")</button>
+        <button class="button secondary" disabled="@working" @onclick="RefreshCustomerUrnListAsync">@(urnRefreshing ? "Refreshing…" : "Refresh")</button>
     </div>
     @if (!string.IsNullOrWhiteSpace(urnMessage))
     {
@@ -128,7 +128,7 @@
     <h2>Flatten the evidence file layout</h2>
     <p>Store evidence as flat, hash-named files under <code>data\evidence</code>. Remi keeps each original source path, framework, reporting month and checksum in the register, so this changes the disk layout without changing evidence provenance.</p>
     <div class="action-row">
-        <button class="button secondary" disabled="@working" @onclick="FlattenEvidenceArchiveAsync">@(archiveNormalizing ? "Flattening archiveâ€¦" : "Flatten evidence archive")</button>
+        <button class="button secondary" disabled="@working" @onclick="FlattenEvidenceArchiveAsync">@(archiveNormalizing ? "Flattening…" : "Flatten")</button>
     </div>
     @if (archiveNormalization is not null)
     {
@@ -159,13 +159,13 @@
         <div class="folder-browser wide-field">
             <input id="source-folder" value="@sourceDirectory" @oninput="ManualSourceChangedAsync" placeholder="e.g. D:\Reporting\source-data" />
             <label class="button secondary folder-picker-button" aria-disabled="@working">
-                <span aria-hidden="true">▣</span> Browse folders
+                <span aria-hidden="true">▣</span> Browse
                 <InputFile id="source-folder-browser" class="folder-browser-input" disabled="@working" OnChange="StageSelectedFolderAsync" multiple="multiple" webkitdirectory="webkitdirectory" directory="directory" />
             </label>
         </div>
     </div>
     <div class="action-row">
-        <button class="button primary" disabled="@working" @onclick="PlanAsync">Create migration plan</button>
+        <button class="button primary" disabled="@working" @onclick="PlanAsync">Create</button>
     </div>
     <p class="caption">Browse folders uses your browser’s native folder chooser. Remi temporarily stages the selected files with their original hierarchy, then excludes the old MI Reporting Ledger workbook, recognises framework MI workbooks and retains other files as evidence.</p>
 </section>
@@ -192,7 +192,7 @@
             <div><dt>Supporting evidence</dt><dd>@plan.SupportingEvidenceCount</dd></div>
         </dl>
         <div class="action-row">
-            <button class="button secondary" disabled="@working" @onclick="ValidateAsync">Validate without writing data</button>
+            <button class="button secondary" disabled="@working" @onclick="ValidateAsync">Validate</button>
         </div>
         @if (plan.Workbooks.Count != 0)
         {
@@ -239,7 +239,7 @@
             <span>I have reviewed this validation report and want to import the selected source folder.</span>
         </label>
         <div class="action-row">
-            <button class="button primary" disabled="@(!CanImport)" @onclick="ImportAsync">Import into SQLite</button>
+            <button class="button primary" disabled="@(!CanImport)" @onclick="ImportAsync">Import</button>
         </div>
         <p class="caption">The import adds records that are not already registered. It creates contract and invoice records in <code>data\remi-data.db</code>, archives originals, and keeps validation findings visible in the dashboard.</p>
         <label class="review-confirmation destructive-confirmation">
@@ -247,7 +247,7 @@
             <span>I understand that rebuilding from this source will permanently replace all local Remi records, templates, returns, audit history and archived evidence.</span>
         </label>
         <div class="action-row">
-            <button class="button danger" disabled="@(!CanRepopulate)" @onclick="RepopulateAsync">Rebuild all data from source</button>
+            <button class="button danger" disabled="@(!CanRepopulate)" @onclick="RepopulateAsync">Rebuild</button>
         </div>
         <p class="caption">Use this only after a schema reset or when you deliberately want a fresh historical register. Remi validates the selected source again before it clears local data; it does not run in-place upgrades for earlier data files.</p>
     </section>
@@ -269,7 +269,7 @@
             <div><dt>Ledger payment positions</dt><dd>@importReport.LedgerPaymentPositions</dd></div>
             <div><dt>Validation findings</dt><dd>@importReport.Findings.Count</dd></div>
         </dl>
-        <a class="button secondary" href="/">Review contracts and findings</a>
+        <a class="button secondary" href="@($"/home?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}")">Review →</a>
     </section>
 }
 
@@ -346,7 +346,7 @@
 
     private bool CanRepopulate => CanImport && repopulationReviewed;
 
-    private string SectionLink(string section) => $"/maintenance?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
+    private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 
     private string SectionLinkClass(string section) => ActiveSection == section ? "active" : string.Empty;
 

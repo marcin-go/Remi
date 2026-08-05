@@ -262,6 +262,23 @@ public sealed class ReportingWorkspace(
             .ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase)
             .ToList(), cancellationToken);
 
+    public Task<IReadOnlyList<InvoiceRegistrationContract>> GetInvoiceRegistrationContractsAsync(CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => (IReadOnlyList<InvoiceRegistrationContract>)database.Contracts
+            .OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase)
+            .Select(contract => new InvoiceRegistrationContract(
+                contract.Id,
+                contract.Framework,
+                contract.SupplierReference,
+                contract.CustomerName,
+                contract.CustomerUrn,
+                contract.LotNumber,
+                contract.ServiceGroup,
+                contract.ServiceGroupLevel2,
+                contract.ServiceDescription,
+                contract.OrderChannel,
+                contract.DigitalMarketplaceServiceId))
+            .ToList(), cancellationToken);
+
     /// <summary>
     /// Imports a completed workbook from the one-off historical source-data baseline.
     /// This is deliberately not a monthly reporting workflow; new returns are generated from

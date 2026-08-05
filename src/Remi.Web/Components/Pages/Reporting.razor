@@ -1,22 +1,20 @@
-@page "/reporting"
+@page "/reports"
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
 @implements IDisposable
 
 <PageTitle>Remi · Reports</PageTitle>
 
-<section class="page-heading">
+<header class="dashboard-header">
     <div>
-        <p class="eyebrow">Reports</p>
         <h1>Review every reporting cycle in one place.</h1>
         <p class="lede">Browse returns by reporting month or framework, then open a specific cycle to review its data, generate the approved workbook and record the outcome.</p>
     </div>
-</section>
+</header>
 
 <section class="panel return-register-panel">
-    <div class="panel-heading">
+    <div class="panel-heading return-register-heading">
         <div>
-            <p class="eyebrow">Return register</p>
             <h2>Browse reports</h2>
         </div>
     </div>
@@ -99,7 +97,7 @@
         <h2>@Frameworks.Get(framework).DisplayName · @reportingMonth</h2>
         <p class="muted">Review the registered data, generate the approved workbook and record the outcome for this reporting cycle.</p>
     </div>
-    <button class="remi-action remi-action--compact" @onclick="CloseReturnEditor">Close return tools</button>
+    <button class="remi-action remi-action--compact" @onclick="CloseReturnEditor">Close</button>
 </section>
 
 @if (SelectedReturn is not null)
@@ -134,16 +132,16 @@
         <input @bind="submissionReference" @bind:event="oninput" placeholder="e.g. portal confirmation or ticket ID" />
     </label>
     <div class="action-row">
-        <button class="remi-action remi-action--primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Record as submitted</button>
-        <button class="remi-action remi-action--section" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record nil return</button>
+        <button class="remi-action remi-action--primary" disabled="@(!CanMarkSubmitted || working)" @onclick="MarkSubmittedAsync">Submit</button>
+        <button class="remi-action remi-action--section" disabled="@(!CanMarkNilReturn || working)" @onclick="MarkNilReturnAsync">Record</button>
     </div>
     <label class="correction-reason">
         Correction reason <span class="optional">(required to request review)</span>
         <input @bind="correctionReason" @bind:event="oninput" placeholder="What needs to be corrected and why?" />
     </label>
     <div class="action-row">
-        <button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
-        <a class="remi-action remi-action--section" href="@($"maintenance?period={reportingMonth}&section=templates")">Prepare MI workbook <span aria-hidden="true">→</span></a>
+        <button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request</button>
+        <a class="remi-action remi-action--section" href="@($"/settings?period={reportingMonth}&section=templates")">Prepare <span aria-hidden="true">→</span></a>
     </div>
         @if (actionResult is not null)
         {
@@ -197,7 +195,7 @@
             <p class="eyebrow">Reviewable reporting card</p>
             <h2>Month-end MI staging</h2>
         </div>
-        <a class="remi-action remi-action--section" href="@($"/reporting-card/{(int)framework}/{reportingMonth}")" target="_blank">Download text card</a>
+        <a class="remi-action remi-action--section" href="@($"/reports/card/{(int)framework}/{reportingMonth}")" target="_blank">Download</a>
     </div>
     @if (reportingCard is null || (reportingCard.Contracts.Count == 0 && reportingCard.Invoices.Count == 0))
     {

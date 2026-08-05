@@ -9,7 +9,7 @@
 }
 else if (!IsPdf)
 {
-    <section class="empty-state"><p>This file is not a PDF.</p><a class="button secondary" href="@($"/evidence/{EvidenceId}/download")">Download file</a></section>
+    <section class="empty-state"><p>This file is not a PDF.</p><a class="button secondary" href="@($"/evidence/{EvidenceId}/download")">Download</a></section>
 }
 else
 {
@@ -19,7 +19,7 @@ else
             <h1>@evidence.FileName</h1>
             <p class="lede">@evidence.OriginalRelativePath</p>
         </div>
-        <a class="button primary" href="@($"/evidence/{EvidenceId}/download")">Download PDF</a>
+        <a class="button primary" href="@($"/evidence/{EvidenceId}/download")">Download</a>
     </section>
     <section class="pdf-viewer-panel">
         <iframe title="PDF evidence: @evidence.FileName" src="@($"/evidence/{EvidenceId}/content")"></iframe>
