@@ -18,6 +18,7 @@
         <p class="eyebrow">Settings menu</p>
         <nav class="settings-side-nav" aria-label="Settings sections">
             <a class="@SectionLinkClass(FrameworksSection)" href="@SectionLink(FrameworksSection)">Frameworks</a>
+            <a class="@SectionLinkClass(DigitalMarketplaceSection)" href="@SectionLink(DigitalMarketplaceSection)">Digital Marketplace</a>
             <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
             <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
             <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
@@ -110,6 +111,58 @@
 </section>
 }
 
+@if (ActiveSection == DigitalMarketplaceSection)
+{
+<section class="panel maintenance-panel">
+    <p class="eyebrow">Reference data</p>
+    <h2>G-Cloud 14 Digital Marketplace services</h2>
+    <p>These StatMap Ltd products are suggested when entering a Digital Marketplace Service ID for a contract. You can maintain the list when the supplier catalogue changes; choosing a suggestion is optional.</p>
+    <div class="action-row">
+        @if (editingDigitalMarketplaceServices)
+        {
+            <button class="button primary" disabled="@(!CanSaveDigitalMarketplaceServices)" @onclick="SaveDigitalMarketplaceServicesAsync">@(savingDigitalMarketplaceServices ? "Saving…" : "Save")</button>
+            <button class="button secondary" disabled="@working" @onclick="CancelDigitalMarketplaceServiceEdit">Cancel</button>
+        }
+        else
+        {
+            <button class="button secondary" disabled="@working" @onclick="BeginDigitalMarketplaceServiceEdit">Edit</button>
+        }
+    </div>
+    <div class="table-wrap maintenance-table">
+        <table>
+            <thead><tr><th>Product</th><th>Digital Marketplace Service ID</th>@if (editingDigitalMarketplaceServices) { <th><span class="visually-hidden">Actions</span></th> }</tr></thead>
+            <tbody>
+                @foreach (var service in digitalMarketplaceServices)
+                {
+                    <tr>
+                        @if (editingDigitalMarketplaceServices)
+                        {
+                            <td><input aria-label="Product name" @bind="service.Name" /></td>
+                            <td><input aria-label="Digital Marketplace Service ID" @bind="service.ServiceId" /></td>
+                            <td><button class="button secondary" type="button" @onclick="@(() => RemoveDigitalMarketplaceService(service))">Remove</button></td>
+                        }
+                        else
+                        {
+                            <td><strong>@service.Name</strong></td>
+                            <td>@service.ServiceId</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (editingDigitalMarketplaceServices)
+    {
+        <div class="action-row"><button class="button secondary" type="button" @onclick="AddDigitalMarketplaceService">Add service</button></div>
+    }
+    @if (!string.IsNullOrWhiteSpace(digitalMarketplaceMessage))
+    {
+        <p class="notice @(digitalMarketplaceSaveSucceeded ? "success" : "error")" role="status">@digitalMarketplaceMessage</p>
+    }
+    <p class="caption">Seeded from the <a href="https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap&amp;lot=cloud-software" target="_blank" rel="noreferrer">UK Government Digital Marketplace</a> G-Cloud 14 StatMap search (verified 6 August 2026).</p>
+</section>
+}
+
 @if (ActiveSection == TemplatesSection)
 {
     <Templates View="templates" />
@@ -124,6 +177,7 @@
 
 @code {
     private const string FrameworksSection = "frameworks";
+    private const string DigitalMarketplaceSection = "digital-marketplace";
     private const string CustomerUrnsSection = "customer-urns";
     private const string TemplatesSection = "templates";
     private const string AuditSection = "audit";
@@ -133,6 +187,7 @@
 
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
+    private List<EditableDigitalMarketplaceService> digitalMarketplaceServices = [];
     private readonly Dictionary<FrameworkCode, string> frameworkStartDateInputs = [];
     private string? urnMessage;
     private bool working;
@@ -142,10 +197,15 @@
     private bool savingFrameworks;
     private bool frameworkSaveSucceeded;
     private string? frameworkMessage;
+    private bool editingDigitalMarketplaceServices;
+    private bool savingDigitalMarketplaceServices;
+    private bool digitalMarketplaceSaveSucceeded;
+    private string? digitalMarketplaceMessage;
 
     private string ActiveSection => Section switch
     {
         FrameworksSection => FrameworksSection,
+        DigitalMarketplaceSection => DigitalMarketplaceSection,
         TemplatesSection => TemplatesSection,
         AuditSection => AuditSection,
         _ => CustomerUrnsSection,
@@ -159,9 +219,11 @@
     {
         var urnDirectoryTask = Workspace.GetCustomerUrnDirectoryStatusAsync();
         var frameworkConfigurationsTask = Workspace.GetFrameworkConfigurationsAsync();
-        await Task.WhenAll(urnDirectoryTask, frameworkConfigurationsTask);
+        var digitalMarketplaceServicesTask = Workspace.GetDigitalMarketplaceServicesAsync();
+        await Task.WhenAll(urnDirectoryTask, frameworkConfigurationsTask, digitalMarketplaceServicesTask);
         urnDirectoryStatus = await urnDirectoryTask;
         frameworkConfigurations = await frameworkConfigurationsTask;
+        digitalMarketplaceServices = (await digitalMarketplaceServicesTask).Select(service => new EditableDigitalMarketplaceService(service)).ToList();
         ResetFrameworkStartDateInputs();
     }
 
@@ -259,6 +321,74 @@
         {
             frameworkStartDateInputs[configuration.Framework.Code] = configuration.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
         }
+    }
+
+    private bool CanSaveDigitalMarketplaceServices =>
+        !working && digitalMarketplaceServices.All(service =>
+            !string.IsNullOrWhiteSpace(service.Name) && !string.IsNullOrWhiteSpace(service.ServiceId));
+
+    private void BeginDigitalMarketplaceServiceEdit()
+    {
+        digitalMarketplaceMessage = null;
+        editingDigitalMarketplaceServices = true;
+    }
+
+    private async Task CancelDigitalMarketplaceServiceEdit()
+    {
+        digitalMarketplaceMessage = null;
+        editingDigitalMarketplaceServices = false;
+        await ReloadDigitalMarketplaceServicesAsync();
+    }
+
+    private void AddDigitalMarketplaceService() => digitalMarketplaceServices.Add(new EditableDigitalMarketplaceService());
+
+    private void RemoveDigitalMarketplaceService(EditableDigitalMarketplaceService service) => digitalMarketplaceServices.Remove(service);
+
+    private async Task SaveDigitalMarketplaceServicesAsync()
+    {
+        if (!CanSaveDigitalMarketplaceServices)
+        {
+            return;
+        }
+
+        working = true;
+        savingDigitalMarketplaceServices = true;
+        digitalMarketplaceMessage = null;
+        try
+        {
+            var result = await Workspace.UpdateDigitalMarketplaceServicesAsync(
+                digitalMarketplaceServices.Select(service => new DigitalMarketplaceService(service.ServiceId, service.Name)));
+            digitalMarketplaceSaveSucceeded = result.Succeeded;
+            digitalMarketplaceMessage = result.Message;
+            if (result.Succeeded)
+            {
+                digitalMarketplaceServices = result.Services.Select(service => new EditableDigitalMarketplaceService(service)).ToList();
+                editingDigitalMarketplaceServices = false;
+            }
+        }
+        catch (Exception exception)
+        {
+            digitalMarketplaceSaveSucceeded = false;
+            digitalMarketplaceMessage = $"The Digital Marketplace services could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            savingDigitalMarketplaceServices = false;
+            working = false;
+        }
+    }
+
+    private async Task ReloadDigitalMarketplaceServicesAsync() =>
+        digitalMarketplaceServices = (await Workspace.GetDigitalMarketplaceServicesAsync())
+            .Select(service => new EditableDigitalMarketplaceService(service))
+            .ToList();
+
+    private sealed class EditableDigitalMarketplaceService
+    {
+        public EditableDigitalMarketplaceService() { }
+        public EditableDigitalMarketplaceService(DigitalMarketplaceService service) => (ServiceId, Name) = (service.ServiceId, service.Name);
+        public string ServiceId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
     }
 
     private async Task RefreshCustomerUrnListAsync()

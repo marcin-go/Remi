@@ -173,6 +173,13 @@ public sealed record FrameworkConfiguration(
     DateOnly StartDate);
 
 /// <summary>
+/// A supplier service that Remi offers as a Digital Marketplace service-ID suggestion.
+/// </summary>
+public sealed record DigitalMarketplaceService(
+    string ServiceId,
+    string Name);
+
+/// <summary>
 /// An append-only record of material reporting actions and corrections.
 /// </summary>
 public sealed record AuditEvent(
@@ -206,6 +213,8 @@ public sealed class RemiDatabase
     public List<MiTemplateConfiguration> MiTemplates { get; init; } = [];
 
     public List<FrameworkConfiguration> FrameworkConfigurations { get; init; } = [];
+
+    public List<DigitalMarketplaceService> DigitalMarketplaceServices { get; init; } = [];
 
     public List<AuditEvent> AuditEvents { get; init; } = [];
 }

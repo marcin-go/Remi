@@ -38,5 +38,27 @@ public sealed class MiInvoiceIntakeFormTests
     public void G_cloud_15_form_remains_unavailable_until_its_template_is_published()
     {
         Assert.False(MiInvoiceIntakeForms.For(FrameworkCode.GCloud15).IsAvailable);
+        Assert.False(Frameworks.AllowsNewContracts(FrameworkCode.GCloud15));
+        Assert.False(ContractReportFields.IsAvailable(FrameworkCode.GCloud15));
+    }
+
+    [Fact]
+    public void Contract_field_names_match_each_supplied_report_template()
+    {
+        var gCloud13 = ContractReportFields.For(FrameworkCode.GCloud13);
+        var gCloud14 = ContractReportFields.For(FrameworkCode.GCloud14);
+        var vas = ContractReportFields.For(FrameworkCode.VerticalApplicationSolutions);
+
+        Assert.Equal("Supplier Reference Number", gCloud13.SupplierReferenceNumber);
+        Assert.Equal("Customer Organisation Name", gCloud13.CustomerOrganisationName);
+        Assert.Equal("Lot Number", gCloud13.LotNumber);
+        Assert.Equal("Supplier reference number", gCloud14.SupplierReferenceNumber);
+        Assert.Equal("Customer organisation name", gCloud14.CustomerOrganisationName);
+        Assert.Equal("Lot number", gCloud14.LotNumber);
+        Assert.Equal("Service Group", gCloud14.ServiceGroup);
+        Assert.Equal("Digital Marketplace Service ID", gCloud14.DigitalMarketplaceServiceId);
+        Assert.Equal("Product/Service Description", vas.ProductServiceDescription);
+        Assert.Equal("Order Channel", vas.OrderChannel);
+        Assert.Equal(["Direct Award", "Further Competition"], ContractReportFields.VasOrderChannels);
     }
 }

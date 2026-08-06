@@ -54,7 +54,7 @@ public static class MarketplaceCatalogues
         Published("statmap-horizonext-building-control", "HorizoNext Building Control", FrameworkCode.GCloud14, "420716734760202"),
         Published("statmap-evo-tro", "eVO Traffic Regulation Orders (TRO) / Traffic Management Orders (TMO)", FrameworkCode.GCloud14, "112319169587273"),
         Published("statmap-horizonext-planning", "HorizoNext Planning and Development Management (Development Control)", FrameworkCode.GCloud14, "419925916803898"),
-        Published("statmap-horizonext-local-land-charges", "HorizoNext Local Land Charges (LLC)", FrameworkCode.GCloud14, "365927146109460"),
+        Published("statmap-horizonext-local-land-charges", "HorizoNext Local Land Charges", FrameworkCode.GCloud14, "365927146109460"),
 
     ];
 
@@ -64,21 +64,21 @@ public static class MarketplaceCatalogues
             StatMapSupplierName,
             FrameworkCode.GCloud13,
             MarketplaceCataloguePublicationStatus.NotApplicable,
-            new DateOnly(2026, 8, 4),
+            new DateOnly(2026, 8, 6),
             string.Empty,
             "G-Cloud 13 is reporting-only. Existing registered contracts supply the Marketplace ID for their invoices; no new-contract suggestions are needed."),
         new(
             StatMapSupplierName,
             FrameworkCode.GCloud14,
             MarketplaceCataloguePublicationStatus.Published,
-            new DateOnly(2026, 8, 4),
+            new DateOnly(2026, 8, 6),
             "https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap",
             "Twelve StatMap Cloud Software services are publicly listed."),
         new(
             StatMapSupplierName,
             FrameworkCode.GCloud15,
             MarketplaceCataloguePublicationStatus.PendingPublication,
-            new DateOnly(2026, 8, 4),
+            new DateOnly(2026, 8, 6),
             "https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap",
             "StatMap's G-Cloud 15 enrolment is known, but no public product or Marketplace ID has been confirmed. Enter the ID from the signed contract only; never reuse an earlier framework's ID."),
     ];
@@ -95,7 +95,7 @@ public static class MarketplaceCatalogues
             StatMapSupplierName,
             framework,
             MarketplaceCataloguePublicationStatus.NotApplicable,
-            new DateOnly(2026, 8, 4),
+            new DateOnly(2026, 8, 6),
             string.Empty,
             "Digital Marketplace product suggestions apply to G-Cloud only.");
 
@@ -111,6 +111,6 @@ public static class MarketplaceCatalogues
             framework,
             marketplaceServiceId,
             "https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap",
-            new DateOnly(2026, 8, 4));
+            new DateOnly(2026, 8, 6));
 
 }

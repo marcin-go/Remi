@@ -368,6 +368,11 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .register-drawer-close:hover, .register-drawer-close:focus-visible { color: #183c50; background: #e6f2f3; outline: none; }
 
 /* Contract and invoice records share the same full-page detail hierarchy. */
+.contract-hero-context { margin: 0.28rem 0 0; color: #607482; font-size: 0.82rem; line-height: 1.35; }
+.contract-hero-context span { margin-inline: 0.2rem; color: #9aaeb7; }
+.contract-hero .contract-title-line { gap: 0.5rem; }
+.contract-hero .contract-status { padding: 0.24rem 0.45rem; font-size: 0.71rem; }
+.contract-hero .contract-hero-actions { align-items: center; padding-top: 0; }
 .contract-status.warning { color: #9b6210; background: #fff4dc; }
 .contract-summary-grid, .contract-tab-shell { box-shadow: none; }
 .invoice-record .contract-summary-item:nth-child(2) > strong { font-size: 1.15rem; }
@@ -493,7 +498,11 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
 .contract-edit-panel { max-width: 64rem; margin-bottom: 0; padding: 0; background: #fff; border: 1px solid #dce5e9; border-radius: 0.75rem; }
 .contract-edit-panel .panel-heading { padding: 1.1rem 1.25rem; border-bottom: 1px solid #dce5e9; }
 .contract-edit-panel .record-edit-fields { max-width: none; margin: 0; padding: 1.25rem; }
+.contract-edit-field-group + .contract-edit-field-group { border-top: 1px solid #dce5e9; }
+.contract-edit-field-group > h3 { margin: 0; padding: 1.1rem 1.25rem 0; color: #143c5d; font-size: 0.9rem; }
+.contract-edit-field-group > .record-edit-fields { padding-top: 0.85rem; }
 .contract-edit-panel .notice { margin: 0 1.25rem 1.25rem; }
+.invoice-contract-section > .invoice-details-grid { margin-top: 0.875rem; }
 
 @media (max-width: 760px) {
     .record-display-grid { grid-template-columns: 1fr; }

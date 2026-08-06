@@ -4,6 +4,7 @@ using Remi.Application;
 using Remi.Domain;
 using Remi.Web;
 using ContractRecordView = Remi.Web.Components.ContractRecordView;
+using ContractRegistrationPage = Remi.Web.Components.Pages.ContractRegistration;
 using Remi.Web.Components.Layout;
 using ContractsRegister = Remi.Web.Components.Pages.Contracts;
 using DashboardPage = Remi.Web.Components.Pages.Dashboard;
@@ -19,6 +20,7 @@ namespace Remi.Tests;
 public sealed class RegisterComponentTests
 {
     private static readonly Guid SampleContractId = Guid.Parse("405b5dd4-0b92-4576-99a9-d2cc7851a2b5");
+    private static readonly Guid SampleVasContractId = Guid.Parse("9f2dc10e-9554-47d0-8870-8dbb6bb94e4a");
     private static readonly Guid SampleInvoiceId = Guid.Parse("d461989e-a1e8-4450-a371-31f7f1028df1");
 
     [Fact]
@@ -151,7 +153,8 @@ public sealed class RegisterComponentTests
         {
             var lot = registration.Find("select[aria-label='Lot number']");
             Assert.Equal(["", "1", "2", "3"], lot.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
-            Assert.True(registration.Find("select[aria-label='Service group']").HasAttribute("disabled"));
+            Assert.False(registration.Find("select[aria-label='Service group']").HasAttribute("disabled"));
+            Assert.Equal("Information and Communication Technology (ICT)", registration.Find("select[aria-label='Service group']").GetAttribute("value"));
             Assert.Equal(["", "Per Unit", "Per User"], registration.Find("select[aria-label='Unit of measure']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
         });
 
@@ -164,6 +167,80 @@ public sealed class RegisterComponentTests
             Assert.Equal(
                 ["", "Ongoing Support", "Planning", "Security Services", "Setup and Migration", "Testing", "Training"],
                 serviceGroup.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+        });
+    }
+
+    [Fact]
+    public void G_cloud_contract_registration_uses_exact_template_fields_and_keeps_the_lot_cascade_together()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+
+        var framework = registration.Find("select[aria-label='Framework']");
+        Assert.Equal(["", "GCloud14", "VerticalApplicationSolutions"], framework.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+        framework.Change(FrameworkCode.GCloud14.ToString());
+
+        registration.WaitForAssertion(() =>
+        {
+            var labels = registration.FindAll(".floating-label").Select(label => label.TextContent.Trim()).ToList();
+            Assert.Contains("Supplier reference number", labels);
+            Assert.Contains("Customer Unique Reference Number (URN)", labels);
+            Assert.Contains("Customer organisation name", labels);
+            Assert.Contains("Contract start date", labels);
+            Assert.Contains("Contract end date", labels);
+            Assert.Contains("Lot number", labels);
+            Assert.Contains("Service Group", labels);
+            Assert.Contains("Digital Marketplace Service ID", labels);
+            Assert.Contains("Total contract value", labels);
+            Assert.DoesNotContain("Product/Service Description", labels);
+            Assert.DoesNotContain("Order Channel", labels);
+
+            var serviceSection = registration.FindAll(".invoice-details-section").Single(section => section.QuerySelector("h2")?.TextContent.Trim() == "Service classification");
+            Assert.Equal(
+                ["Lot number", "Service Group", "Digital Marketplace Service ID"],
+                serviceSection.QuerySelectorAll(".floating-label").Select(label => label.TextContent.Trim()).ToList());
+            Assert.True(serviceSection.QuerySelector("select[aria-label='Service Group']")!.HasAttribute("disabled"));
+            Assert.Equal("digital-marketplace-service-suggestions", serviceSection.QuerySelector("input[list]")!.GetAttribute("list"));
+            Assert.Equal(
+                ["115981361947474"],
+                registration.FindAll("#digital-marketplace-service-suggestions option").Select(option => option.GetAttribute("value")).ToList());
+        });
+
+        registration.Find("select[aria-label='Lot number']").Change("2");
+
+        registration.WaitForAssertion(() =>
+        {
+            var serviceGroup = registration.Find("select[aria-label='Service Group']");
+            Assert.False(serviceGroup.HasAttribute("disabled"));
+            Assert.Contains("Information and Communication Technology (ICT)", serviceGroup.QuerySelectorAll("option").Select(option => option.TextContent.Trim()));
+        });
+    }
+
+    [Fact]
+    public void Vas_contract_registration_uses_only_the_vas_template_fields_and_order_channel_lookup()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+
+        registration.Find("select[aria-label='Framework']").Change(FrameworkCode.VerticalApplicationSolutions.ToString());
+
+        registration.WaitForAssertion(() =>
+        {
+            var labels = registration.FindAll(".floating-label").Select(label => label.TextContent.Trim()).ToList();
+            Assert.Contains("Supplier Reference Number", labels);
+            Assert.Contains("Customer Organisation Name", labels);
+            Assert.Contains("Customer Unique Reference Number (URN)", labels);
+            Assert.Contains("Lot Number", labels);
+            Assert.Contains("Product/Service Description", labels);
+            Assert.Contains("Order Channel", labels);
+            Assert.Contains("Contract Start Date", labels);
+            Assert.Contains("Contract End Date", labels);
+            Assert.Contains("Total Contract Value", labels);
+            Assert.DoesNotContain("Service Group", labels);
+            Assert.DoesNotContain("Digital Marketplace Service ID", labels);
+            Assert.Equal(
+                ["", "Direct Award", "Further Competition"],
+                registration.Find("select[aria-label='Order Channel']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
         });
     }
 
@@ -253,9 +330,23 @@ public sealed class RegisterComponentTests
 
         cut.WaitForAssertion(() =>
         {
+            var heading = cut.Find("header.contract-hero");
+            Assert.Contains("dashboard-header", heading.ClassList);
+            Assert.Contains("register-page-header-compact", heading.ClassList);
+            Assert.Equal("RM-001", heading.QuerySelector("h1")!.TextContent.Trim());
+            Assert.Equal(
+                "Example customer · G-Cloud 14",
+                heading.QuerySelector(".contract-hero-context")!.TextContent.Trim());
             Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim());
             Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
+            var serviceSection = cut.FindAll(".contract-detail-section").Single(section => section.QuerySelector("h3")?.TextContent.Contains("Service classification") == true);
+            Assert.Equal(
+                ["Lot number", "Service Group", "Digital Marketplace Service ID"],
+                serviceSection.QuerySelectorAll("dt").Select(term => term.TextContent.Trim()).ToList());
+            Assert.DoesNotContain("Service group / level 2", cut.Markup);
+            Assert.DoesNotContain("Service description", cut.Markup);
+            Assert.DoesNotContain("Order channel", cut.Markup);
         });
         cut.Find(".contract-hero-actions button.secondary").Click();
 
@@ -266,7 +357,26 @@ public sealed class RegisterComponentTests
             Assert.Empty(actions.QuerySelectorAll("a"));
             Assert.False(actions.QuerySelector("button.primary")!.HasAttribute("disabled"));
             Assert.Empty(cut.FindAll(".record-display-grid"));
-            Assert.Equal(14, cut.FindAll(".contract-edit-panel .floating-field").Count);
+            Assert.Equal(11, cut.FindAll(".contract-edit-panel .floating-field").Count);
+            Assert.Equal("digital-marketplace-service-suggestions", cut.Find(".contract-edit-panel input[list]").GetAttribute("list"));
+            Assert.Equal("115981361947474", cut.Find("#digital-marketplace-service-suggestions option").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void Vas_contract_view_shows_only_vas_template_fields()
+    {
+        using var context = CreateContext(FrameworkCode.VerticalApplicationSolutions);
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleVasContractId));
+
+        cut.WaitForAssertion(() =>
+        {
+            var serviceSection = cut.FindAll(".contract-detail-section").Single(section => section.QuerySelector("h3")?.TextContent.Contains("Service classification") == true);
+            Assert.Equal(
+                ["Lot Number", "Product/Service Description", "Order Channel"],
+                serviceSection.QuerySelectorAll("dt").Select(term => term.TextContent.Trim()).ToList());
+            Assert.DoesNotContain("Service Group", serviceSection.TextContent);
+            Assert.DoesNotContain("Digital Marketplace Service ID", serviceSection.TextContent);
         });
     }
 
@@ -358,6 +468,7 @@ public sealed class RegisterComponentTests
     {
         var database = new RemiDatabase
         {
+            DigitalMarketplaceServices = [new DigitalMarketplaceService("115981361947474", "StatMap Cluster")],
             Contracts =
             [
                 new ContractRecord(
@@ -368,8 +479,8 @@ public sealed class RegisterComponentTests
                     "URN-001",
                     new DateOnly(2026, 1, 1),
                     new DateOnly(2026, 12, 31),
-                    "Lot 1",
-                    "Cloud support",
+                    "2",
+                    "Information and Communication Technology (ICT)",
                     null,
                     null,
                     null,
@@ -389,11 +500,11 @@ public sealed class RegisterComponentTests
                     "URN-001",
                     new DateOnly(2026, 7, 1),
                     "INV-001",
-                    "Lot 1",
-                    "Geographic information system",
+                    "3",
+                    "Geographic Information System (GIS)",
                     "Software",
                     "StatMap GIS system",
-                    "Direct award",
+                    null,
                     null,
                     "Per unit",
                     1,
@@ -409,7 +520,7 @@ public sealed class RegisterComponentTests
         if (additionalFramework == FrameworkCode.VerticalApplicationSolutions)
         {
             database.Contracts.Add(new ContractRecord(
-                Guid.Parse("9f2dc10e-9554-47d0-8870-8dbb6bb94e4a"),
+                SampleVasContractId,
                 FrameworkCode.VerticalApplicationSolutions,
                 "VAS-001",
                 "VAS example customer",

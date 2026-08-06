@@ -51,8 +51,8 @@ public static class Frameworks
             "Catalogue pending publication",
             "G-Cloud 15",
             "GCA (formerly CCS)",
-            "StatMap's enrolment is known, but its public Digital Marketplace service catalogue and IDs have not yet been published.",
-            true,
+            "StatMap's enrolment is known, but its approved MI template and public Digital Marketplace service catalogue have not yet been published.",
+            false,
             null),
     ];
 

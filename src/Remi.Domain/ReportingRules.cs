@@ -27,7 +27,19 @@ public static class ReportingRules
 
             if (string.IsNullOrWhiteSpace(contract.CustomerName))
             {
-                findings.Add(Error("MissingCustomerName", $"{contract.SupplierReference}: a customer name is required.", "Contract", contract.Id));
+                findings.Add(Error("MissingCustomerName", $"{contract.SupplierReference}: a customer organisation name is required.", "Contract", contract.Id));
+            }
+
+            Require(contract, contract.CustomerUrn, "MissingContractCustomerUrn", "customer unique reference number (URN)", findings);
+
+            if (contract.StartDate is null)
+            {
+                findings.Add(Error("MissingContractStartDate", $"{contract.SupplierReference}: a contract start date is required.", "Contract", contract.Id));
+            }
+
+            if (contract.EndDate is null)
+            {
+                findings.Add(Error("MissingContractEndDate", $"{contract.SupplierReference}: a contract end date is required.", "Contract", contract.Id));
             }
 
             if (contract.StartDate is not null && contract.EndDate is not null && contract.EndDate < contract.StartDate)
@@ -46,6 +58,38 @@ public static class ReportingRules
                     $"{contract.SupplierReference}: the total contract value must be greater than zero.",
                     "Contract",
                     contract.Id));
+            }
+
+            if (!ContractReportFields.IsAvailable(contract.Framework))
+            {
+                findings.Add(Error("ContractTemplateUnavailable", $"{contract.SupplierReference}: no approved contract report template is available for {Frameworks.Get(contract.Framework).DisplayName}.", "Contract", contract.Id));
+                continue;
+            }
+
+            var intakeForm = MiInvoiceIntakeForms.For(contract.Framework);
+            Require(contract, contract.LotNumber, "MissingContractLotNumber", "lot number", findings);
+            if (!string.IsNullOrWhiteSpace(contract.LotNumber) && !intakeForm.Lots.Contains(contract.LotNumber, StringComparer.Ordinal))
+            {
+                findings.Add(Error("InvalidContractLotNumber", $"{contract.SupplierReference}: lot number {contract.LotNumber} is not valid for {Frameworks.Get(contract.Framework).DisplayName}.", "Contract", contract.Id));
+            }
+
+            if (contract.Framework == FrameworkCode.VerticalApplicationSolutions)
+            {
+                Require(contract, contract.ServiceDescription, "MissingContractServiceDescription", "product/service description", findings);
+                Require(contract, contract.OrderChannel, "MissingContractOrderChannel", "order channel", findings);
+                if (!string.IsNullOrWhiteSpace(contract.OrderChannel) && !ContractReportFields.VasOrderChannels.Contains(contract.OrderChannel, StringComparer.Ordinal))
+                {
+                    findings.Add(Error("InvalidContractOrderChannel", $"{contract.SupplierReference}: order channel {contract.OrderChannel} is not valid for Vertical Application Solutions.", "Contract", contract.Id));
+                }
+            }
+            else
+            {
+                Require(contract, contract.ServiceGroup, "MissingContractServiceGroup", "service group", findings);
+                Require(contract, contract.DigitalMarketplaceServiceId, "MissingContractDigitalMarketplaceServiceId", "Digital Marketplace Service ID", findings);
+                if (!string.IsNullOrWhiteSpace(contract.LotNumber) && !string.IsNullOrWhiteSpace(contract.ServiceGroup) && !intakeForm.ServiceGroupsFor(contract.LotNumber).Contains(contract.ServiceGroup, StringComparer.Ordinal))
+                {
+                    findings.Add(Error("InvalidContractServiceGroup", $"{contract.SupplierReference}: service group {contract.ServiceGroup} is not valid for lot {contract.LotNumber}.", "Contract", contract.Id));
+                }
             }
         }
 
@@ -144,6 +188,19 @@ public static class ReportingRules
         if (invoice.PricePerUnitExVat is null)
         {
             findings.Add(Error("MissingInvoicePricePerUnit", $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: a price per unit, ex VAT is required.", "Invoice", invoice.Id));
+        }
+    }
+
+    private static void Require(
+        ContractRecord contract,
+        string? value,
+        string code,
+        string field,
+        ICollection<ValidationFinding> findings)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            findings.Add(Error(code, $"{contract.SupplierReference}: {field} is required.", "Contract", contract.Id));
         }
     }
 

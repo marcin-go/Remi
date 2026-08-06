@@ -45,6 +45,11 @@ public sealed record FrameworkConfigurationUpdateResult(
     string Message,
     FrameworkConfigurationSummary? Configuration);
 
+public sealed record DigitalMarketplaceServiceUpdateResult(
+    bool Succeeded,
+    string Message,
+    IReadOnlyList<DigitalMarketplaceService> Services);
+
 /// <summary>
 /// A register view of every framework's reporting cycle, including cycles that are ready to start.
 /// </summary>

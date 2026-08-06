@@ -75,6 +75,39 @@ public sealed class ReportingWorkflowTests
     }
 
     [Fact]
+    public void Contract_validation_uses_the_selected_framework_template_fields()
+    {
+        var gCloudId = Guid.NewGuid();
+        var vasId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts =
+            [
+                Contract(gCloudId, FrameworkCode.GCloud14, "GC-001", "2026-07") with
+                {
+                    CustomerUrn = null,
+                    LotNumber = "1",
+                    ServiceGroup = "Information and Communication Technology (ICT)",
+                    DigitalMarketplaceServiceId = null,
+                },
+                Contract(vasId, FrameworkCode.VerticalApplicationSolutions, "VAS-001", "2026-07") with
+                {
+                    ServiceDescription = null,
+                    OrderChannel = "Email",
+                },
+            ],
+        };
+
+        var findings = ReportingRules.Validate(database);
+
+        Assert.Contains(findings, finding => finding.EntityId == gCloudId && finding.Code == "MissingContractCustomerUrn");
+        Assert.Contains(findings, finding => finding.EntityId == gCloudId && finding.Code == "MissingContractDigitalMarketplaceServiceId");
+        Assert.Contains(findings, finding => finding.EntityId == gCloudId && finding.Code == "InvalidContractServiceGroup");
+        Assert.Contains(findings, finding => finding.EntityId == vasId && finding.Code == "MissingContractServiceDescription");
+        Assert.Contains(findings, finding => finding.EntityId == vasId && finding.Code == "InvalidContractOrderChannel");
+    }
+
+    [Fact]
     public async Task Dashboard_readiness_uses_the_selected_period_and_groups_review_findings()
     {
         var contractId = Guid.NewGuid();
@@ -188,6 +221,31 @@ public sealed class ReportingWorkflowTests
         Assert.Equal(new DateOnly(2026, 7, 15), Assert.Single(configurations, item => item.Framework.Code == FrameworkCode.GCloud15).StartDate);
         Assert.Contains(register.Entries, item => item.Framework.Code == FrameworkCode.GCloud15 && item.ReportingMonth == "2026-07");
         Assert.Contains(database.AuditEvents, item => item.Action == "FrameworkStartDateUpdated");
+    }
+
+    [Fact]
+    public async Task Digital_marketplace_service_suggestions_can_be_configured_locally()
+    {
+        var database = new RemiDatabase
+        {
+            DigitalMarketplaceServices =
+            [
+                new DigitalMarketplaceService("115981361947474", "StatMap Cluster"),
+            ],
+        };
+        var workspace = Workspace(database);
+
+        var saved = await workspace.UpdateDigitalMarketplaceServicesAsync(
+        [
+            new DigitalMarketplaceService("779097416520979", "StatMap Earthlight GIS"),
+            new DigitalMarketplaceService("115981361947474", "StatMap Cluster"),
+        ]);
+
+        var services = await workspace.GetDigitalMarketplaceServicesAsync();
+
+        Assert.True(saved.Succeeded);
+        Assert.Equal(["StatMap Cluster", "StatMap Earthlight GIS"], services.Select(item => item.Name));
+        Assert.Contains(database.AuditEvents, item => item.Action == "DigitalMarketplaceServicesUpdated");
     }
 
     [Fact]
@@ -385,10 +443,10 @@ public sealed class ReportingWorkflowTests
         new(new InMemoryStore(database), null!, null!, null!, null!, timeProvider ?? TimeProvider.System);
 
     private static ContractRecord Contract(Guid id, FrameworkCode framework, string reference, string reportMonth) =>
-        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), "Lot 1", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic information system" : "Cloud support", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
+        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), framework == FrameworkCode.VerticalApplicationSolutions ? "3" : "2", framework == FrameworkCode.VerticalApplicationSolutions ? null : "Information and Communication Technology (ICT)", null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct Award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
 
     private static InvoiceRecord Invoice(Guid id, FrameworkCode framework, string reference, string number, decimal value, string reportMonth) =>
-        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 7, 1), number, "Lot 1", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic information system" : "Cloud support", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", "each", 1, value, value, InvoiceReportingDefaults.OriginalVendor, InvoiceReportingDefaults.SubcontractorName, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
+        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 7, 1), number, framework == FrameworkCode.VerticalApplicationSolutions ? "3" : "2", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic Information System (GIS)" : "Information and Communication Technology (ICT)", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", "Per Unit", 1, value, value, InvoiceReportingDefaults.OriginalVendor, InvoiceReportingDefaults.SubcontractorName, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
 
     private sealed class InMemoryStore(RemiDatabase database) : IRemiStore
     {

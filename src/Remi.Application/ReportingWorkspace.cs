@@ -85,6 +85,52 @@ public sealed class ReportingWorkspace(
         }, cancellationToken);
     }
 
+    public Task<IReadOnlyList<DigitalMarketplaceService>> GetDigitalMarketplaceServicesAsync(
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database => (IReadOnlyList<DigitalMarketplaceService>)database.DigitalMarketplaceServices
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.ServiceId, StringComparer.Ordinal)
+            .ToList(), cancellationToken);
+
+    public Task<DigitalMarketplaceServiceUpdateResult> UpdateDigitalMarketplaceServicesAsync(
+        IEnumerable<DigitalMarketplaceService> services,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        var updated = services
+            .Select(item => new DigitalMarketplaceService(item.ServiceId.Trim(), item.Name.Trim()))
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.ServiceId, StringComparer.Ordinal)
+            .ToList();
+
+        if (updated.Any(item => string.IsNullOrWhiteSpace(item.ServiceId) || string.IsNullOrWhiteSpace(item.Name)))
+        {
+            return Task.FromResult(new DigitalMarketplaceServiceUpdateResult(false, "Every Digital Marketplace service needs both a Service ID and product name.", updated));
+        }
+
+        if (updated.GroupBy(item => item.ServiceId, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() != 1))
+        {
+            return Task.FromResult(new DigitalMarketplaceServiceUpdateResult(false, "Each Digital Marketplace Service ID can be listed only once.", updated));
+        }
+
+        return store.UpdateAsync(database =>
+        {
+            database.DigitalMarketplaceServices.Clear();
+            database.DigitalMarketplaceServices.AddRange(updated);
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "DigitalMarketplaceServicesUpdated",
+                "DigitalMarketplaceServiceConfiguration",
+                null,
+                $"Updated the Digital Marketplace suggestion list with {updated.Count} service(s).",
+                null,
+                actor);
+            return new DigitalMarketplaceServiceUpdateResult(true, $"Saved {updated.Count} Digital Marketplace service suggestion(s).", updated);
+        }, cancellationToken);
+    }
+
     public Task<MonthlyReturnRegisterModel> GetMonthlyReturnRegisterAsync(CancellationToken cancellationToken = default) =>
         store.ReadAsync(database => BuildMonthlyReturnRegister(database, Today()), cancellationToken);
 

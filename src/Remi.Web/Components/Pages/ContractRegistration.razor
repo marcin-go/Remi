@@ -22,17 +22,31 @@
 
     <section class="invoice-intake-surface">
         <section class="invoice-contract-section">
-            <h2>Framework</h2>
-            <label class="floating-field floating-field--static">
-                <select aria-label="Framework" value="@selectedFramework?.ToString()" @onchange="SelectFramework">
-                    <option value="">Select a framework</option>
-                    @foreach (var definition in availableFrameworks)
-                    {
-                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
-                    }
-                </select>
-                <span class="floating-label">Framework</span>
-            </label>
+            <h2>Reporting context</h2>
+            <div class="invoice-details-grid">
+                <label class="floating-field floating-field--static">
+                    <select aria-label="Framework" value="@selectedFramework?.ToString()" @onchange="SelectFramework">
+                        <option value="">Select a framework</option>
+                        @foreach (var definition in availableFrameworks)
+                        {
+                            <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
+                        }
+                    </select>
+                    <span class="floating-label">Framework</span>
+                </label>
+                @if (selectedFramework is not null)
+                {
+                    <label class="floating-field floating-field--static">
+                        <select required @bind="reportingMonth">
+                            @foreach (var month in ReportingMonthOptions)
+                            {
+                                <option value="@month">@DisplayReportingMonth(month)</option>
+                            }
+                        </select>
+                        <span class="floating-label">Reporting month</span>
+                    </label>
+                }
+            </div>
         </section>
 
         @if (selectedFramework is FrameworkCode framework)
@@ -45,11 +59,11 @@
             </section>
 
             <section class="invoice-details-section">
-                <header><h2>Contract details</h2></header>
+                <header><h2>Customer and reference</h2></header>
                 <div class="invoice-details-grid">
-                    <label class="floating-field"><input required @bind="supplierReference" @bind:event="oninput" placeholder=" " /><span class="floating-label">Supplier reference</span></label>
+                    <label class="floating-field"><input required @bind="supplierReference" @bind:event="oninput" placeholder=" " /><span class="floating-label">@FieldNames.SupplierReferenceNumber</span></label>
                     <div class="urn-customer-field">
-                        <label class="floating-field"><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" placeholder=" " /><span class="floating-label">Customer organisation</span></label>
+                        <label class="floating-field"><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" placeholder=" " /><span class="floating-label">@FieldNames.CustomerOrganisationName</span></label>
                         @if (urnSuggestions.Count != 0)
                         {
                             <div id="customer-urn-suggestions" class="urn-suggestions" role="listbox" aria-label="Customer URN suggestions">
@@ -60,34 +74,69 @@
                             </div>
                         }
                     </div>
-                    <label class="floating-field floating-field--static">
-                        <select required @bind="reportingMonth">
-                            @foreach (var month in ReportingMonthOptions)
-                            {
-                                <option value="@month">@DisplayReportingMonth(month)</option>
-                            }
-                        </select>
-                        <span class="floating-label">Reporting month</span>
-                    </label>
-                    <label class="floating-field floating-field--static"><input required type="date" @bind="startDate" /><span class="floating-label">Contract start date</span></label>
-                    <label class="floating-field floating-field--static"><input required type="date" @bind="endDate" /><span class="floating-label">Contract end date</span></label>
-                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" min="0.01" step="0.01" @bind="contractValue" /><span class="floating-label">Contract value, ex VAT</span></label>
+                    <label class="floating-field"><input required @bind="customerUrn" @bind:event="oninput" placeholder=" " /><span class="floating-label">@FieldNames.CustomerUniqueReferenceNumber</span></label>
                 </div>
             </section>
 
             <section class="invoice-details-section contract-framework-details">
-                <header><h2>@(IsGCloud ? "G-Cloud details" : "VAS details")</h2></header>
+                <header><h2>Service classification</h2></header>
                 <div class="invoice-details-grid">
+                    <label class="floating-field floating-field--static">
+                        <select required aria-label="@FieldNames.LotNumber" @bind="lotNumber" @bind:after="OnLotChanged">
+                            <option value="">Select a lot</option>
+                            @foreach (var lot in IntakeForm.Lots)
+                            {
+                                <option value="@lot">@lot</option>
+                            }
+                        </select>
+                        <span class="floating-label">@FieldNames.LotNumber</span>
+                    </label>
                     @if (IsGCloud)
                     {
-                        <label class="floating-field"><input required placeholder=" " @bind="serviceGroup" @bind:event="oninput" /><span class="floating-label">Service group</span></label>
-                        <label class="floating-field"><input required placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                        <label class="floating-field floating-field--static">
+                            <select required aria-label="@FieldNames.ServiceGroup" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
+                                <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>
+                                @foreach (var group in ServiceGroupOptions)
+                                {
+                                    <option value="@group">@group</option>
+                                }
+                            </select>
+                            <span class="floating-label">@FieldNames.ServiceGroup</span>
+                        </label>
+                        <label class="floating-field"><input required list="@(HasMarketplaceServiceSuggestions ? "digital-marketplace-service-suggestions" : null)" placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">@FieldNames.DigitalMarketplaceServiceId</span></label>
                     }
                     else
                     {
-                        <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">Product or service description</span></label>
-                        <label class="floating-field"><input required placeholder=" " @bind="orderChannel" @bind:event="oninput" /><span class="floating-label">Order channel</span></label>
+                        <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">@FieldNames.ProductServiceDescription</span></label>
+                        <label class="floating-field floating-field--static">
+                            <select required aria-label="@FieldNames.OrderChannel" @bind="orderChannel">
+                                <option value="">Select an order channel</option>
+                                @foreach (var channel in ContractReportFields.VasOrderChannels)
+                                {
+                                    <option value="@channel">@channel</option>
+                                }
+                            </select>
+                            <span class="floating-label">@FieldNames.OrderChannel</span>
+                        </label>
                     }
+                </div>
+                @if (HasMarketplaceServiceSuggestions)
+                {
+                    <datalist id="digital-marketplace-service-suggestions">
+                        @foreach (var service in marketplaceServices)
+                        {
+                            <option value="@service.ServiceId">@service.Name</option>
+                        }
+                    </datalist>
+                }
+            </section>
+
+            <section class="invoice-details-section">
+                <header><h2>Contract dates and value</h2></header>
+                <div class="invoice-details-grid">
+                    <label class="floating-field floating-field--static"><input required type="date" @bind="startDate" /><span class="floating-label">@FieldNames.ContractStartDate</span></label>
+                    <label class="floating-field floating-field--static"><input required type="date" @bind="endDate" /><span class="floating-label">@FieldNames.ContractEndDate</span></label>
+                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" min="0.01" step="0.01" @bind="contractValue" /><span class="floating-label">@FieldNames.TotalContractValue</span></label>
                 </div>
             </section>
 
@@ -110,6 +159,7 @@
     private DateOnly? startDate;
     private DateOnly? endDate;
     private decimal contractValue;
+    private string lotNumber = string.Empty;
     private string serviceGroup = string.Empty;
     private string digitalMarketplaceServiceId = string.Empty;
     private string serviceDescription = string.Empty;
@@ -117,15 +167,33 @@
     private ReturnActionResult? submission;
     private bool working;
     private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
+    private IReadOnlyList<DigitalMarketplaceService> marketplaceServices = [];
     private ClipboardImageEvidence? clipboardEvidence;
     private int clipboardImageCount;
 
     private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
+    private bool HasMarketplaceServiceSuggestions => selectedFramework == FrameworkCode.GCloud14 && marketplaceServices.Count != 0;
+    private ContractReportFieldNames FieldNames => ContractReportFields.For(selectedFramework!.Value);
+    private MiInvoiceIntakeForm IntakeForm => MiInvoiceIntakeForms.For(selectedFramework!.Value);
+    private IReadOnlyList<string> ServiceGroupOptions => IntakeForm.ServiceGroupsFor(lotNumber);
     private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
-        Frameworks.All.Where(item => item.AllowsNewContracts).ToList();
+        Frameworks.All.Where(item => item.AllowsNewContracts && ContractReportFields.IsAvailable(item.Code)).ToList();
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private bool CanCreate => selectedFramework is FrameworkCode framework && Frameworks.AllowsNewContracts(framework) && IsValidReportingMonth && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && startDate is not null && endDate is not null && contractValue > 0 && (IsGCloud ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) : !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(orderChannel));
-    private bool HasUnsavedContractChanges => !string.IsNullOrWhiteSpace(supplierReference) || !string.IsNullOrWhiteSpace(customerName) || startDate is not null || endDate is not null || contractValue != 0 || !string.IsNullOrWhiteSpace(serviceGroup) || !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) || !string.IsNullOrWhiteSpace(serviceDescription) || !string.IsNullOrWhiteSpace(orderChannel) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private bool CanCreate => selectedFramework is FrameworkCode framework
+        && Frameworks.AllowsNewContracts(framework)
+        && ContractReportFields.IsAvailable(framework)
+        && IsValidReportingMonth
+        && !string.IsNullOrWhiteSpace(supplierReference)
+        && !string.IsNullOrWhiteSpace(customerName)
+        && !string.IsNullOrWhiteSpace(customerUrn)
+        && IntakeForm.Lots.Contains(lotNumber, StringComparer.Ordinal)
+        && startDate is not null
+        && endDate is not null
+        && contractValue > 0
+        && (IsGCloud
+            ? ServiceGroupOptions.Contains(serviceGroup, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId)
+            : !string.IsNullOrWhiteSpace(serviceDescription) && ContractReportFields.VasOrderChannels.Contains(orderChannel, StringComparer.Ordinal));
+    private bool HasUnsavedContractChanges => !string.IsNullOrWhiteSpace(supplierReference) || !string.IsNullOrWhiteSpace(customerName) || !string.IsNullOrWhiteSpace(customerUrn) || startDate is not null || endDate is not null || contractValue != 0 || !string.IsNullOrWhiteSpace(lotNumber) || !string.IsNullOrWhiteSpace(serviceGroup) || !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) || !string.IsNullOrWhiteSpace(serviceDescription) || !string.IsNullOrWhiteSpace(orderChannel) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
     private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as contract evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private IReadOnlyList<string> ReportingMonthOptions
     {
@@ -139,7 +207,11 @@
         }
     }
 
-    protected override void OnInitialized() => reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
+    protected override async Task OnInitializedAsync()
+    {
+        reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
+        marketplaceServices = await Workspace.GetDigitalMarketplaceServicesAsync();
+    }
 
     private void SelectFramework(ChangeEventArgs args)
     {
@@ -150,7 +222,16 @@
         }
 
         selectedFramework = framework;
+        lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
         submission = null;
+    }
+
+    private void OnLotChanged()
+    {
+        if (!ServiceGroupOptions.Contains(serviceGroup, StringComparer.Ordinal))
+        {
+            serviceGroup = string.Empty;
+        }
     }
 
     private async Task SearchCustomerUrnsAsync()
@@ -177,7 +258,7 @@
         working = true;
         try
         {
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, null, IsGCloud ? serviceGroup : null, null, serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", null));
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", null));
             if (submission.Succeeded)
             {
                 if (clipboardImageCount != 0 && submission.EntityId is Guid contractId)
@@ -192,7 +273,7 @@
 
     private void ResetForm()
     {
-        supplierReference = customerName = customerUrn = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
+        supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
         urnSuggestions = [];
         startDate = endDate = null;
         contractValue = 0;

@@ -74,6 +74,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await DropRemiTablesAsync(connection, cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
+            await SeedDigitalMarketplaceServicesAsync(connection, cancellationToken);
             await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
             initialized = true;
         }
@@ -103,7 +104,12 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             Directory.CreateDirectory(directory);
 
             await using var connection = await OpenConnectionAsync(cancellationToken);
+            var digitalMarketplaceServicesExist = await TableExistsAsync(connection, "digital_marketplace_services", cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
+            if (!digitalMarketplaceServicesExist)
+            {
+                await SeedDigitalMarketplaceServicesAsync(connection, cancellationToken);
+            }
             await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
             initialized = true;
         }
@@ -281,6 +287,11 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 start_date TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS digital_marketplace_services (
+                service_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS audit_events (
                 id TEXT PRIMARY KEY,
                 occurred_at_utc TEXT NOT NULL,
@@ -303,6 +314,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             PRAGMA foreign_keys = OFF;
             DROP TABLE IF EXISTS audit_events;
             DROP TABLE IF EXISTS framework_configurations;
+            DROP TABLE IF EXISTS digital_marketplace_services;
             DROP TABLE IF EXISTS mi_templates;
             DROP TABLE IF EXISTS evidence;
             DROP TABLE IF EXISTS monthly_returns;
@@ -330,6 +342,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             Evidence = await LoadEvidenceAsync(connection, cancellationToken),
             MiTemplates = await LoadTemplatesAsync(connection, cancellationToken),
             FrameworkConfigurations = await LoadFrameworkConfigurationsAsync(connection, cancellationToken),
+            DigitalMarketplaceServices = await LoadDigitalMarketplaceServicesAsync(connection, cancellationToken),
             AuditEvents = await LoadAuditEventsAsync(connection, cancellationToken),
         };
 
@@ -554,6 +567,19 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         return configurations;
     }
 
+    private static async Task<List<DigitalMarketplaceService>> LoadDigitalMarketplaceServicesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT service_id, name FROM digital_marketplace_services ORDER BY name COLLATE NOCASE, service_id;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var services = new List<DigitalMarketplaceService>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            services.Add(new DigitalMarketplaceService(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return services;
+    }
+
     private static async Task<List<AuditEvent>> LoadAuditEventsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using var command = CreateCommand(connection, "SELECT id, occurred_at_utc, action, entity_type, entity_id, summary, reason, actor FROM audit_events ORDER BY occurred_at_utc DESC, id DESC;");
@@ -580,6 +606,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         await ExecuteAsync(connection, transaction, """
             DELETE FROM audit_events;
             DELETE FROM framework_configurations;
+            DELETE FROM digital_marketplace_services;
             DELETE FROM mi_templates;
             DELETE FROM evidence;
             DELETE FROM monthly_returns;
@@ -639,6 +666,11 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         foreach (var configuration in database.FrameworkConfigurations)
         {
             await InsertFrameworkConfigurationAsync(connection, transaction, configuration, cancellationToken);
+        }
+
+        foreach (var service in database.DigitalMarketplaceServices)
+        {
+            await InsertDigitalMarketplaceServiceAsync(connection, transaction, service, cancellationToken);
         }
 
         foreach (var auditEvent in database.AuditEvents)
@@ -798,6 +830,29 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         AddParameter(command, "$framework", (int)item.Framework);
         AddParameter(command, "$startDate", Date(item.StartDate));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertDigitalMarketplaceServiceAsync(SqliteConnection connection, SqliteTransaction transaction, DigitalMarketplaceService item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO digital_marketplace_services (service_id, name) VALUES ($serviceId, $name);");
+        AddParameter(command, "$serviceId", item.ServiceId);
+        AddParameter(command, "$name", item.Name);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task SeedDigitalMarketplaceServicesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var transaction = connection.BeginTransaction();
+        foreach (var service in MarketplaceCatalogues.ForFramework(FrameworkCode.GCloud14))
+        {
+            await InsertDigitalMarketplaceServiceAsync(
+                connection,
+                transaction,
+                new DigitalMarketplaceService(service.MarketplaceServiceId, service.ProductName),
+                cancellationToken);
+        }
+
+        transaction.Commit();
     }
 
     private static async Task InsertAuditEventAsync(SqliteConnection connection, SqliteTransaction transaction, AuditEvent item, CancellationToken cancellationToken)

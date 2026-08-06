@@ -11,10 +11,10 @@
 else
 {
     <section class="contract-record">
-        <header class="contract-hero">
+        <header class="dashboard-header register-page-header-compact contract-hero">
             <div>
                 <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status"><i aria-hidden="true"></i>Recorded</span></div>
-                <p class="lede">@details.Contract.CustomerName · @Frameworks.Get(details.Contract.Framework).DisplayName</p>
+                <p class="contract-hero-context">@details.Contract.CustomerName <span aria-hidden="true">·</span> @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
                 @if (editingContract)
@@ -62,22 +62,72 @@ else
                         <ClipboardImageEvidence @ref="contractClipboardEvidence" OnDocumentsChanged="SetContractClipboardImageCount">
                         <section class="contract-edit-panel">
                             <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Contract information</h2></div></div>
-                            <div class="invoice-details-grid record-edit-fields">
-                                <label class="floating-field floating-field--static"><select @bind="editFramework">@foreach (var framework in Frameworks.All) { <option value="@framework.Code">@framework.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
-                                <label class="floating-field"><input required placeholder=" " @bind="editReportingMonth" /><span class="floating-label">Reporting month</span></label>
-                                <label class="floating-field"><input required placeholder=" " @bind="editSupplierReference" /><span class="floating-label">Supplier reference</span></label>
-                                <label class="floating-field"><input required placeholder=" " @bind="editCustomerName" /><span class="floating-label">Customer</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editCustomerUrn" /><span class="floating-label">Customer URN</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editLotNumber" /><span class="floating-label">Lot</span></label>
-                                <label class="floating-field floating-field--static"><input type="date" @bind="editStartDate" /><span class="floating-label">Start date</span></label>
-                                <label class="floating-field floating-field--static"><input type="date" @bind="editEndDate" /><span class="floating-label">End date</span></label>
-                                <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="editContractValue" /><span class="floating-label">Total value, ex VAT</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editMarketplaceServiceId" /><span class="floating-label">Digital Marketplace service ID</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editServiceGroup" /><span class="floating-label">Service group / level 1</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editServiceGroupLevel2" /><span class="floating-label">Service group / level 2</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editServiceDescription" /><span class="floating-label">Service description</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="editOrderChannel" /><span class="floating-label">Order channel</span></label>
-                            </div>
+                            <section class="contract-edit-field-group">
+                                <h3>Reporting context</h3>
+                                <div class="invoice-details-grid record-edit-fields">
+                                    <label class="floating-field floating-field--static"><select @bind="editFramework" @bind:after="OnEditFrameworkChanged">@foreach (var framework in EditableFrameworks) { <option value="@framework.Code">@framework.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
+                                    <label class="floating-field"><input required placeholder=" " @bind="editReportingMonth" /><span class="floating-label">Reporting month</span></label>
+                                </div>
+                            </section>
+                            <section class="contract-edit-field-group">
+                                <h3>Customer and reference</h3>
+                                <div class="invoice-details-grid record-edit-fields">
+                                    <label class="floating-field"><input required placeholder=" " @bind="editSupplierReference" /><span class="floating-label">@EditFieldNames.SupplierReferenceNumber</span></label>
+                                    <label class="floating-field"><input required placeholder=" " @bind="editCustomerName" /><span class="floating-label">@EditFieldNames.CustomerOrganisationName</span></label>
+                                    <label class="floating-field"><input required placeholder=" " @bind="editCustomerUrn" /><span class="floating-label">@EditFieldNames.CustomerUniqueReferenceNumber</span></label>
+                                </div>
+                            </section>
+                            <section class="contract-edit-field-group">
+                                <h3>Service classification</h3>
+                                <div class="invoice-details-grid record-edit-fields">
+                                    <label class="floating-field floating-field--static">
+                                        <select required aria-label="@EditFieldNames.LotNumber" @bind="editLotNumber" @bind:after="OnEditLotChanged">
+                                            <option value="">Select a lot</option>
+                                            @foreach (var lot in EditIntakeForm.Lots) { <option value="@lot">@lot</option> }
+                                        </select>
+                                        <span class="floating-label">@EditFieldNames.LotNumber</span>
+                                    </label>
+                                    @if (IsEditGCloud)
+                                    {
+                                        <label class="floating-field floating-field--static">
+                                            <select required aria-label="@EditFieldNames.ServiceGroup" disabled="@(EditServiceGroupOptions.Count == 0)" @bind="editServiceGroup">
+                                                <option value="">@(EditServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>
+                                                @foreach (var group in EditServiceGroupOptions) { <option value="@group">@group</option> }
+                                            </select>
+                                            <span class="floating-label">@EditFieldNames.ServiceGroup</span>
+                                        </label>
+                                        <label class="floating-field"><input required list="@(HasMarketplaceServiceSuggestions ? "digital-marketplace-service-suggestions" : null)" placeholder=" " @bind="editMarketplaceServiceId" /><span class="floating-label">@EditFieldNames.DigitalMarketplaceServiceId</span></label>
+                                    }
+                                    else
+                                    {
+                                        <label class="floating-field"><input required placeholder=" " @bind="editServiceDescription" /><span class="floating-label">@EditFieldNames.ProductServiceDescription</span></label>
+                                        <label class="floating-field floating-field--static">
+                                            <select required aria-label="@EditFieldNames.OrderChannel" @bind="editOrderChannel">
+                                                <option value="">Select an order channel</option>
+                                                @foreach (var channel in ContractReportFields.VasOrderChannels) { <option value="@channel">@channel</option> }
+                                            </select>
+                                            <span class="floating-label">@EditFieldNames.OrderChannel</span>
+                                        </label>
+                                    }
+                                </div>
+                                @if (HasMarketplaceServiceSuggestions)
+                                {
+                                    <datalist id="digital-marketplace-service-suggestions">
+                                        @foreach (var service in marketplaceServices)
+                                        {
+                                            <option value="@service.ServiceId">@service.Name</option>
+                                        }
+                                    </datalist>
+                                }
+                            </section>
+                            <section class="contract-edit-field-group">
+                                <h3>Contract dates and value</h3>
+                                <div class="invoice-details-grid record-edit-fields">
+                                    <label class="floating-field floating-field--static"><input required type="date" @bind="editStartDate" /><span class="floating-label">@EditFieldNames.ContractStartDate</span></label>
+                                    <label class="floating-field floating-field--static"><input required type="date" @bind="editEndDate" /><span class="floating-label">@EditFieldNames.ContractEndDate</span></label>
+                                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="editContractValue" /><span class="floating-label">@EditFieldNames.TotalContractValue</span></label>
+                                </div>
+                            </section>
                             @if (contractSubmission is not null) { <p class="notice @(contractSubmission.Succeeded ? "success" : "error")" role="status">@contractSubmission.Message</p> }
                         </section>
                         </ClipboardImageEvidence>
@@ -88,25 +138,35 @@ else
                         <article class="contract-content-card">
                             <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Contract overview</h2><p>The signed-contract information used for monthly reporting.</p></div></header>
                             <section class="contract-detail-section">
-                                <h3>▧ Framework and parties</h3>
+                                <h3>▧ Customer and reference</h3>
                                 <dl class="record-display-grid">
-                                    <div><dt>Framework</dt><dd>@Frameworks.Get(details.Contract.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div>
-                                    <div><dt>Supplier reference</dt><dd>@details.Contract.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Contract.CustomerName</dd></div>
-                                    <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Contract.CustomerUrn)">@Display(details.Contract.CustomerUrn)</dd></div><div><dt>Lot</dt><dd class="@NotRecordedClass(details.Contract.LotNumber)">@Display(details.Contract.LotNumber)</dd></div>
-                                </dl>
-                            </section>
-                            <section class="contract-detail-section">
-                                <h3>▣ Dates and commercial information</h3>
-                                <dl class="record-display-grid">
-                                    <div><dt>Start date</dt><dd>@Display(details.Contract.StartDate)</dd></div><div><dt>End date</dt><dd>@Display(details.Contract.EndDate)</dd></div>
-                                    <div><dt>Total value, ex VAT</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Contract.DigitalMarketplaceServiceId)">@Display(details.Contract.DigitalMarketplaceServiceId)</dd></div>
+                                    <div><dt>@DisplayFieldNames.SupplierReferenceNumber</dt><dd>@details.Contract.SupplierReference</dd></div>
+                                    <div><dt>@DisplayFieldNames.CustomerOrganisationName</dt><dd>@details.Contract.CustomerName</dd></div>
+                                    <div><dt>@DisplayFieldNames.CustomerUniqueReferenceNumber</dt><dd class="@NotRecordedClass(details.Contract.CustomerUrn)">@Display(details.Contract.CustomerUrn)</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
                                 <h3>≡ Service classification</h3>
                                 <dl class="record-display-grid">
-                                    <div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroup)">@Display(details.Contract.ServiceGroup)</dd></div><div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroupLevel2)">@Display(details.Contract.ServiceGroupLevel2)</dd></div>
-                                    <div><dt>Service description</dt><dd class="@NotRecordedClass(details.Contract.ServiceDescription)">@Display(details.Contract.ServiceDescription)</dd></div><div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Contract.OrderChannel)">@Display(details.Contract.OrderChannel)</dd></div>
+                                    <div><dt>@DisplayFieldNames.LotNumber</dt><dd class="@NotRecordedClass(details.Contract.LotNumber)">@Display(details.Contract.LotNumber)</dd></div>
+                                    @if (details.Contract.Framework == FrameworkCode.VerticalApplicationSolutions)
+                                    {
+                                        <div><dt>@DisplayFieldNames.ProductServiceDescription</dt><dd class="@NotRecordedClass(details.Contract.ServiceDescription)">@Display(details.Contract.ServiceDescription)</dd></div>
+                                        <div><dt>@DisplayFieldNames.OrderChannel</dt><dd class="@NotRecordedClass(details.Contract.OrderChannel)">@Display(details.Contract.OrderChannel)</dd></div>
+                                    }
+                                    else
+                                    {
+                                        <div><dt>@DisplayFieldNames.ServiceGroup</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroup)">@Display(details.Contract.ServiceGroup)</dd></div>
+                                        <div><dt>@DisplayFieldNames.DigitalMarketplaceServiceId</dt><dd class="@NotRecordedClass(details.Contract.DigitalMarketplaceServiceId)">@Display(details.Contract.DigitalMarketplaceServiceId)</dd></div>
+                                    }
+                                </dl>
+                            </section>
+                            <section class="contract-detail-section">
+                                <h3>▣ Contract dates and value</h3>
+                                <dl class="record-display-grid">
+                                    <div><dt>@DisplayFieldNames.ContractStartDate</dt><dd>@Display(details.Contract.StartDate)</dd></div>
+                                    <div><dt>@DisplayFieldNames.ContractEndDate</dt><dd>@Display(details.Contract.EndDate)</dd></div>
+                                    <div><dt>@DisplayFieldNames.TotalContractValue</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
@@ -257,6 +317,7 @@ else
     [Parameter] public Guid ContractId { get; set; }
     private ContractDetailsModel? details;
     private IReadOnlyList<AuditEventSummary> history = [];
+    private IReadOnlyList<DigitalMarketplaceService> marketplaceServices = [];
     private string activeTab = "overview";
     private bool showInvoiceForm;
     private string invoiceNumber = string.Empty;
@@ -270,7 +331,7 @@ else
     private bool contractWorking;
     private ReturnActionResult? contractSubmission;
     private FrameworkCode editFramework;
-    private string editSupplierReference = string.Empty, editCustomerName = string.Empty, editCustomerUrn = string.Empty, editLotNumber = string.Empty, editServiceGroup = string.Empty, editServiceGroupLevel2 = string.Empty, editServiceDescription = string.Empty, editOrderChannel = string.Empty, editMarketplaceServiceId = string.Empty, editReportingMonth = string.Empty;
+    private string editSupplierReference = string.Empty, editCustomerName = string.Empty, editCustomerUrn = string.Empty, editLotNumber = string.Empty, editServiceGroup = string.Empty, editServiceDescription = string.Empty, editOrderChannel = string.Empty, editMarketplaceServiceId = string.Empty, editReportingMonth = string.Empty;
     private DateOnly? editStartDate, editEndDate;
     private decimal editContractValue;
     private bool editingSchedule;
@@ -296,6 +357,13 @@ else
     private decimal? invoicePricePerUnitExVatValue;
     private bool invoicePricePerUnitManuallySet;
 
+    private ContractReportFieldNames DisplayFieldNames => ContractReportFields.For(details!.Contract.Framework);
+    private ContractReportFieldNames EditFieldNames => ContractReportFields.For(editFramework);
+    private MiInvoiceIntakeForm EditIntakeForm => MiInvoiceIntakeForms.For(editFramework);
+    private IReadOnlyList<string> EditServiceGroupOptions => EditIntakeForm.ServiceGroupsFor(editLotNumber);
+    private bool IsEditGCloud => Frameworks.IsGCloud(editFramework);
+    private bool HasMarketplaceServiceSuggestions => editFramework == FrameworkCode.GCloud14 && marketplaceServices.Count != 0;
+    private IReadOnlyList<FrameworkDefinition> EditableFrameworks => Frameworks.All.Where(item => ContractReportFields.IsAvailable(item.Code)).ToList();
     private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
     private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
     private decimal AgreedChangeValue => details?.ContractChanges.Sum(change => change.IncrementalValueExVat) ?? 0;
@@ -317,7 +385,18 @@ else
     private string DateRange => details?.Contract.StartDate is not null && CurrentContractEndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(CurrentContractEndDate)}" : "Dates not recorded";
     private string OriginalDateRange => details?.Contract.StartDate is not null && details.Contract.EndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(details.Contract.EndDate)}" : "Dates not recorded";
     private bool HasCustomerUrn => !string.IsNullOrWhiteSpace(details?.Contract.CustomerUrn);
-    private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference) && !string.IsNullOrWhiteSpace(details.Contract.CustomerName) && details.Contract.StartDate is not null && details.Contract.EndDate is not null && details.Contract.TotalContractValueExVat > 0;
+    private bool HasCoreDetails => details is not null
+        && ContractReportFields.IsAvailable(details.Contract.Framework)
+        && !string.IsNullOrWhiteSpace(details.Contract.SupplierReference)
+        && !string.IsNullOrWhiteSpace(details.Contract.CustomerName)
+        && !string.IsNullOrWhiteSpace(details.Contract.CustomerUrn)
+        && !string.IsNullOrWhiteSpace(details.Contract.LotNumber)
+        && details.Contract.StartDate is not null
+        && details.Contract.EndDate is not null
+        && details.Contract.TotalContractValueExVat > 0
+        && (details.Contract.Framework == FrameworkCode.VerticalApplicationSolutions
+            ? !string.IsNullOrWhiteSpace(details.Contract.ServiceDescription) && !string.IsNullOrWhiteSpace(details.Contract.OrderChannel)
+            : !string.IsNullOrWhiteSpace(details.Contract.ServiceGroup) && !string.IsNullOrWhiteSpace(details.Contract.DigitalMarketplaceServiceId));
     private bool IsValidInvoiceReportingMonth => IsValidReportingMonth(invoiceReportingMonth);
     private bool IsVasInvoice => details?.Contract.Framework == FrameworkCode.VerticalApplicationSolutions;
     private decimal invoiceTotalExVat { get => invoiceTotalValue; set { invoiceTotalValue = value; if (!invoicePricePerUnitManuallySet) invoicePricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value); } }
@@ -343,7 +422,19 @@ else
             return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
         }
     }
-    private bool CanSaveContract => details is not null && IsValidReportingMonth(editReportingMonth) && !string.IsNullOrWhiteSpace(editSupplierReference) && !string.IsNullOrWhiteSpace(editCustomerName) && editContractValue > 0;
+    private bool CanSaveContract => details is not null
+        && ContractReportFields.IsAvailable(editFramework)
+        && IsValidReportingMonth(editReportingMonth)
+        && !string.IsNullOrWhiteSpace(editSupplierReference)
+        && !string.IsNullOrWhiteSpace(editCustomerName)
+        && !string.IsNullOrWhiteSpace(editCustomerUrn)
+        && EditIntakeForm.Lots.Contains(editLotNumber, StringComparer.Ordinal)
+        && editStartDate is not null
+        && editEndDate is not null
+        && editContractValue > 0
+        && (IsEditGCloud
+            ? EditServiceGroupOptions.Contains(editServiceGroup, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(editMarketplaceServiceId)
+            : !string.IsNullOrWhiteSpace(editServiceDescription) && ContractReportFields.VasOrderChannels.Contains(editOrderChannel, StringComparer.Ordinal));
     private string ContractClipboardEvidenceMessage => contractClipboardImageCount == 0 ? "Paste images here to add them to this contract's evidence." : $"{contractClipboardImageCount} image{(contractClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private bool CanSaveSchedule => editableSchedule.Count != 0 && editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ValueExVat > 0);
 
@@ -394,12 +485,28 @@ else
     private void ToggleScheduleEditor() { editingSchedule = !editingSchedule; scheduleSubmission = null; if (editingSchedule) PopulateScheduleEditor(); }
     private void AddSchedulePosition() => editableSchedule.Add(new EditableSchedulePosition());
 
+    private void OnEditFrameworkChanged()
+    {
+        editLotNumber = editServiceGroup = editServiceDescription = editOrderChannel = editMarketplaceServiceId = string.Empty;
+    }
+
+    protected override async Task OnInitializedAsync() =>
+        marketplaceServices = await Workspace.GetDigitalMarketplaceServicesAsync();
+
+    private void OnEditLotChanged()
+    {
+        if (!EditServiceGroupOptions.Contains(editServiceGroup, StringComparer.Ordinal))
+        {
+            editServiceGroup = string.Empty;
+        }
+    }
+
     private void PopulateEditors() { PopulateContractEditor(); PopulateScheduleEditor(); }
     private void PopulateContractEditor()
     {
         if (details is null) return;
         var contract = details.Contract;
-        editFramework = contract.Framework; editSupplierReference = contract.SupplierReference; editCustomerName = contract.CustomerName; editCustomerUrn = contract.CustomerUrn ?? string.Empty; editLotNumber = contract.LotNumber ?? string.Empty; editStartDate = contract.StartDate; editEndDate = contract.EndDate; editContractValue = contract.TotalContractValueExVat; editServiceGroup = contract.ServiceGroup ?? string.Empty; editServiceGroupLevel2 = contract.ServiceGroupLevel2 ?? string.Empty; editServiceDescription = contract.ServiceDescription ?? string.Empty; editOrderChannel = contract.OrderChannel ?? string.Empty; editMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty; editReportingMonth = contract.ReportMonth;
+        editFramework = contract.Framework; editSupplierReference = contract.SupplierReference; editCustomerName = contract.CustomerName; editCustomerUrn = contract.CustomerUrn ?? string.Empty; editLotNumber = contract.LotNumber ?? string.Empty; editStartDate = contract.StartDate; editEndDate = contract.EndDate; editContractValue = contract.TotalContractValueExVat; editServiceGroup = contract.ServiceGroup ?? string.Empty; editServiceDescription = contract.ServiceDescription ?? string.Empty; editOrderChannel = contract.OrderChannel ?? string.Empty; editMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty; editReportingMonth = contract.ReportMonth;
     }
     private void PopulateScheduleEditor() => editableSchedule = details?.ChargeSchedule.Select(item => new EditableSchedulePosition { Id = item.Id, ContractYear = item.ContractYear, Description = item.Description, ExpectedInvoiceDate = item.ExpectedInvoiceDate, ValueExVat = item.ValueExVat, IsOptionalExtension = item.IsOptionalExtension }).ToList() ?? [];
 
@@ -409,7 +516,7 @@ else
         contractWorking = true; contractSubmission = null;
         try
         {
-            contractSubmission = await Workspace.UpdateContractAsync(ContractId, new ContractEntry(editFramework, editSupplierReference, editCustomerName, editCustomerUrn, editStartDate, editEndDate, editLotNumber, editServiceGroup, editServiceGroupLevel2, editServiceDescription, editOrderChannel, editMarketplaceServiceId, editContractValue, editReportingMonth, "Edited in Remi"));
+            contractSubmission = await Workspace.UpdateContractAsync(ContractId, new ContractEntry(editFramework, editSupplierReference, editCustomerName, editCustomerUrn, editStartDate, editEndDate, editLotNumber, IsEditGCloud ? editServiceGroup : null, null, IsEditGCloud ? null : editServiceDescription, IsEditGCloud ? null : editOrderChannel, IsEditGCloud ? editMarketplaceServiceId : null, editContractValue, editReportingMonth, "Edited in Remi"));
             if (contractSubmission.Succeeded) { if (contractClipboardImageCount != 0) await contractClipboardEvidence!.ArchiveAsync("contract", ContractId); contractClipboardImageCount = 0; details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingContract = false; PopulateEditors(); }
         }
         finally { contractWorking = false; }
