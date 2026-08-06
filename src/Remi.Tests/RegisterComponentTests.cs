@@ -372,6 +372,8 @@ public sealed class RegisterComponentTests
 
             var tableHeaders = cut.FindAll(".dashboard-table th").Select(header => header.TextContent.Trim()).ToList();
             Assert.Equal(["Framework", "Contracts", "Invoices", "Readiness", "Action"], tableHeaders);
+            Assert.All(cut.FindAll(".dashboard-row-action"), action =>
+                Assert.Matches("^/reports/\\d+/2026-07\\?period=2026-07$", action.GetAttribute("href")));
             Assert.All(cut.FindAll(".dashboard-table td.table-action-cell"), cell =>
                 Assert.Contains("→", cell.TextContent));
         });
@@ -530,16 +532,58 @@ public sealed class RegisterComponentTests
         using var context = CreateContext();
         var cut = context.Render<ReportingRegister>();
 
-        cut.WaitForAssertion(() => Assert.Contains("Open", cut.Markup));
-        cut.FindAll("button").First(button => button.TextContent.Trim().StartsWith("Open", StringComparison.Ordinal)).Click();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("a[href^='/reports/']")));
+        Assert.DoesNotContain("Generate workbook", cut.Markup);
 
-        cut.WaitForAssertion(() =>
+        var workspace = context.Render<ReportingRegister>(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.GCloud14)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() =>
         {
-            Assert.Contains("Generate the reporting workbook", cut.Markup);
-            Assert.Contains("Generate", cut.Find(".return-outcome-panel .action-row").TextContent);
-            Assert.Contains("Prepare", cut.Markup);
-            Assert.DoesNotContain("Monthly MI workbook", cut.Markup);
-            Assert.Empty(cut.FindAll("input[type='file']"));
+            Assert.Contains("Generate workbook", workspace.Markup);
+            Assert.Contains("Review data", workspace.Markup);
+            Assert.Contains("Generated files", workspace.Markup);
+            Assert.DoesNotContain("Monthly MI workbook", workspace.Markup);
+            Assert.Empty(workspace.FindAll("input[type='file']"));
+        });
+    }
+
+    [Fact]
+    public void Return_workspace_reloads_its_framework_when_a_different_open_link_is_followed()
+    {
+        using var context = CreateContext();
+        var workspace = context.Render<ReportingRegister>(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.GCloud13)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() => Assert.Equal("G-Cloud 13", workspace.Find("h1").TextContent.Trim()));
+
+        workspace.Render(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.GCloud14)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.Equal("G-Cloud 14", workspace.Find("h1").TextContent.Trim());
+        });
+    }
+
+    [Fact]
+    public void Return_workspace_shows_a_gca_summary_and_invoice_purchase_order_number()
+    {
+        using var context = CreateContext();
+        var workspace = context.Render<ReportingRegister>(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.VerticalApplicationSolutions)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() =>
+        {
+            var summary = workspace.Find(".gca-return-summary");
+            Assert.Contains("RM6259 reporting summary", summary.TextContent);
+            Assert.Contains("Invoices", summary.TextContent);
+            Assert.Contains("Purchase order number", summary.TextContent);
+            Assert.Contains("GCA_VAS_202607", summary.TextContent);
         });
     }
 

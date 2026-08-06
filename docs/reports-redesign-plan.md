@@ -66,13 +66,18 @@ Move permanent explanatory text such as “What Remi checks today” and evidenc
 - Keep the GCA-style counts as a concise summary rather than a duplicate page section.
 - Preserve the reporting month in the URL and make opening a return linkable.
 
-## Implementation decisions for the next session
+## Implementation status
 
-1. Decide whether the return workspace is a new route or a full-width in-page panel.
-2. Define the status/action state machine and exact labels.
-3. Sketch the compact work-queue row and return-workspace header.
-4. Implement the new page hierarchy before restyling individual controls.
-5. Test draft, ready, submitted, correction-requested, nil-return, and no-activity states.
+Implemented on 6 August 2026:
+
+1. The return workspace uses a linkable route: `/reports/{frameworkCode}/{reportingMonth}?period=yyyy-MM`.
+2. The Reports page is a monthly work queue only. It retains the month/framework views and each row provides one `Open` link.
+3. The workspace header shows the framework, reporting month, status, activity counts and value, followed by a four-step sequence.
+4. Only the next applicable action is primary: generate workbook, record portal submission, or record a nil return. A submitted return exposes correction only in a secondary disclosure.
+5. Data review, Checks and Generated files use collapsed sections. Full reporting fields are expanded only for an individual contract or invoice row.
+6. Workflow activity is derived from the monthly-return register counts, so a return with recorded activity cannot be offered a nil-return action when detailed card rows are unavailable.
+
+Verification: the component suite covers the queue-to-workspace route split, and a rebuilt portable instance was checked with a populated July 2026 G-Cloud 14 return.
 
 ## Out of scope
 

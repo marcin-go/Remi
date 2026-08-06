@@ -42,7 +42,7 @@
                                     <td>@summary.ContractCount</td>
                                     <td>@summary.InvoiceCount</td>
                                     <td><span class="@ReadinessClass(summary)">@ReadinessLabel(summary)</span></td>
-                                    <td class="table-action-cell"><a class="remi-action remi-action--table dashboard-row-action" href="@PeriodRoute("/reports")">@ReadinessAction(summary)</a></td>
+                                    <td class="table-action-cell"><a class="remi-action remi-action--table dashboard-row-action" href="@ReturnWorkspaceRoute(summary)">@ReadinessAction(summary)</a></td>
                                 </tr>
                             }
                         </tbody>
@@ -235,6 +235,9 @@ else
 
     private string PeriodRoute(string path)
         => ReportingRoutes.WithPeriod(path, ReportingPeriod.SelectedPeriod);
+
+    private string ReturnWorkspaceRoute(FrameworkReadiness summary)
+        => $"/reports/{(int)summary.Framework.Code}/{model!.CurrentReportingMonth}?period={model.CurrentReportingMonth}";
 
     private static bool IsReady(FrameworkReadiness summary) =>
         summary.BlockingFindingCount == 0
