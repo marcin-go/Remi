@@ -115,10 +115,19 @@ public sealed record InvoiceRegistrationContract(
     int UnconfirmedChangeCount);
 
 /// <summary>
-/// Values that are not held on a contract, suggested from the most recent invoice information
-/// recorded against the same contract. The invoice form still shows these values for review.
+/// Values suggested for a new invoice. The most recently recorded invoice for the contract takes
+/// precedence, with the contract record and standard MI defaults filling any missing value. The
+/// invoice form still shows these values for review.
 /// </summary>
 public sealed record InvoiceReportingSuggestion(
+    string CustomerName,
+    string CustomerUrn,
+    string LotNumber,
+    string ServiceGroup,
+    string ServiceGroupLevel2,
+    string ServiceDescription,
+    string OrderChannel,
+    string DigitalMarketplaceServiceId,
     string UnitOfMeasure,
     decimal Quantity,
     string OriginalVendor,

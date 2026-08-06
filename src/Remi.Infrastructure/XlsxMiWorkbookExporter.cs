@@ -275,8 +275,8 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
         ["supplierreferencenumber"] = contract.SupplierReference,
         ["customeruniquereferencenumberurn"] = contract.CustomerUrn,
         ["customerorganisationname"] = contract.CustomerName,
-        ["contractstartdate"] = contract.StartDate,
-        ["contractenddate"] = contract.EndDate,
+        ["contractstartdate"] = DateText(contract.StartDate),
+        ["contractenddate"] = DateText(contract.EndDate),
         ["lotnumber"] = contract.LotNumber,
         ["servicegroup"] = contract.ServiceGroup,
         ["productservicegrouplevel1"] = contract.ServiceGroup,
@@ -292,7 +292,7 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
         ["supplierreferencenumber"] = invoice.SupplierReference,
         ["customeruniquereferencenumberurn"] = invoice.CustomerUrn,
         ["customerorganisationname"] = invoice.CustomerName,
-        ["customerinvoicecreditnotedate"] = invoice.InvoiceDate,
+        ["customerinvoicecreditnotedate"] = DateText(invoice.InvoiceDate),
         ["customerinvoicecreditnotenumber"] = invoice.InvoiceNumber,
         ["lotnumber"] = invoice.LotNumber,
         ["servicegroup"] = invoice.ServiceGroup,
@@ -322,10 +322,6 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
 
         switch (value)
         {
-            case DateOnly date:
-                cell.SetAttributeValue("t", null);
-                cell.Add(new XElement(SpreadsheetNamespace + "v", date.ToDateTime(TimeOnly.MinValue).ToOADate().ToString(CultureInfo.InvariantCulture)));
-                break;
             case decimal number:
                 cell.SetAttributeValue("t", null);
                 cell.Add(new XElement(SpreadsheetNamespace + "v", number.ToString(CultureInfo.InvariantCulture)));
@@ -346,6 +342,9 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
                 break;
         }
     }
+
+    private static string? DateText(DateOnly? date) =>
+        date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
 
     private static Dictionary<string, string> ReadRelationships(ZipArchive archive, string relationshipPath, string sourcePart, bool missingIsEmpty = false)
     {

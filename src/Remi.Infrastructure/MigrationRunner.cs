@@ -308,6 +308,12 @@ public sealed class MigrationRunner(
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult<Stream?>(null);
         }
+
+        public Task DeleteAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class UnavailableCustomerUrnDirectory : ICustomerUrnDirectory

@@ -55,6 +55,25 @@ public sealed class WorkbookExportTests
         Assert.All(["H2", "I2", "J2", "K2", "L2"], reference => Assert.Equal("3", (string?)cells[reference].Attribute("s")));
     }
 
+    [Theory]
+    [InlineData(FrameworkCode.GCloud14)]
+    [InlineData(FrameworkCode.VerticalApplicationSolutions)]
+    public async Task Export_writes_contract_and_invoice_dates_as_required_text(FrameworkCode framework)
+    {
+        using var template = CreateTemplate(framework);
+        var exporter = new XlsxMiWorkbookExporter();
+
+        var generated = await exporter.GenerateAsync(framework, template, [Contract(framework)], [Invoice(framework)]);
+
+        using var archive = new ZipArchive(generated.Content, ZipArchiveMode.Read, leaveOpen: true);
+        var contractSheet = ReadXml(archive, "xl/worksheets/sheet1.xml");
+        var invoiceSheet = ReadXml(archive, "xl/worksheets/sheet2.xml");
+
+        AssertDateText(contractSheet, ContractHeaders(framework), "Contract start date", "01/07/2026");
+        AssertDateText(contractSheet, ContractHeaders(framework), "Contract end date", "31/07/2026");
+        AssertDateText(invoiceSheet, InvoiceHeaders(framework), "Customer invoice credit note date", "31/07/2026");
+    }
+
     private static MemoryStream CreateTemplate(FrameworkCode framework, bool includeSparseInvoiceDataRow = false)
     {
         var output = new MemoryStream();
@@ -100,12 +119,12 @@ public sealed class WorkbookExportTests
 
     private static IReadOnlyList<string> ContractHeaders(FrameworkCode framework) =>
         framework == FrameworkCode.VerticalApplicationSolutions
-            ? ["Supplier reference number", "Customer organisation name", "Total contract value", "Product service description", "Order channel"]
-            : ["Supplier reference number", "Customer organisation name", "Total contract value", "Service group", "Digital Marketplace service ID"];
+            ? ["Supplier reference number", "Customer organisation name", "Contract start date", "Contract end date", "Total contract value", "Product service description", "Order channel"]
+            : ["Supplier reference number", "Customer organisation name", "Contract start date", "Contract end date", "Total contract value", "Service group", "Digital Marketplace service ID"];
 
     private static IReadOnlyList<string> InvoiceHeaders(FrameworkCode framework) =>
         framework == FrameworkCode.VerticalApplicationSolutions
-            ? ["Supplier reference number", "Customer organisation name", "Customer invoice credit note number", "Total cost ex VAT", "Product service description"]
+            ? ["Supplier reference number", "Customer organisation name", "Customer invoice credit note date", "Customer invoice credit note number", "Total cost ex VAT", "Product service description"]
             : ["Supplier reference number", "Customer Unique Reference Number (URN)", "Customer organisation name", "Customer invoice credit note date", "Customer invoice credit note number", "Lot number", "Service Group", "Digital Marketplace service ID", "Unit of measure", "Quantity", "Price per Unit", "Total cost ex VAT"];
 
     private static ContractRecord Contract(FrameworkCode framework) => new(
@@ -144,4 +163,12 @@ public sealed class WorkbookExportTests
         (string?)cell.Element(SpreadsheetNamespace + "v") ??
         (string?)cell.Element(SpreadsheetNamespace + "is")?.Element(SpreadsheetNamespace + "t") ??
         string.Empty;
+
+    private static void AssertDateText(XDocument sheet, IReadOnlyList<string> headers, string header, string expected)
+    {
+        var column = ColumnName(headers.ToList().IndexOf(header));
+        var cell = sheet.Descendants(SpreadsheetNamespace + "c").Single(item => (string?)item.Attribute("r") == $"{column}2");
+        Assert.Equal("inlineStr", (string?)cell.Attribute("t"));
+        Assert.Equal(expected, CellValue(cell));
+    }
 }

@@ -14,6 +14,13 @@ public interface IEvidenceArchive
     Task<Stream?> OpenReadAsync(
         EvidenceRecord evidence,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes an archived file which is no longer referenced by the register.
+    /// </summary>
+    Task DeleteAsync(
+        EvidenceRecord evidence,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record EvidenceArchiveRequest(

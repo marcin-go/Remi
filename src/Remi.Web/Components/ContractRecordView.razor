@@ -260,28 +260,30 @@ else
                                     @if (details.ContractChanges.Count != 0) { <label class="floating-field floating-field--static"><select @bind="invoiceContractChangeId"><option value="">Original contract</option>@foreach (var change in details.ContractChanges) { <option value="@change.Id">@ChangeDescription(change)</option> }</select><span class="floating-label">Contract segment</span></label> }
                                 </div>
                                 <p class="invoice-field-help">Use a negative total for a credit note.</p>
-                                <p class="invoice-field-help">Contract fields are prefilled. Invoice-only values use the latest recorded invoice for this contract or the standard default.</p>
-                                <div class="invoice-details-grid contract-invoice-fields">
-                                    <label class="floating-field"><input required placeholder=" " @bind="invoiceCustomerName" @bind:event="oninput" /><span class="floating-label">Customer organisation name</span></label>
-                                    <label class="floating-field"><input required placeholder=" " @bind="invoiceCustomerUrn" @bind:event="oninput" /><span class="floating-label">Customer URN</span></label>
-                                    <label class="floating-field"><input required placeholder=" " @bind="invoiceLotNumber" @bind:event="oninput" /><span class="floating-label">Lot number</span></label>
-                                    @if (IsVasInvoice)
-                                    {
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceServiceGroup" @bind:event="oninput" /><span class="floating-label">Product/service group level 1</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceServiceGroupLevel2" @bind:event="oninput" /><span class="floating-label">Product/service group level 2</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceServiceDescription" @bind:event="oninput" /><span class="floating-label">Product/service description</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceOriginalVendor" @bind:event="oninput" /><span class="floating-label">Original vendor</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceSubcontractorName" @bind:event="oninput" /><span class="floating-label">Subcontractor name</span></label>
-                                    }
-                                    else
-                                    {
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceServiceGroup" @bind:event="oninput" /><span class="floating-label">Service group</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceDigitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
-                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceUnitOfMeasure" @bind:event="oninput" /><span class="floating-label">Unit of measure</span></label>
-                                        <label class="floating-field"><input required type="number" step="0.01" @bind="invoiceQuantity" /><span class="floating-label">Quantity</span></label>
-                                        <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="invoicePricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
-                                    }
-                                </div>
+                                <section class="contract-invoice-prefill">
+                                    <p class="invoice-field-help">Contract fields use the latest recorded invoice for this contract, falling back to the contract record. Choose a lot before its dependent product or service group.</p>
+                                    <div class="invoice-details-grid contract-invoice-fields">
+                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceCustomerName" @bind:event="oninput" /><span class="floating-label">Customer organisation name</span></label>
+                                        <label class="floating-field"><input required placeholder=" " @bind="invoiceCustomerUrn" @bind:event="oninput" /><span class="floating-label">Customer URN</span></label>
+                                        <label class="floating-field floating-field--static"><select required aria-label="Lot number" @bind="invoiceLotNumber" @bind:after="OnInvoiceLotChanged"><option value="">Select a lot</option>@foreach (var lot in InvoiceIntakeForm.Lots) { <option value="@lot">@lot</option> }</select><span class="floating-label">Lot number</span></label>
+                                        @if (IsVasInvoice)
+                                        {
+                                            <label class="floating-field floating-field--static"><select required aria-label="Product/service group level 1" disabled="@(InvoiceServiceGroupOptions.Count == 0)" @bind="invoiceServiceGroup"><option value="">@(InvoiceServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a product/service group")</option>@foreach (var group in InvoiceServiceGroupOptions) { <option value="@group">@group</option> }</select><span class="floating-label">Product/service group level 1</span></label>
+                                            <label class="floating-field floating-field--static"><select required aria-label="Product/service group level 2" @bind="invoiceServiceGroupLevel2"><option value="">Select a classification</option>@foreach (var classification in InvoiceIntakeForm.ServiceGroupLevel2Options) { <option value="@classification">@classification</option> }</select><span class="floating-label">Product/service group level 2</span></label>
+                                            <label class="floating-field"><input required placeholder=" " @bind="invoiceServiceDescription" @bind:event="oninput" /><span class="floating-label">Product/service description</span></label>
+                                            <label class="floating-field"><input required placeholder=" " @bind="invoiceOriginalVendor" @bind:event="oninput" /><span class="floating-label">Original vendor</span></label>
+                                            <label class="floating-field"><input required placeholder=" " @bind="invoiceSubcontractorName" @bind:event="oninput" /><span class="floating-label">Subcontractor name</span></label>
+                                        }
+                                        else
+                                        {
+                                            <label class="floating-field floating-field--static"><select required aria-label="Service group" disabled="@(InvoiceServiceGroupOptions.Count == 0)" @bind="invoiceServiceGroup"><option value="">@(InvoiceServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>@foreach (var group in InvoiceServiceGroupOptions) { <option value="@group">@group</option> }</select><span class="floating-label">Service group</span></label>
+                                            <label class="floating-field"><input required placeholder=" " @bind="invoiceDigitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                            <label class="floating-field"><input required placeholder=" " @bind="invoiceUnitOfMeasure" @bind:event="oninput" /><span class="floating-label">Unit of measure</span></label>
+                                            <label class="floating-field"><input required type="number" step="0.01" @bind="invoiceQuantity" /><span class="floating-label">Quantity</span></label>
+                                            <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="invoicePricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
+                                        }
+                                    </div>
+                                </section>
                                 @if (InvoiceMayRevealChange) { <p class="notice warning">This invoice exceeds the remaining recorded contract value by @Currency(InvoiceOverage). It may reveal an extension or variation—record it in the Changes tab.</p> }
                                 @if (SelectedInvoiceChange is { IsConfirmed: false }) { <p class="notice warning">The selected @SelectedInvoiceChange.Kind.ToString().ToLowerInvariant() is awaiting confirmation. The invoice can still be linked to it.</p> }
                                 <footer class="contract-invoice-actions"><button type="button" class="invoice-command invoice-command-muted" @onclick="ShowInvoiceFormAsync">Cancel</button><button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecordInvoice || invoiceWorking)" @onclick="RecordInvoiceAsync">@(invoiceWorking ? "Saving…" : "Save invoice")</button></footer>
@@ -323,7 +325,7 @@ else
     private string invoiceNumber = string.Empty;
     private DateOnly? invoiceDate;
     private string invoiceReportingMonth = string.Empty;
-    private decimal invoiceTotalValue;
+    private decimal? invoiceTotalValue;
     private Guid? invoiceContractChangeId;
     private ReturnActionResult? invoiceSubmission;
     private bool invoiceWorking;
@@ -399,15 +401,17 @@ else
             : !string.IsNullOrWhiteSpace(details.Contract.ServiceGroup) && !string.IsNullOrWhiteSpace(details.Contract.DigitalMarketplaceServiceId));
     private bool IsValidInvoiceReportingMonth => IsValidReportingMonth(invoiceReportingMonth);
     private bool IsVasInvoice => details?.Contract.Framework == FrameworkCode.VerticalApplicationSolutions;
-    private decimal invoiceTotalExVat { get => invoiceTotalValue; set { invoiceTotalValue = value; if (!invoicePricePerUnitManuallySet) invoicePricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value); } }
+    private MiInvoiceIntakeForm InvoiceIntakeForm => MiInvoiceIntakeForms.For(details!.Contract.Framework);
+    private IReadOnlyList<string> InvoiceServiceGroupOptions => InvoiceIntakeForm.ServiceGroupsFor(invoiceLotNumber);
+    private decimal? invoiceTotalExVat { get => invoiceTotalValue; set { invoiceTotalValue = value; if (!invoicePricePerUnitManuallySet) invoicePricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value ?? 0); } }
     private decimal? invoicePricePerUnitExVat { get => invoicePricePerUnitExVatValue; set { invoicePricePerUnitManuallySet = true; invoicePricePerUnitExVatValue = value; } }
-    private bool HasRequiredInvoiceMiFields => !string.IsNullOrWhiteSpace(invoiceCustomerName) && !string.IsNullOrWhiteSpace(invoiceCustomerUrn) && !string.IsNullOrWhiteSpace(invoiceLotNumber)
+    private bool HasRequiredInvoiceMiFields => InvoiceIntakeForm.IsAvailable && !string.IsNullOrWhiteSpace(invoiceCustomerName) && !string.IsNullOrWhiteSpace(invoiceCustomerUrn) && InvoiceIntakeForm.Lots.Contains(invoiceLotNumber, StringComparer.Ordinal)
         && (IsVasInvoice
-            ? !string.IsNullOrWhiteSpace(invoiceServiceGroup) && !string.IsNullOrWhiteSpace(invoiceServiceGroupLevel2) && !string.IsNullOrWhiteSpace(invoiceServiceDescription) && !string.IsNullOrWhiteSpace(invoiceOriginalVendor) && !string.IsNullOrWhiteSpace(invoiceSubcontractorName)
-            : !string.IsNullOrWhiteSpace(invoiceServiceGroup) && !string.IsNullOrWhiteSpace(invoiceDigitalMarketplaceServiceId) && !string.IsNullOrWhiteSpace(invoiceUnitOfMeasure) && invoiceQuantity is not null && invoicePricePerUnitExVat is not null);
-    private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat != 0 && HasRequiredInvoiceMiFields;
-    private bool InvoiceMayRevealChange => details is not null && invoiceTotalExVat > RemainingContractValue;
-    private decimal InvoiceOverage => Math.Max(0, invoiceTotalExVat - RemainingContractValue);
+            ? InvoiceServiceGroupOptions.Contains(invoiceServiceGroup, StringComparer.Ordinal) && InvoiceIntakeForm.ServiceGroupLevel2Options.Contains(invoiceServiceGroupLevel2, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(invoiceServiceDescription) && !string.IsNullOrWhiteSpace(invoiceOriginalVendor) && !string.IsNullOrWhiteSpace(invoiceSubcontractorName)
+            : InvoiceServiceGroupOptions.Contains(invoiceServiceGroup, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(invoiceDigitalMarketplaceServiceId) && InvoiceIntakeForm.UnitOfMeasureOptions.Contains(invoiceUnitOfMeasure, StringComparer.Ordinal) && invoiceQuantity is not null && invoicePricePerUnitExVat is not null);
+    private bool CanRecordInvoice => details is not null && IsValidInvoiceReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && invoiceTotalExVat is decimal total && total != 0 && HasRequiredInvoiceMiFields;
+    private bool InvoiceMayRevealChange => invoiceTotalExVat is decimal total && total > RemainingContractValue;
+    private decimal InvoiceOverage => invoiceTotalExVat is decimal total ? Math.Max(0, total - RemainingContractValue) : 0;
     private bool CanRecordChange => details is not null && changeAgreementDate is not null && changeIncrementalValue is not null && changeIncrementalValue != 0;
     private bool EditingChange => editingChangeId is not null;
     private bool ConfirmedChangeCannotBeUnconfirmed => editingChangeId is Guid changeId && details?.ContractChanges.Any(change => change.Id == changeId && change.IsConfirmed) == true;
@@ -541,18 +545,20 @@ else
 
     private async Task RecordInvoiceAsync()
     {
-        if (!CanRecordInvoice || details is null) return;
+        var total = invoiceTotalExVat;
+        if (!CanRecordInvoice || details is null || total is null) return;
         var contract = details.Contract;
         invoiceWorking = true;
         invoiceSubmission = null;
         try
         {
-            invoiceSubmission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(contract.Framework, contract.SupplierReference, invoiceCustomerName, invoiceCustomerUrn, invoiceDate, invoiceNumber, invoiceLotNumber, invoiceServiceGroup, invoiceServiceGroupLevel2, invoiceServiceDescription, invoiceOrderChannel, invoiceDigitalMarketplaceServiceId, invoiceUnitOfMeasure, invoiceQuantity, invoicePricePerUnitExVat, invoiceTotalExVat, invoiceOriginalVendor, invoiceSubcontractorName, invoiceReportingMonth, "Manual invoice registration", invoiceContractChangeId));
+            invoiceSubmission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(contract.Framework, contract.SupplierReference, invoiceCustomerName, invoiceCustomerUrn, invoiceDate, invoiceNumber, invoiceLotNumber, invoiceServiceGroup, invoiceServiceGroupLevel2, invoiceServiceDescription, invoiceOrderChannel, invoiceDigitalMarketplaceServiceId, invoiceUnitOfMeasure, invoiceQuantity, invoicePricePerUnitExVat, total.Value, invoiceOriginalVendor, invoiceSubcontractorName, invoiceReportingMonth, "Manual invoice registration", invoiceContractChangeId));
             if (invoiceSubmission.Succeeded)
             {
                 await ResetInvoiceFormAsync();
                 details = await Workspace.GetContractDetailsAsync(ContractId);
                 history = await Workspace.GetContractAuditEventsAsync(ContractId);
+                showInvoiceForm = false;
             }
         }
         finally { invoiceWorking = false; }
@@ -562,7 +568,7 @@ else
     {
         invoiceNumber = string.Empty;
         invoiceDate = null;
-        invoiceTotalExVat = 0;
+        invoiceTotalExVat = null;
         invoiceContractChangeId = null;
         invoiceReportingMonth = ReportingPeriod.SelectedPeriod;
         if (details is not null)
@@ -573,21 +579,32 @@ else
 
     private async Task PopulateInvoiceReportingFieldsAsync(ContractRecord contract)
     {
-        invoiceCustomerName = contract.CustomerName;
-        invoiceCustomerUrn = contract.CustomerUrn ?? string.Empty;
-        invoiceLotNumber = contract.LotNumber ?? string.Empty;
-        invoiceServiceGroup = contract.ServiceGroup ?? string.Empty;
-        invoiceServiceGroupLevel2 = contract.ServiceGroupLevel2 ?? string.Empty;
-        invoiceServiceDescription = contract.ServiceDescription ?? string.Empty;
-        invoiceOrderChannel = contract.OrderChannel ?? string.Empty;
-        invoiceDigitalMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty;
         var suggestion = await Workspace.GetInvoiceReportingSuggestionAsync(contract.Id);
+        invoiceCustomerName = suggestion.CustomerName;
+        invoiceCustomerUrn = suggestion.CustomerUrn;
+        invoiceLotNumber = suggestion.LotNumber;
+        invoiceServiceGroup = suggestion.ServiceGroup;
+        invoiceServiceGroupLevel2 = suggestion.ServiceGroupLevel2;
+        invoiceServiceDescription = suggestion.ServiceDescription;
+        invoiceOrderChannel = suggestion.OrderChannel;
+        invoiceDigitalMarketplaceServiceId = suggestion.DigitalMarketplaceServiceId;
         invoiceUnitOfMeasure = suggestion.UnitOfMeasure;
         invoiceQuantity = suggestion.Quantity;
         invoicePricePerUnitManuallySet = false;
-        invoicePricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(invoiceTotalExVat);
+        invoicePricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(invoiceTotalExVat ?? 0);
         invoiceOriginalVendor = suggestion.OriginalVendor;
         invoiceSubcontractorName = suggestion.SubcontractorName;
+        ReconcileInvoiceTemplateSelections();
+    }
+
+    private void OnInvoiceLotChanged() => ReconcileInvoiceTemplateSelections();
+
+    private void ReconcileInvoiceTemplateSelections()
+    {
+        if (!InvoiceIntakeForm.Lots.Contains(invoiceLotNumber, StringComparer.Ordinal)) invoiceLotNumber = string.Empty;
+        if (!InvoiceServiceGroupOptions.Contains(invoiceServiceGroup, StringComparer.Ordinal)) invoiceServiceGroup = string.Empty;
+        if (IsVasInvoice && !InvoiceIntakeForm.ServiceGroupLevel2Options.Contains(invoiceServiceGroupLevel2, StringComparer.Ordinal)) invoiceServiceGroupLevel2 = string.Empty;
+        if (!IsVasInvoice && !InvoiceIntakeForm.UnitOfMeasureOptions.Contains(invoiceUnitOfMeasure, StringComparer.Ordinal)) invoiceUnitOfMeasure = string.Empty;
     }
 
     private async Task SaveChangeAsync()

@@ -71,6 +71,9 @@ public sealed class MigrationReturnStateTests
 
         public Task<Stream?> OpenReadAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default) =>
             Task.FromResult<Stream?>(null);
+
+        public Task DeleteAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class InMemoryStore(RemiDatabase database) : IRemiStore

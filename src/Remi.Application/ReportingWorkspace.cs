@@ -296,8 +296,9 @@ public sealed class ReportingWorkspace(
     }
 
     /// <summary>
-    /// Supplies the invoice-only defaults for a selected contract. Values already recorded on an
-    /// earlier invoice take precedence; otherwise the standard MI defaults are used.
+    /// Supplies the invoice defaults for a selected contract. Values from the most recently
+    /// recorded invoice take precedence; otherwise contract values and standard MI defaults are
+    /// used.
     /// </summary>
     public Task<InvoiceReportingSuggestion> GetInvoiceReportingSuggestionAsync(
         Guid contractId,
@@ -308,23 +309,39 @@ public sealed class ReportingWorkspace(
             if (contract is null)
             {
                 return new InvoiceReportingSuggestion(
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
                     InvoiceReportingDefaults.UnitOfMeasure,
                     InvoiceReportingDefaults.Quantity,
                     InvoiceReportingDefaults.OriginalVendor,
                     InvoiceReportingDefaults.SubcontractorName);
             }
 
-            var invoices = database.Invoices
+            var latestInvoice = database.Invoices
                 .Where(invoice => invoice.Framework == contract.Framework &&
                     ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
                 .OrderByDescending(invoice => invoice.InvoiceDate)
                 .ThenByDescending(invoice => invoice.CreatedAtUtc)
-                .ToList();
+                .FirstOrDefault();
             return new InvoiceReportingSuggestion(
-                invoices.Select(invoice => invoice.UnitOfMeasure).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.UnitOfMeasure,
-                invoices.Select(invoice => invoice.Quantity).FirstOrDefault(value => value is > 0) ?? InvoiceReportingDefaults.Quantity,
-                invoices.Select(invoice => invoice.OriginalVendor).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.OriginalVendor,
-                invoices.Select(invoice => invoice.SubcontractorName).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.SubcontractorName);
+                latestInvoice?.CustomerName ?? contract.CustomerName,
+                latestInvoice?.CustomerUrn ?? contract.CustomerUrn ?? string.Empty,
+                latestInvoice?.LotNumber ?? contract.LotNumber ?? string.Empty,
+                latestInvoice?.ServiceGroup ?? contract.ServiceGroup ?? string.Empty,
+                latestInvoice?.ServiceGroupLevel2 ?? contract.ServiceGroupLevel2 ?? string.Empty,
+                latestInvoice?.ServiceDescription ?? contract.ServiceDescription ?? string.Empty,
+                latestInvoice?.OrderChannel ?? contract.OrderChannel ?? string.Empty,
+                latestInvoice?.DigitalMarketplaceServiceId ?? contract.DigitalMarketplaceServiceId ?? string.Empty,
+                latestInvoice?.UnitOfMeasure ?? InvoiceReportingDefaults.UnitOfMeasure,
+                latestInvoice?.Quantity is > 0 ? latestInvoice.Quantity.Value : InvoiceReportingDefaults.Quantity,
+                latestInvoice?.OriginalVendor ?? InvoiceReportingDefaults.OriginalVendor,
+                latestInvoice?.SubcontractorName ?? InvoiceReportingDefaults.SubcontractorName);
         }, cancellationToken);
 
     /// <summary>
@@ -1259,16 +1276,17 @@ public sealed class ReportingWorkspace(
             return new ReturnActionResult(true, "The payment position has been updated.", []);
         }, cancellationToken);
 
-    public Task<IReadOnlyList<ReportingEvidence>> GetReportingEvidenceAsync(
+    public async Task<IReadOnlyList<ReportingEvidence>> GetReportingEvidenceAsync(
         FrameworkCode framework,
         string reportingMonth,
         CancellationToken cancellationToken = default)
     {
         ValidateReportingMonth(reportingMonth);
-        return store.ReadAsync(database => (IReadOnlyList<ReportingEvidence>)database.Evidence
+        await DiscardSupersededGeneratedDraftsAsync(framework, reportingMonth, null, cancellationToken);
+        return await store.ReadAsync(database => (IReadOnlyList<ReportingEvidence>)database.Evidence
             .Where(item => item.Framework == framework && item.ReportMonth == reportingMonth)
-            .OrderBy(item => item.Kind)
-            .ThenBy(item => item.OriginalRelativePath, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(item => item.ArchivedAtUtc)
+            .ThenByDescending(item => item.Id)
             .Select(ToReportingEvidence)
             .ToList(), cancellationToken);
     }
@@ -1404,7 +1422,7 @@ public sealed class ReportingWorkspace(
                 content),
             cancellationToken);
 
-        return await store.UpdateAsync(database =>
+        var exportedReturn = await store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();
             var evidence = new EvidenceRecord(
@@ -1420,13 +1438,16 @@ public sealed class ReportingWorkspace(
                 archived.Sha256,
                 null,
                 now);
-            database.Evidence.Add(evidence);
             var monthlyReturn = EnsureReturn(database, framework, reportingMonth, fileName, now);
+            database.Evidence.Add(evidence);
             var returnIndex = database.MonthlyReturns.FindIndex(item => item.Id == monthlyReturn.Id);
             database.MonthlyReturns[returnIndex] = monthlyReturn with { OriginalWorkbookName = fileName, UpdatedAtUtc = now };
             RecordAudit(database, now, "ReturnExported", "MonthlyReturn", monthlyReturn.Id, $"Generated {fileName} using approved workbook {exportContext.Template.WorkbookName}.", null, actor);
             return new ExportedReturn(evidence.Id, fileName, generated.Findings);
         }, cancellationToken);
+
+        await DiscardSupersededGeneratedDraftsAsync(framework, reportingMonth, exportedReturn.EvidenceId, cancellationToken);
+        return exportedReturn;
     }
 
     public Task<IReadOnlyList<AuditEventSummary>> GetAuditEventsAsync(int maximum = 100, CancellationToken cancellationToken = default) =>
@@ -1551,8 +1572,15 @@ public sealed class ReportingWorkspace(
             var replacement = existing with
             {
                 Status = status,
-                SubmittedAtUtc = status == ReturnStatus.Submitted ? now : null,
-                SubmissionReference = string.IsNullOrWhiteSpace(submissionReference) ? null : submissionReference.Trim(),
+                SubmittedAtUtc = status switch
+                {
+                    ReturnStatus.Submitted => now,
+                    ReturnStatus.CorrectionRequired => existing.SubmittedAtUtc,
+                    _ => null,
+                },
+                SubmissionReference = status == ReturnStatus.CorrectionRequired
+                    ? existing.SubmissionReference
+                    : string.IsNullOrWhiteSpace(submissionReference) ? null : submissionReference.Trim(),
                 UpdatedAtUtc = now,
             };
             database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = replacement;
@@ -1574,6 +1602,50 @@ public sealed class ReportingWorkspace(
             };
             return new ReturnActionResult(true, message, []);
         }, cancellationToken);
+    }
+
+    private async Task DiscardSupersededGeneratedDraftsAsync(
+        FrameworkCode framework,
+        string reportingMonth,
+        Guid? latestDraftId,
+        CancellationToken cancellationToken)
+    {
+        var unreferencedDrafts = await store.UpdateAsync(database =>
+        {
+            var monthlyReturn = database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework && item.ReportMonth == reportingMonth);
+            var lastSubmittedAudit = monthlyReturn is null
+                ? null
+                : database.AuditEvents
+                    .Where(item => item.EntityType == "MonthlyReturn" && item.EntityId == monthlyReturn.Id && item.Action == "ReturnSubmitted")
+                    .OrderByDescending(item => item.OccurredAtUtc)
+                    .FirstOrDefault();
+            var submissionCutoff = monthlyReturn?.SubmittedAtUtc ?? lastSubmittedAudit?.OccurredAtUtc;
+            var generatedDrafts = database.Evidence
+                .Where(item => item.Kind == EvidenceKind.GeneratedMiWorkbook &&
+                    item.Framework == framework &&
+                    item.ReportMonth == reportingMonth &&
+                    (submissionCutoff is null || item.ArchivedAtUtc > submissionCutoff.Value))
+                .OrderByDescending(item => item.ArchivedAtUtc)
+                .ThenByDescending(item => item.Id)
+                .ToList();
+            var retainedDraftId = latestDraftId ?? generatedDrafts.FirstOrDefault()?.Id;
+            var supersededDrafts = generatedDrafts
+                .Where(item => item.Id != retainedDraftId)
+                .ToList();
+            foreach (var supersededDraft in supersededDrafts)
+            {
+                database.Evidence.Remove(supersededDraft);
+            }
+
+            return (IReadOnlyList<EvidenceRecord>)supersededDrafts
+                .Where(item => !database.Evidence.Any(remaining => string.Equals(remaining.StoredRelativePath, item.StoredRelativePath, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }, cancellationToken);
+
+        foreach (var unreferencedDraft in unreferencedDrafts)
+        {
+            await evidenceArchive.DeleteAsync(unreferencedDraft, cancellationToken);
+        }
     }
 
     private static ReportingCardModel BuildReportingCard(
@@ -2294,6 +2366,7 @@ public sealed class ReportingWorkspace(
         EvidenceRecord? TemplateEvidence,
         IReadOnlyList<ContractRecord> Contracts,
         IReadOnlyList<InvoiceRecord> Invoices);
+
 
     private sealed record PaymentScheduleUpdate(int Added, int Relabelled);
 }

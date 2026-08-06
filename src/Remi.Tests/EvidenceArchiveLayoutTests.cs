@@ -1,5 +1,6 @@
 using System.Text;
 using Remi.Application;
+using Remi.Domain;
 using Remi.Infrastructure;
 using Xunit;
 
@@ -27,6 +28,22 @@ public sealed class EvidenceArchiveLayoutTests
             Assert.DoesNotContain(Path.AltDirectorySeparatorChar, archived.StoredRelativePath);
             Assert.Equal($"{archived.Sha256[..12]}-return.xlsx", archived.StoredRelativePath);
             Assert.True(File.Exists(Path.Combine(root, archived.StoredRelativePath)));
+
+            await archive.DeleteAsync(new EvidenceRecord(
+                Guid.NewGuid(),
+                EvidenceKind.GeneratedMiWorkbook,
+                FrameworkCode.GCloud14,
+                "2026-07",
+                "return.xlsx",
+                "generated-returns/RM1557.14/2026-07/return.xlsx",
+                archived.StoredRelativePath,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                archived.FileSizeBytes,
+                archived.Sha256,
+                null,
+                DateTimeOffset.UtcNow));
+
+            Assert.False(File.Exists(Path.Combine(root, archived.StoredRelativePath)));
         }
         finally
         {

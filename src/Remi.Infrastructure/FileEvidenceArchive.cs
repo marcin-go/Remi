@@ -85,6 +85,18 @@ public sealed class FileEvidenceArchive(string archiveDirectory) : IEvidenceArch
         return Task.FromResult(stream);
     }
 
+    public Task DeleteAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var path = ResolveWithinArchive(evidence.StoredRelativePath);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        return Task.CompletedTask;
+    }
+
     /// <summary>
     /// Removes every archived file as part of an explicitly confirmed full repopulation.
     /// </summary>

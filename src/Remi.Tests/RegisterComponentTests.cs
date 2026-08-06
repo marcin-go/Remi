@@ -275,6 +275,78 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Contract_invoice_form_gives_vas_the_same_lot_to_product_group_assistance()
+    {
+        using var context = CreateContext(FrameworkCode.VerticalApplicationSolutions);
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleVasContractId));
+
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".contract-tabs button")));
+        cut.FindAll(".contract-tabs button").Single(button => button.TextContent.Trim().StartsWith("Invoices")).Click();
+        cut.WaitForAssertion(() => Assert.Equal("Register", cut.Find(".contract-card-head button.primary").TextContent.Trim()));
+        cut.Find(".contract-card-head button.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Choose a lot before its dependent product or service group.", cut.Markup);
+            Assert.False(cut.Find("select[aria-label='Product/service group level 1']").HasAttribute("disabled"));
+        });
+
+        cut.Find("select[aria-label='Lot number']").Change("3");
+
+        cut.WaitForAssertion(() =>
+        {
+            var productGroup = cut.Find("select[aria-label='Product/service group level 1']");
+            Assert.Contains("Geographic Information System (GIS)", productGroup.TextContent);
+            Assert.Equal(
+                ["", "Software", "Hardware", "Associated Service"],
+                cut.Find("select[aria-label='Product/service group level 2']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+        });
+    }
+
+    [Fact]
+    public async Task Latest_invoice_values_are_suggested_for_the_next_invoice_contract_fields()
+    {
+        using var context = CreateContext();
+        var workspace = context.Services.GetRequiredService<ReportingWorkspace>();
+        var recorded = await workspace.RecordInvoiceAsync(new InvoiceEntry(
+            FrameworkCode.GCloud14,
+            "RM-001",
+            "Invoice customer",
+            "URN-INVOICE",
+            new DateOnly(2026, 8, 1),
+            "INV-LATEST",
+            "3",
+            "Planning",
+            null,
+            "Latest reporting service",
+            null,
+            "987654321",
+            "Per User",
+            4,
+            125,
+            500,
+            "Latest vendor",
+            "Latest subcontractor",
+            "2026-08",
+            "test"));
+
+        Assert.True(recorded.Succeeded);
+
+        var suggestion = await workspace.GetInvoiceReportingSuggestionAsync(SampleContractId);
+
+        Assert.Equal("Invoice customer", suggestion.CustomerName);
+        Assert.Equal("URN-INVOICE", suggestion.CustomerUrn);
+        Assert.Equal("3", suggestion.LotNumber);
+        Assert.Equal("Planning", suggestion.ServiceGroup);
+        Assert.Equal("Latest reporting service", suggestion.ServiceDescription);
+        Assert.Equal("987654321", suggestion.DigitalMarketplaceServiceId);
+        Assert.Equal("Per User", suggestion.UnitOfMeasure);
+        Assert.Equal(4, suggestion.Quantity);
+        Assert.Equal("Latest vendor", suggestion.OriginalVendor);
+        Assert.Equal("Latest subcontractor", suggestion.SubcontractorName);
+    }
+
+    [Fact]
     public void Dashboard_uses_the_defined_information_and_navigation_hierarchy()
     {
         using var context = CreateContext();
@@ -378,6 +450,35 @@ public sealed class RegisterComponentTests
             Assert.DoesNotContain("Service Group", serviceSection.TextContent);
             Assert.DoesNotContain("Digital Marketplace Service ID", serviceSection.TextContent);
         });
+    }
+
+    [Fact]
+    public void Saving_a_contract_invoice_closes_the_form_and_starts_the_total_blank()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".contract-tabs button")));
+        cut.FindAll(".contract-tabs button").Single(button => button.TextContent.Trim().StartsWith("Invoices")).Click();
+        cut.WaitForAssertion(() => Assert.Equal("Register", cut.Find(".contract-card-head button.primary").TextContent.Trim()));
+        cut.Find(".contract-card-head button.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var form = cut.Find(".contract-invoice-form");
+            Assert.Null(form.QuerySelector("input[type='number']")!.GetAttribute("value"));
+            Assert.NotNull(form.QuerySelector(".contract-invoice-prefill .invoice-field-help"));
+        });
+
+        var invoiceForm = cut.Find(".contract-invoice-form");
+        invoiceForm.QuerySelector("input[placeholder=' ']")!.Input("INV-NEW");
+        invoiceForm.QuerySelector("input[type='date']")!.Change("2026-07-15");
+        invoiceForm.QuerySelector("input[type='number']")!.Change("250");
+
+        cut.WaitForAssertion(() => Assert.False(cut.Find(".contract-invoice-actions .invoice-command-save").HasAttribute("disabled")));
+        cut.Find(".contract-invoice-actions .invoice-command-save").Click();
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".contract-invoice-form")));
     }
 
     [Fact]

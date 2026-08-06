@@ -181,7 +181,7 @@
                 <a class="evidence-item" href="@($"/evidence/{item.Id}")" target="_blank">
                     <span>
                         <strong>@item.FileName</strong>
-                        <span class="cell-secondary">@item.OriginalRelativePath</span>
+                        <span class="cell-secondary">@item.OriginalRelativePath · <time datetime="@item.ArchivedAtUtc.ToString("O")">Archived @item.ArchivedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time></span>
                     </span>
                     <span class="muted">@item.FileSizeBytes.ToString("N0") bytes</span>
                 </a>

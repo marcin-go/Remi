@@ -387,15 +387,15 @@
 
     private async Task PopulateInvoiceReportingFieldsAsync(InvoiceRegistrationContract contract)
     {
-        customerName = contract.CustomerName;
-        customerUrn = contract.CustomerUrn ?? string.Empty;
-        lotNumber = contract.LotNumber ?? string.Empty;
-        serviceGroup = contract.ServiceGroup ?? string.Empty;
-        serviceGroupLevel2 = contract.ServiceGroupLevel2 ?? string.Empty;
-        serviceDescription = contract.ServiceDescription ?? string.Empty;
-        orderChannel = contract.OrderChannel ?? string.Empty;
-        digitalMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty;
         var suggestion = await Workspace.GetInvoiceReportingSuggestionAsync(contract.ContractId);
+        customerName = suggestion.CustomerName;
+        customerUrn = suggestion.CustomerUrn;
+        lotNumber = suggestion.LotNumber;
+        serviceGroup = suggestion.ServiceGroup;
+        serviceGroupLevel2 = suggestion.ServiceGroupLevel2;
+        serviceDescription = suggestion.ServiceDescription;
+        orderChannel = suggestion.OrderChannel;
+        digitalMarketplaceServiceId = suggestion.DigitalMarketplaceServiceId;
         unitOfMeasure = suggestion.UnitOfMeasure;
         quantity = suggestion.Quantity;
         pricePerUnitManuallySet = false;
