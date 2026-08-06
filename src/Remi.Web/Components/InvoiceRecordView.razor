@@ -66,9 +66,9 @@ else
                                 <label>Reporting month <span class="required">required</span><input required @bind="reportMonth" placeholder="YYYY-MM" /></label>
                                 <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" /></label>
                                 <label>Customer <span class="required">required</span><input required @bind="customerName" /></label>
-                                <label>Customer URN<input @bind="customerUrn" /></label><label>Invoice date<input type="date" @bind="invoiceDate" /></label>
-                                <label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" /></label><label>Lot<input @bind="lotNumber" /></label>
-                                <label>Service group / level 1<input @bind="serviceGroup" /></label><label>Service group / level 2<input @bind="serviceGroupLevel2" /></label>
+                                <label>Customer URN <span class="required">required</span><input required @bind="customerUrn" /></label><label>Invoice date<input type="date" @bind="invoiceDate" /></label>
+                                <label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" /></label><label>Lot <span class="required">required</span><input required @bind="lotNumber" /></label>
+                                <label>Service group / level 1 <span class="required">required</span><input required @bind="serviceGroup" /></label><label>Service group / level 2<input @bind="serviceGroupLevel2" /></label>
                                 <label>Service description<input @bind="serviceDescription" /></label><label>Order channel<input @bind="orderChannel" /></label>
                                 <label>Digital Marketplace service ID<input @bind="marketplaceServiceId" /></label><label>Unit of measure<input @bind="unitOfMeasure" /></label>
                                 <label>Quantity<input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT<input type="number" step="0.01" @bind="pricePerUnitExVat" /></label>
@@ -96,8 +96,8 @@ else
                             <section class="contract-detail-section">
                                 <h3>Cost and quantity</h3>
                                 <dl class="contract-definition-grid">
-                                    <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd>@InvoiceReportingDefaults.UnitOfMeasure</dd></div>
-                                    <div><dt>Quantity</dt><dd>@InvoiceReportingDefaults.Quantity</dd></div><div><dt>Price per unit, ex VAT</dt><dd>@Currency(InvoiceReportingDefaults.PricePerUnitExVat(details.Invoice.TotalCostExVat))</dd></div>
+                                    <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd class="@NotRecordedClass(details.Invoice.UnitOfMeasure)">@Display(details.Invoice.UnitOfMeasure)</dd></div>
+                                    <div><dt>Quantity</dt><dd class="@NotRecordedClass(details.Invoice.Quantity)">@Display(details.Invoice.Quantity)</dd></div><div><dt>Price per unit, ex VAT</dt><dd class="@NotRecordedClass(details.Invoice.PricePerUnitExVat)">@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
@@ -149,7 +149,12 @@ else
 
     private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
-    private bool CanSave => details is not null && IsValidReportingMonth(reportMonth) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0;
+    private bool IsVas => framework == FrameworkCode.VerticalApplicationSolutions;
+    private bool HasRequiredMiFields => !string.IsNullOrWhiteSpace(customerUrn) && !string.IsNullOrWhiteSpace(lotNumber)
+        && (IsVas
+            ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(serviceGroupLevel2) && !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(originalVendor) && !string.IsNullOrWhiteSpace(subcontractorName)
+            : !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(marketplaceServiceId) && !string.IsNullOrWhiteSpace(unitOfMeasure) && quantity is not null && pricePerUnitExVat is not null);
+    private bool CanSave => details is not null && IsValidReportingMonth(reportMonth) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0 && HasRequiredMiFields;
     private string InvoiceClipboardEvidenceMessage => invoiceClipboardImageCount == 0 ? "Paste images here to add them to this invoice's evidence." : $"{invoiceClipboardImageCount} image{(invoiceClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
 
     protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;
@@ -171,7 +176,7 @@ else
     {
         if (details is null) return;
         var invoice = details.Invoice;
-        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = InvoiceReportingDefaults.UnitOfMeasure; quantity = InvoiceReportingDefaults.Quantity; pricePerUnitExVat = InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat); totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
+        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
     }
 
     private async Task SaveAsync()

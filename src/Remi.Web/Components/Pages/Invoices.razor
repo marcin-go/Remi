@@ -28,7 +28,7 @@ else
         <section class="register-workspace register-workspace-full" id="invoice-register">
             <article class="register-card">
                 <header class="register-card-header register-card-header-compact">
-                    <div><h2>Find and check invoices</h2><p>Contract matching and documents are checked in one place.</p></div>
+                    <div><h2>Find invoices and resolve issues</h2><p>Reporting failures and document gaps are shown here.</p></div>
                     <div class="register-result-count"><strong>@FilteredInvoices.Count</strong><span>matching invoices</span></div>
                 </header>
 
@@ -63,12 +63,12 @@ else
                     <table class="register-table invoice-register-table">
                         <thead><tr>
                             <th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th>
-                            <th aria-sort="@SortAria("invoice")"><button class="table-sort" @onclick="@(() => SortBy("invoice"))">Invoice <span aria-hidden="true">@SortIndicator("invoice")</span></button></th>
+                            <th aria-sort="@SortAria("invoice")"><button class="table-sort" @onclick="@(() => SortBy("invoice"))">Invoice designation <span aria-hidden="true">@SortIndicator("invoice")</span></button></th>
                             <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer &amp; contract <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
                             <th aria-sort="@SortAria("invoiceDate")"><button class="table-sort" @onclick="@(() => SortBy("invoiceDate"))">Invoice date <span aria-hidden="true">@SortIndicator("invoiceDate")</span></button></th>
                             <th aria-sort="@SortAria("reportMonth")"><button class="table-sort" @onclick="@(() => SortBy("reportMonth"))">Reporting month <span aria-hidden="true">@SortIndicator("reportMonth")</span></button></th>
                             <th aria-sort="@SortAria("value")"><button class="table-sort" @onclick="@(() => SortBy("value"))">Value <span aria-hidden="true">@SortIndicator("value")</span></button></th>
-                            <th aria-sort="@SortAria("checks")"><button class="table-sort" @onclick="@(() => SortBy("checks"))">Checks <span aria-hidden="true">@SortIndicator("checks")</span></button></th>
+                            <th aria-sort="@SortAria("issues")"><button class="table-sort" @onclick="@(() => SortBy("issues"))">Check <span aria-hidden="true">@SortIndicator("issues")</span></button></th>
                         </tr></thead>
                         <tbody>
                         @if (PagedInvoices.Count == 0)
@@ -85,14 +85,13 @@ else
                                 <td>@invoice.ReportMonth</td>
                                 <td class="register-currency"><strong>@Currency(invoice.TotalCostExVat)</strong></td>
                                 <td>
-                                    @if (invoice.HasMatchingContract && invoice.EvidenceCount > 0)
+                                    @if (IssueCount(invoice) == 0)
                                     {
-                                        <span class="register-status good"><i aria-hidden="true"></i>2 checks passed</span>
+                                        <span class="register-status good"><i aria-hidden="true"></i>Pass</span>
                                     }
                                     else
                                     {
-                                        @if (!invoice.HasMatchingContract) { <span class="register-status warning"><i aria-hidden="true"></i>Contract missing</span> }
-                                        @if (invoice.EvidenceCount == 0) { <span class="register-status warning"><i aria-hidden="true"></i>Documents missing</span> }
+                                        <span class="register-status error"><i aria-hidden="true"></i>@IssueCount(invoice) issue@(IssueCount(invoice) == 1 ? string.Empty : "s")</span>
                                     }
                                 </td>
                             </tr>
@@ -112,7 +111,7 @@ else
                 <section class="register-selection-bar" aria-label="Selected invoices">
                     <strong>@SelectedInvoices.Count selected</strong>
                     <span>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat)) combined value</span>
-                    <span class="@(SelectedInvoices.Any(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedInvoices.Count(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0) with exceptions</span>
+                    <span class="@(SelectedInvoices.Any(HasIssues) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedInvoices.Count(HasIssues) with issues</span>
                     <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
                 </section>
             }
@@ -123,10 +122,10 @@ else
                 <aside class="register-selection-drawer" role="dialog" aria-modal="true" aria-labelledby="selected-invoices-heading">
                     <header><div><span class="selection-count">@SelectedInvoices.Count</span><h2 id="selected-invoices-heading">Selected invoices</h2></div><button class="register-drawer-close" @onclick="CloseSelectionDrawer" aria-label="Close selected invoices">&#215;</button></header>
                 <p>Review the records that will be included in the next monthly return.</p>
-                <dl class="register-selection-summary"><div><dt>Combined value</dt><dd>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat))</dd></div><div><dt>Needs a contract</dt><dd class="warning-number">@SelectedInvoices.Count(invoice => !invoice.HasMatchingContract)</dd></div><div><dt>Evidence missing</dt><dd class="warning-number">@SelectedInvoices.Count(invoice => invoice.EvidenceCount == 0)</dd></div></dl>
-                @if (SelectedInvoices.Any(invoice => !invoice.HasMatchingContract || invoice.EvidenceCount == 0))
+                <dl class="register-selection-summary"><div><dt>Combined value</dt><dd>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat))</dd></div><div><dt>Reporting issues</dt><dd class="warning-number">@SelectedInvoices.Sum(invoice => invoice.Findings.Count)</dd></div><div><dt>Documents missing</dt><dd class="warning-number">@SelectedInvoices.Count(invoice => invoice.EvidenceCount == 0)</dd></div></dl>
+                @if (SelectedInvoices.Any(HasIssues))
                 {
-                    <p class="selection-warning">Resolve missing matches or evidence before submitting this group to the return.</p>
+                    <p class="selection-warning">Resolve the listed reporting issues or missing documents before submitting this group to the return.</p>
                 }
                 <ul class="selected-records">
                     @foreach (var invoice in SelectedInvoices)
@@ -155,7 +154,7 @@ else
     private string? selectionNotice;
     private bool selectionDrawerOpen;
     private int page = 1;
-    private string sortColumn = "invoiceDate";
+    private string sortColumn = "invoice";
     private bool sortDescending = true;
 
     protected override async Task OnInitializedAsync()
@@ -209,8 +208,8 @@ else
     private string SortAria(string column) => sortColumn == column ? sortDescending ? "descending" : "ascending" : "none";
     private IOrderedEnumerable<InvoiceRegisterItem> SortInvoices(IEnumerable<InvoiceRegisterItem> items) => (sortColumn, sortDescending) switch
     {
-        ("invoice", false) => items.OrderBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
-        ("invoice", true) => items.OrderByDescending(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("invoice", false) => items.OrderBy(item => item.InvoiceNumber, InvoiceDesignationComparer),
+        ("invoice", true) => items.OrderByDescending(item => item.InvoiceNumber, InvoiceDesignationComparer),
         ("customer", false) => items.OrderBy(item => item.CustomerName, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase),
         ("customer", true) => items.OrderByDescending(item => item.CustomerName, StringComparer.OrdinalIgnoreCase).ThenByDescending(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase),
         ("invoiceDate", false) => items.OrderBy(item => item.InvoiceDate is null).ThenBy(item => item.InvoiceDate).ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
@@ -219,11 +218,27 @@ else
         ("reportMonth", true) => items.OrderByDescending(item => item.ReportMonth, StringComparer.Ordinal),
         ("value", false) => items.OrderBy(item => item.TotalCostExVat),
         ("value", true) => items.OrderByDescending(item => item.TotalCostExVat),
-        ("checks", false) => items.OrderBy(item => CheckCount(item)),
-        ("checks", true) => items.OrderByDescending(item => CheckCount(item)),
-        _ => items.OrderByDescending(item => item.InvoiceDate).ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase),
+        ("issues", false) => items.OrderBy(IssueCount).ThenBy(item => item.InvoiceNumber, InvoiceDesignationComparer),
+        ("issues", true) => items.OrderByDescending(IssueCount).ThenBy(item => item.InvoiceNumber, InvoiceDesignationComparer),
+        _ => items.OrderBy(item => item.InvoiceNumber, InvoiceDesignationComparer),
     };
-    private static int CheckCount(InvoiceRegisterItem item) => (item.HasMatchingContract ? 1 : 0) + (item.EvidenceCount > 0 ? 1 : 0);
+    private static readonly Comparer<string> InvoiceDesignationComparer = Comparer<string>.Create(CompareInvoiceDesignations);
+    private static bool HasIssues(InvoiceRegisterItem item) => IssueCount(item) > 0;
+    private static int IssueCount(InvoiceRegisterItem item) => item.Findings.Count + (item.EvidenceCount == 0 ? 1 : 0);
+    private static int CompareInvoiceDesignations(string left, string right)
+    {
+        var leftIsNumber = long.TryParse(left, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var leftNumber);
+        var rightIsNumber = long.TryParse(right, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var rightNumber);
+        if (leftIsNumber && rightIsNumber)
+        {
+            var comparison = leftNumber.CompareTo(rightNumber);
+            return comparison != 0 ? comparison : StringComparer.OrdinalIgnoreCase.Compare(left, right);
+        }
+
+        return leftIsNumber != rightIsNumber
+            ? leftIsNumber ? -1 : 1
+            : StringComparer.OrdinalIgnoreCase.Compare(left, right);
+    }
     private void ResetPage() { page = 1; selectionNotice = null; }
     private void ResetFilters() { searchTerm = frameworkFilter = matchFilter = evidenceFilter = quickFilter = string.Empty; ResetPage(); }
     private bool IsSelected(Guid id) => selectedInvoiceIds.Contains(id);

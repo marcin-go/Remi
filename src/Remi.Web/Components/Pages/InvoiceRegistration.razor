@@ -61,7 +61,7 @@
                             {
                                 @foreach (var contract in MatchingContracts)
                                 {
-                                    <button type="button" role="option" aria-selected="@(contract.ContractId == selectedContractId)" @onclick="@(() => SelectContract(contract))">@ContractDescription(contract)</button>
+                                    <button type="button" role="option" aria-selected="@(contract.ContractId == selectedContractId)" @onclick="@(() => SelectContractAsync(contract))">@ContractDescription(contract)</button>
                                 }
                             }
                         </div>
@@ -128,6 +128,92 @@
                     }
                 </section>
 
+                @if (IntakeForm is { IsAvailable: true } form)
+                {
+                    <section class="invoice-details-section">
+                        <header><h2>@Frameworks.Get(SelectedContract.Framework).DisplayName invoice report fields</h2></header>
+                        <p class="invoice-field-help">This form matches the selected framework's MI workbook. Contract values are prefilled; choose a lot before its dependent service group.</p>
+                        <div class="invoice-details-grid">
+                            <label class="floating-field"><input required placeholder=" " @bind="customerName" @bind:event="oninput" /><span class="floating-label">Customer organisation name</span></label>
+                            <label class="floating-field"><input required placeholder=" " @bind="customerUrn" @bind:event="oninput" /><span class="floating-label">Customer URN</span></label>
+                            <label class="floating-field floating-field--static">
+                                <select required aria-label="Lot number" @bind="lotNumber" @bind:after="OnLotChanged">
+                                    <option value="">Select a lot</option>
+                                    @foreach (var lot in form.Lots)
+                                    {
+                                        <option value="@lot">@lot</option>
+                                    }
+                                </select>
+                                <span class="floating-label">Lot number</span>
+                            </label>
+                            @if (form.IsVas)
+                            {
+                                <label class="floating-field floating-field--static">
+                                    <select required aria-label="Product/service group level 1" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
+                                        <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a product/service group")</option>
+                                        @foreach (var group in ServiceGroupOptions)
+                                        {
+                                            <option value="@group">@group</option>
+                                        }
+                                    </select>
+                                    <span class="floating-label">Product/service group level 1</span>
+                                </label>
+                                <label class="floating-field floating-field--static">
+                                    <select required aria-label="Product/service group level 2" @bind="serviceGroupLevel2">
+                                        <option value="">Select a classification</option>
+                                        @foreach (var classification in form.ServiceGroupLevel2Options)
+                                        {
+                                            <option value="@classification">@classification</option>
+                                        }
+                                    </select>
+                                    <span class="floating-label">Product/service group level 2</span>
+                                </label>
+                                <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">Product/service description</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="originalVendor" @bind:event="oninput" /><span class="floating-label">Original vendor</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="subcontractorName" @bind:event="oninput" /><span class="floating-label">Subcontractor name</span></label>
+                            }
+                            else
+                            {
+                                <label class="floating-field floating-field--static">
+                                    <select required aria-label="Service group" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
+                                        <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>
+                                        @foreach (var group in ServiceGroupOptions)
+                                        {
+                                            <option value="@group">@group</option>
+                                        }
+                                    </select>
+                                    <span class="floating-label">Service group</span>
+                                </label>
+                                <label class="floating-field"><input required placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                <label class="floating-field floating-field--static">
+                                    <select required aria-label="Unit of measure" @bind="unitOfMeasure">
+                                        <option value="">Select a unit of measure</option>
+                                        @foreach (var unit in form.UnitOfMeasureOptions)
+                                        {
+                                            <option value="@unit">@unit</option>
+                                        }
+                                    </select>
+                                    <span class="floating-label">Unit of measure</span>
+                                </label>
+                                @if (SelectedContract.Framework == FrameworkCode.GCloud13)
+                                {
+                                    <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="pricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
+                                    <label class="floating-field"><input required type="number" step="0.01" @bind="quantity" /><span class="floating-label">Quantity</span></label>
+                                }
+                                else
+                                {
+                                    <label class="floating-field"><input required type="number" step="0.01" @bind="quantity" /><span class="floating-label">Quantity</span></label>
+                                    <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="pricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
+                                }
+                            }
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <p class="notice warning">An approved invoice template for @Frameworks.Get(SelectedContract.Framework).DisplayName is not available yet, so an invoice cannot be recorded from this form.</p>
+                }
+
                 <footer class="invoice-intake-actions">
                     <button type="button" class="invoice-command invoice-command-muted" @onclick="ConfirmCancelAsync">Cancel</button>
                     <button type="button" class="invoice-command invoice-command-save" disabled="@(!CanRecord || working)" @onclick="RecordInvoiceAsync">@(working ? "Saving…" : "Save invoice")</button>
@@ -147,12 +233,16 @@
     private DateOnly? invoiceDate;
     private string reportingMonth = string.Empty;
     private string initialReportingMonth = string.Empty;
-    private decimal totalCostExVat;
+    private decimal totalCostValue;
     private Guid? contractChangeId;
     private ReturnActionResult? submission;
     private bool working;
     private ClipboardImageEvidence? clipboardEvidence;
     private int clipboardImageCount;
+    private string customerName = string.Empty, customerUrn = string.Empty, lotNumber = string.Empty, serviceGroup = string.Empty, serviceGroupLevel2 = string.Empty, serviceDescription = string.Empty, orderChannel = string.Empty, digitalMarketplaceServiceId = string.Empty, unitOfMeasure = string.Empty, originalVendor = string.Empty, subcontractorName = string.Empty;
+    private decimal? quantity;
+    private decimal? pricePerUnitExVatValue;
+    private bool pricePerUnitManuallySet;
 
     private InvoiceRegistrationContract? SelectedContract => selectedContractId is Guid contractId
         ? contracts?.SingleOrDefault(contract => contract.ContractId == contractId)
@@ -165,10 +255,22 @@
         .Take(5)
         .ToList();
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private bool CanRecord => SelectedContract is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && totalCostExVat != 0;
+    private MiInvoiceIntakeForm? IntakeForm => SelectedContract is { } contract ? MiInvoiceIntakeForms.For(contract.Framework) : null;
+    private IReadOnlyList<string> ServiceGroupOptions => IntakeForm?.ServiceGroupsFor(lotNumber) ?? [];
+    private decimal totalCostExVat { get => totalCostValue; set { totalCostValue = value; if (!pricePerUnitManuallySet) pricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value); } }
+    private decimal? pricePerUnitExVat { get => pricePerUnitExVatValue; set { pricePerUnitManuallySet = true; pricePerUnitExVatValue = value; } }
+    private bool HasRequiredMiFields => IntakeForm is { IsAvailable: true } form
+        && !string.IsNullOrWhiteSpace(customerName)
+        && !string.IsNullOrWhiteSpace(customerUrn)
+        && form.Lots.Contains(lotNumber, StringComparer.Ordinal)
+        && form.ServiceGroupsFor(lotNumber).Contains(serviceGroup, StringComparer.Ordinal)
+        && (form.IsVas
+            ? form.ServiceGroupLevel2Options.Contains(serviceGroupLevel2, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(originalVendor) && !string.IsNullOrWhiteSpace(subcontractorName)
+            : !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) && form.UnitOfMeasureOptions.Contains(unitOfMeasure, StringComparer.Ordinal) && quantity is not null && pricePerUnitExVat is not null);
+    private bool CanRecord => SelectedContract is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && totalCostExVat != 0 && HasRequiredMiFields;
     private bool InvoiceExceedsRecordedValue => SelectedContract is not null && totalCostExVat > SelectedContract.RemainingCommittedValueExVat;
     private decimal InvoiceOverage => SelectedContract is null ? 0 : Math.Max(0, totalCostExVat - SelectedContract.RemainingCommittedValueExVat);
-    private bool HasUnsavedInvoiceChanges => !string.IsNullOrWhiteSpace(invoiceNumber) || invoiceDate is not null || totalCostExVat != 0 || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private bool HasUnsavedInvoiceChanges => !string.IsNullOrWhiteSpace(invoiceNumber) || invoiceDate is not null || totalCostExVat != 0 || !string.IsNullOrWhiteSpace(customerName) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
     private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as invoice evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private IReadOnlyList<string> ReportingMonthOptions
     {
@@ -204,7 +306,7 @@
         submission = null;
     }
 
-    private void HandleContractSearchKeyDown(KeyboardEventArgs args)
+    private async Task HandleContractSearchKeyDown(KeyboardEventArgs args)
     {
         if (args.Key == "Escape")
         {
@@ -212,17 +314,18 @@
         }
         else if (args.Key == "Enter" && MatchingContracts.Count == 1)
         {
-            SelectContract(MatchingContracts[0]);
+            await SelectContractAsync(MatchingContracts[0]);
         }
     }
 
-    private void SelectContract(InvoiceRegistrationContract contract)
+    private async Task SelectContractAsync(InvoiceRegistrationContract contract)
     {
         selectedContractId = contract.ContractId;
         contractChangeId = null;
         contractSearch = ContractDescription(contract);
         contractSuggestionsOpen = false;
         submission = null;
+        await PopulateInvoiceReportingFieldsAsync(contract);
     }
 
     private async Task RecordInvoiceAsync()
@@ -237,22 +340,22 @@
             submission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(
                 contract.Framework,
                 contract.SupplierReference,
-                contract.CustomerName,
-                contract.CustomerUrn,
+                customerName,
+                customerUrn,
                 invoiceDate,
                 invoiceNumber,
-                contract.LotNumber,
-                contract.ServiceGroup,
-                contract.ServiceGroupLevel2,
-                contract.ServiceDescription,
-                contract.OrderChannel,
-                contract.DigitalMarketplaceServiceId,
-                null,
-                null,
-                null,
+                lotNumber,
+                serviceGroup,
+                serviceGroupLevel2,
+                serviceDescription,
+                orderChannel,
+                digitalMarketplaceServiceId,
+                unitOfMeasure,
+                quantity,
+                pricePerUnitExVat,
                 totalCostExVat,
-                null,
-                null,
+                originalVendor,
+                subcontractorName,
                 reportingMonth,
                 "Manual invoice registration",
                 contractChangeId));
@@ -262,13 +365,13 @@
                 {
                     await clipboardEvidence!.ArchiveAsync("invoice", invoiceId);
                 }
-                ResetForm();
+                await ResetFormAsync();
             }
         }
         finally { working = false; }
     }
 
-    private void ResetForm()
+    private async Task ResetFormAsync()
     {
         invoiceNumber = string.Empty;
         invoiceDate = null;
@@ -276,6 +379,65 @@
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
         clipboardImageCount = 0;
         contractChangeId = null;
+        if (SelectedContract is { } contract)
+        {
+            await PopulateInvoiceReportingFieldsAsync(contract);
+        }
+    }
+
+    private async Task PopulateInvoiceReportingFieldsAsync(InvoiceRegistrationContract contract)
+    {
+        customerName = contract.CustomerName;
+        customerUrn = contract.CustomerUrn ?? string.Empty;
+        lotNumber = contract.LotNumber ?? string.Empty;
+        serviceGroup = contract.ServiceGroup ?? string.Empty;
+        serviceGroupLevel2 = contract.ServiceGroupLevel2 ?? string.Empty;
+        serviceDescription = contract.ServiceDescription ?? string.Empty;
+        orderChannel = contract.OrderChannel ?? string.Empty;
+        digitalMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty;
+        var suggestion = await Workspace.GetInvoiceReportingSuggestionAsync(contract.ContractId);
+        unitOfMeasure = suggestion.UnitOfMeasure;
+        quantity = suggestion.Quantity;
+        pricePerUnitManuallySet = false;
+        pricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(totalCostExVat);
+        originalVendor = suggestion.OriginalVendor;
+        subcontractorName = suggestion.SubcontractorName;
+        ReconcileTemplateSelections();
+    }
+
+    private void OnLotChanged()
+    {
+        serviceGroup = string.Empty;
+    }
+
+    private void ReconcileTemplateSelections()
+    {
+        if (IntakeForm is not { IsAvailable: true } form)
+        {
+            return;
+        }
+
+        if (!form.Lots.Contains(lotNumber, StringComparer.Ordinal))
+        {
+            lotNumber = string.Empty;
+        }
+
+        if (!form.ServiceGroupsFor(lotNumber).Contains(serviceGroup, StringComparer.Ordinal))
+        {
+            serviceGroup = string.Empty;
+        }
+
+        if (form.IsVas)
+        {
+            if (!form.ServiceGroupLevel2Options.Contains(serviceGroupLevel2, StringComparer.Ordinal))
+            {
+                serviceGroupLevel2 = string.Empty;
+            }
+        }
+        else if (!form.UnitOfMeasureOptions.Contains(unitOfMeasure, StringComparer.Ordinal))
+        {
+            unitOfMeasure = string.Empty;
+        }
     }
 
     private async Task ConfirmCancelAsync()

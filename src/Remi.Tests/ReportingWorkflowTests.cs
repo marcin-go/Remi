@@ -243,7 +243,7 @@ public sealed class ReportingWorkflowTests
         var workspace = Workspace(database);
 
         var recorded = await workspace.RecordInvoiceAsync(new InvoiceEntry(
-            FrameworkCode.GCloud14, "RM-001", "Example customer", "URN-001", new DateOnly(2026, 7, 31), "INV-001", "Lot 1", null, null, null, null, null, null, null, null, 250, null, null, "2026-07", "test", changeId));
+            FrameworkCode.GCloud14, "RM-001", "Example customer", "URN-001", new DateOnly(2026, 7, 31), "INV-001", "Lot 1", "Cloud support", null, null, null, "123456", "Per unit", 1, 250, 250, null, null, "2026-07", "test", changeId));
 
         Assert.True(recorded.Succeeded);
         Assert.Contains(database.InvoiceContractChangeLinks, link => link.InvoiceId == recorded.EntityId && link.ContractChangeId == changeId);
@@ -385,10 +385,10 @@ public sealed class ReportingWorkflowTests
         new(new InMemoryStore(database), null!, null!, null!, null!, timeProvider ?? TimeProvider.System);
 
     private static ContractRecord Contract(Guid id, FrameworkCode framework, string reference, string reportMonth) =>
-        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), "Lot 1", null, null, null, null, null, 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
+        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), "Lot 1", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic information system" : "Cloud support", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
 
     private static InvoiceRecord Invoice(Guid id, FrameworkCode framework, string reference, string number, decimal value, string reportMonth) =>
-        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 7, 1), number, "Lot 1", null, null, null, null, null, "each", 1, value, value, null, null, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
+        new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 7, 1), number, "Lot 1", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic information system" : "Cloud support", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", "each", 1, value, value, InvoiceReportingDefaults.OriginalVendor, InvoiceReportingDefaults.SubcontractorName, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
 
     private sealed class InMemoryStore(RemiDatabase database) : IRemiStore
     {

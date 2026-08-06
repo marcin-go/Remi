@@ -36,7 +36,7 @@ public sealed class WorkbookExportTests
     }
 
     [Fact]
-    public async Task Gcloud_export_uses_standard_invoice_values_and_data_row_formatting_for_sparse_template_columns()
+    public async Task Gcloud_export_uses_recorded_invoice_values_and_data_row_formatting_for_sparse_template_columns()
     {
         using var template = CreateTemplate(FrameworkCode.GCloud14, includeSparseInvoiceDataRow: true);
         var exporter = new XlsxMiWorkbookExporter();
@@ -48,7 +48,7 @@ public sealed class WorkbookExportTests
         var cells = invoiceSheet.Descendants(SpreadsheetNamespace + "c")
             .Where(cell => ((string?)cell.Attribute("r"))?.EndsWith("2", StringComparison.Ordinal) == true)
             .ToDictionary(cell => (string)cell.Attribute("r")!, cell => cell, StringComparer.Ordinal);
-        Assert.Equal("Per unit", CellValue(cells["I2"]));
+        Assert.Equal("each", CellValue(cells["I2"]));
         Assert.Equal("1", CellValue(cells["J2"]));
         Assert.Equal("1000", CellValue(cells["K2"]));
         Assert.Equal("1000", CellValue(cells["L2"]));

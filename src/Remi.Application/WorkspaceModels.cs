@@ -109,6 +109,16 @@ public sealed record InvoiceRegistrationContract(
     decimal RemainingCommittedValueExVat,
     int UnconfirmedChangeCount);
 
+/// <summary>
+/// Values that are not held on a contract, suggested from the most recent invoice information
+/// recorded against the same contract. The invoice form still shows these values for review.
+/// </summary>
+public sealed record InvoiceReportingSuggestion(
+    string UnitOfMeasure,
+    decimal Quantity,
+    string OriginalVendor,
+    string SubcontractorName);
+
 public sealed record EvidenceLink(
     Guid Id,
     EvidenceKind Kind,
@@ -325,7 +335,8 @@ public sealed record InvoiceRegisterItem(
     string ReportMonth,
     int EvidenceCount,
     bool HasMatchingContract,
-    string SourceWorkbook);
+    string SourceWorkbook,
+    IReadOnlyList<ValidationFinding> Findings);
 
 /// <summary>
 /// A read-only preview of a source-data folder before importing it into Remi.

@@ -70,6 +70,8 @@ public static class ReportingRules
 
         foreach (var invoice in database.Invoices)
         {
+            ValidateInvoiceReportingFields(invoice, findings);
+
             if (!contracts.Contains((invoice.Framework, NormaliseReference(invoice.SupplierReference))))
             {
                 findings.Add(Error(
@@ -105,6 +107,56 @@ public static class ReportingRules
                 $"{Frameworks.Get(duplicate.Key.Framework).DisplayName}: invoice {duplicate.Key.InvoiceNumber} for {duplicate.Key.Reference} has been imported more than once.",
                 "Invoice",
                 first.Id));
+        }
+    }
+
+    private static void ValidateInvoiceReportingFields(InvoiceRecord invoice, ICollection<ValidationFinding> findings)
+    {
+        Require(invoice, invoice.SupplierReference, "MissingInvoiceSupplierReference", "supplier reference number", findings);
+        Require(invoice, invoice.CustomerName, "MissingInvoiceCustomerName", "customer organisation name", findings);
+        Require(invoice, invoice.CustomerUrn, "MissingInvoiceCustomerUrn", "customer URN", findings);
+        if (invoice.InvoiceDate is null)
+        {
+            findings.Add(Error("MissingInvoiceDate", $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: a customer invoice or credit note date is required.", "Invoice", invoice.Id));
+        }
+
+        Require(invoice, invoice.InvoiceNumber, "MissingInvoiceNumber", "customer invoice or credit note number", findings);
+        Require(invoice, invoice.LotNumber, "MissingInvoiceLot", "lot number", findings);
+
+        if (invoice.Framework == FrameworkCode.VerticalApplicationSolutions)
+        {
+            Require(invoice, invoice.ServiceGroup, "MissingInvoiceServiceGroupLevel1", "product/service group level 1", findings);
+            Require(invoice, invoice.ServiceGroupLevel2, "MissingInvoiceServiceGroupLevel2", "product/service group level 2", findings);
+            Require(invoice, invoice.ServiceDescription, "MissingInvoiceServiceDescription", "product/service description", findings);
+            Require(invoice, invoice.OriginalVendor, "MissingInvoiceOriginalVendor", "original vendor", findings);
+            Require(invoice, invoice.SubcontractorName, "MissingInvoiceSubcontractorName", "subcontractor name", findings);
+            return;
+        }
+
+        Require(invoice, invoice.ServiceGroup, "MissingInvoiceServiceGroup", "service group", findings);
+        Require(invoice, invoice.DigitalMarketplaceServiceId, "MissingInvoiceDigitalMarketplaceServiceId", "Digital Marketplace service ID", findings);
+        Require(invoice, invoice.UnitOfMeasure, "MissingInvoiceUnitOfMeasure", "unit of measure", findings);
+        if (invoice.Quantity is null)
+        {
+            findings.Add(Error("MissingInvoiceQuantity", $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: a quantity is required.", "Invoice", invoice.Id));
+        }
+
+        if (invoice.PricePerUnitExVat is null)
+        {
+            findings.Add(Error("MissingInvoicePricePerUnit", $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: a price per unit, ex VAT is required.", "Invoice", invoice.Id));
+        }
+    }
+
+    private static void Require(
+        InvoiceRecord invoice,
+        string? value,
+        string code,
+        string field,
+        ICollection<ValidationFinding> findings)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            findings.Add(Error(code, $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: {field} is required.", "Invoice", invoice.Id));
         }
     }
 

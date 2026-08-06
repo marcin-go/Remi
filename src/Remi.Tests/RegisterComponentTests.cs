@@ -132,7 +132,67 @@ public sealed class RegisterComponentTests
             Assert.Contains("RM-001", registration.Markup);
             Assert.Single(registration.FindAll(".invoice-contract-summary"));
             Assert.Single(registration.FindAll(".invoice-intake-actions"));
-            Assert.Equal(4, registration.FindAll(".invoice-details-grid label").Count);
+            Assert.Equal(12, registration.FindAll(".invoice-details-grid label").Count);
+        });
+    }
+
+    [Fact]
+    public void G_cloud_invoice_form_cascades_the_service_group_from_the_selected_lot()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<InvoiceRegistrationPage>();
+
+        registration.Find("input[role='combobox'][aria-label='Contract']").Input("RM-001");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("button[role='option']")));
+        registration.Find("button[role='option']").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            var lot = registration.Find("select[aria-label='Lot number']");
+            Assert.Equal(["", "1", "2", "3"], lot.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+            Assert.True(registration.Find("select[aria-label='Service group']").HasAttribute("disabled"));
+            Assert.Equal(["", "Per Unit", "Per User"], registration.Find("select[aria-label='Unit of measure']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+        });
+
+        registration.Find("select[aria-label='Lot number']").Change("3");
+
+        registration.WaitForAssertion(() =>
+        {
+            var serviceGroup = registration.Find("select[aria-label='Service group']");
+            Assert.False(serviceGroup.HasAttribute("disabled"));
+            Assert.Equal(
+                ["", "Ongoing Support", "Planning", "Security Services", "Setup and Migration", "Testing", "Training"],
+                serviceGroup.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+        });
+    }
+
+    [Fact]
+    public void Vas_invoice_form_cascades_product_group_from_lot_and_uses_its_own_fields()
+    {
+        using var context = CreateContext(FrameworkCode.VerticalApplicationSolutions);
+        var registration = context.Render<InvoiceRegistrationPage>();
+
+        registration.Find("input[role='combobox'][aria-label='Contract']").Input("VAS-001");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("button[role='option']")));
+        registration.Find("button[role='option']").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Contains("Vertical Application Solutions invoice report fields", registration.Markup);
+            Assert.Empty(registration.FindAll("select[aria-label='Unit of measure']"));
+            Assert.DoesNotContain("Digital Marketplace service ID", registration.Markup);
+        });
+
+        registration.Find("select[aria-label='Lot number']").Change("3");
+
+        registration.WaitForAssertion(() =>
+        {
+            var productGroup = registration.Find("select[aria-label='Product/service group level 1']");
+            Assert.False(productGroup.HasAttribute("disabled"));
+            Assert.Contains("Geographic Information System (GIS)", productGroup.TextContent);
+            Assert.Equal(
+                ["", "Software", "Hardware", "Associated Service"],
+                registration.Find("select[aria-label='Product/service group level 2']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
         });
     }
 
@@ -211,11 +271,14 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() => Assert.Single(cut.FindAll(".invoice-register-table tbody tr")));
         var row = cut.Find(".invoice-register-table tbody tr");
 
-        Assert.StartsWith("Invoice", cut.FindAll(".invoice-register-table th")[1].TextContent.Trim(), StringComparison.Ordinal);
+        Assert.Equal("Invoice designation ↓", cut.FindAll(".invoice-register-table th")[1].TextContent.Trim());
         Assert.Null(row.GetAttribute("tabindex"));
         Assert.Single(row.QuerySelectorAll("a.register-reference"));
         Assert.Empty(row.QuerySelectorAll(".table-action-cell"));
         Assert.Empty(row.QuerySelectorAll(".remi-action"));
+        Assert.Equal("Check ↕", cut.FindAll(".invoice-register-table th")[6].TextContent.Trim());
+        Assert.DoesNotContain("checks passed", cut.Markup, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("checks passed", row.TextContent, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RM6259", row.TextContent);
         Assert.DoesNotContain("excl. VAT", row.TextContent);
     }
@@ -261,7 +324,7 @@ public sealed class RegisterComponentTests
         });
     }
 
-    private static BunitContext CreateContext()
+    private static BunitContext CreateContext(FrameworkCode? additionalFramework = null)
     {
         var database = new RemiDatabase
         {
@@ -276,11 +339,11 @@ public sealed class RegisterComponentTests
                     new DateOnly(2026, 1, 1),
                     new DateOnly(2026, 12, 31),
                     "Lot 1",
+                    "Cloud support",
                     null,
                     null,
                     null,
-                    null,
-                    null,
+                    "123456",
                     1000,
                     "2026-07",
                     "test.xlsx",
@@ -297,22 +360,43 @@ public sealed class RegisterComponentTests
                     new DateOnly(2026, 7, 1),
                     "INV-001",
                     "Lot 1",
+                    "Geographic information system",
+                    "Software",
+                    "StatMap GIS system",
+                    "Direct award",
                     null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
+                    "Per unit",
+                    1,
                     500,
-                    null,
-                    null,
+                    500,
+                    InvoiceReportingDefaults.OriginalVendor,
+                    InvoiceReportingDefaults.SubcontractorName,
                     "2026-07",
                     "RM6259 source.xlsx",
                     DateTimeOffset.UtcNow),
             ],
         };
+        if (additionalFramework == FrameworkCode.VerticalApplicationSolutions)
+        {
+            database.Contracts.Add(new ContractRecord(
+                Guid.Parse("9f2dc10e-9554-47d0-8870-8dbb6bb94e4a"),
+                FrameworkCode.VerticalApplicationSolutions,
+                "VAS-001",
+                "VAS example customer",
+                "URN-002",
+                new DateOnly(2026, 1, 1),
+                new DateOnly(2026, 12, 31),
+                "2",
+                null,
+                null,
+                "Example VAS service",
+                "Direct Award",
+                null,
+                1000,
+                "2026-07",
+                "test.xlsx",
+                DateTimeOffset.UtcNow));
+        }
         var reportingPeriod = new ReportingPeriodContext(TimeProvider.System);
         reportingPeriod.Synchronise(["2026-07"], "2026-07");
         var context = new BunitContext();

@@ -154,6 +154,8 @@ public sealed class MigrationRunner(
             ledgerPaymentPositions = ledgerImport.PaymentPositionsAdded;
         }
 
+        await workspace.CompleteMigratedRecordsAsync(cancellationToken: cancellationToken);
+
         var dashboard = await workspace.GetDashboardAsync(cancellationToken);
         return new MigrationReport(
             plan,

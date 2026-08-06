@@ -187,24 +187,35 @@ public sealed class ReportingWorkspace(
         }, cancellationToken);
 
     public Task<IReadOnlyList<InvoiceRegisterItem>> GetInvoiceRegisterAsync(CancellationToken cancellationToken = default) =>
-        store.ReadAsync(database => (IReadOnlyList<InvoiceRegisterItem>)database.Invoices
-            .Select(invoice => new InvoiceRegisterItem(
-                invoice.Id,
-                invoice.Framework,
-                invoice.SupplierReference,
-                invoice.CustomerName,
-                invoice.InvoiceNumber,
-                invoice.InvoiceDate,
-                invoice.TotalCostExVat,
-                invoice.ReportMonth,
-                EvidenceForInvoice(database, invoice).Count,
-                database.Contracts.Any(contract =>
-                    contract.Framework == invoice.Framework &&
-                    ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference)),
-                invoice.SourceWorkbook))
-            .OrderByDescending(item => item.InvoiceDate)
-            .ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase)
-            .ToList(), cancellationToken);
+        store.ReadAsync(database =>
+        {
+            var findingsByInvoice = ReportingRules.Validate(database)
+                .Where(finding => finding.EntityType == "Invoice" && finding.EntityId is not null)
+                .GroupBy(finding => finding.EntityId!.Value)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<ValidationFinding>)group.ToList());
+
+            return (IReadOnlyList<InvoiceRegisterItem>)database.Invoices
+                .Select(invoice => new InvoiceRegisterItem(
+                    invoice.Id,
+                    invoice.Framework,
+                    invoice.SupplierReference,
+                    invoice.CustomerName,
+                    invoice.InvoiceNumber,
+                    invoice.InvoiceDate,
+                    invoice.TotalCostExVat,
+                    invoice.ReportMonth,
+                    EvidenceForInvoice(database, invoice).Count,
+                    database.Contracts.Any(contract =>
+                        contract.Framework == invoice.Framework &&
+                        ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference)),
+                    invoice.SourceWorkbook,
+                    findingsByInvoice.GetValueOrDefault(invoice.Id, [])))
+                .OrderByDescending(item => item.InvoiceDate)
+                .ThenBy(item => item.InvoiceNumber, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }, cancellationToken);
 
     public Task<IReadOnlyList<InvoiceRegistrationContract>> GetInvoiceRegistrationContractsAsync(CancellationToken cancellationToken = default)
     {
@@ -237,6 +248,84 @@ public sealed class ReportingWorkspace(
             })
             .ToList(), cancellationToken);
     }
+
+    /// <summary>
+    /// Supplies the invoice-only defaults for a selected contract. Values already recorded on an
+    /// earlier invoice take precedence; otherwise the standard MI defaults are used.
+    /// </summary>
+    public Task<InvoiceReportingSuggestion> GetInvoiceReportingSuggestionAsync(
+        Guid contractId,
+        CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (contract is null)
+            {
+                return new InvoiceReportingSuggestion(
+                    InvoiceReportingDefaults.UnitOfMeasure,
+                    InvoiceReportingDefaults.Quantity,
+                    InvoiceReportingDefaults.OriginalVendor,
+                    InvoiceReportingDefaults.SubcontractorName);
+            }
+
+            var invoices = database.Invoices
+                .Where(invoice => invoice.Framework == contract.Framework &&
+                    ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
+                .OrderByDescending(invoice => invoice.InvoiceDate)
+                .ThenByDescending(invoice => invoice.CreatedAtUtc)
+                .ToList();
+            return new InvoiceReportingSuggestion(
+                invoices.Select(invoice => invoice.UnitOfMeasure).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.UnitOfMeasure,
+                invoices.Select(invoice => invoice.Quantity).FirstOrDefault(value => value is > 0) ?? InvoiceReportingDefaults.Quantity,
+                invoices.Select(invoice => invoice.OriginalVendor).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.OriginalVendor,
+                invoices.Select(invoice => invoice.SubcontractorName).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? InvoiceReportingDefaults.SubcontractorName);
+        }, cancellationToken);
+
+    /// <summary>
+    /// Completes historical records from the collection of supplied MI workbooks. A value from an
+    /// invoice's own workbook always wins; another MI workbook for the same contract fills only a
+    /// blank field. The retired Ledger is intentionally not used for this purpose.
+    /// </summary>
+    public Task<int> CompleteMigratedRecordsAsync(
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var completedCount = 0;
+            var now = timeProvider.GetUtcNow();
+            foreach (var invoice in database.Invoices.ToList())
+            {
+                var contract = database.Contracts.SingleOrDefault(item =>
+                    item.Framework == invoice.Framework &&
+                    ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference));
+                var relatedInvoices = database.Invoices
+                    .Where(item => item.Id != invoice.Id &&
+                        item.Framework == invoice.Framework &&
+                        ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(invoice.SupplierReference))
+                    .OrderByDescending(item => item.InvoiceDate)
+                    .ThenByDescending(item => item.CreatedAtUtc)
+                    .ToList();
+                var completed = CompleteMigratedInvoice(invoice, contract, relatedInvoices);
+                if (completed == invoice)
+                {
+                    continue;
+                }
+
+                database.Invoices[database.Invoices.IndexOf(invoice)] = completed;
+                completedCount++;
+                RecordAudit(
+                    database,
+                    now,
+                    "InvoiceCompletedFromMiWorkbooks",
+                    "Invoice",
+                    invoice.Id,
+                    $"Completed blank MI fields for invoice {invoice.InvoiceNumber} for {invoice.SupplierReference} from the supplied MI workbooks.",
+                    null,
+                    actor);
+            }
+
+            return completedCount;
+        }, cancellationToken);
 
     /// <summary>
     /// Imports a completed workbook from the one-off historical source-data baseline.
@@ -301,6 +390,22 @@ public sealed class ReportingWorkspace(
                 var key = (framework, ReportingRules.NormaliseReference(contract.SupplierReference));
                 if (!existingContractReferences.Add(key))
                 {
+                    var existing = database.Contracts.Single(item =>
+                        item.Framework == framework &&
+                        ReportingRules.NormaliseReference(item.SupplierReference) == key.Item2);
+                    var completed = MergeMiContractDetails(existing, contract);
+                    if (completed != existing)
+                    {
+                        database.Contracts[database.Contracts.IndexOf(existing)] = completed;
+                        RecordAudit(
+                            database,
+                            now,
+                            "ContractCompletedFromMiWorkbooks",
+                            "Contract",
+                            existing.Id,
+                            $"Completed blank MI fields for contract {existing.SupplierReference} from {workbookName}.",
+                            null);
+                    }
                     existingContracts++;
                     continue;
                 }
@@ -334,6 +439,21 @@ public sealed class ReportingWorkspace(
                 var key = InvoiceKey(framework, invoice.SupplierReference, invoice.InvoiceNumber, invoice.InvoiceDate, invoice.TotalCostExVat);
                 if (!existingInvoices.Add(key))
                 {
+                    var existing = database.Invoices.Single(item =>
+                        InvoiceKey(item.Framework, item.SupplierReference, item.InvoiceNumber, item.InvoiceDate, item.TotalCostExVat) == key);
+                    var completed = MergeMiInvoiceDetails(existing, invoice);
+                    if (completed != existing)
+                    {
+                        database.Invoices[database.Invoices.IndexOf(existing)] = completed;
+                        RecordAudit(
+                            database,
+                            now,
+                            "InvoiceCompletedFromMiWorkbooks",
+                            "Invoice",
+                            existing.Id,
+                            $"Completed blank MI fields for invoice {existing.InvoiceNumber} for {existing.SupplierReference} from {workbookName}.",
+                            null);
+                    }
                     existingInvoiceCount++;
                     continue;
                 }
@@ -352,12 +472,12 @@ public sealed class ReportingWorkspace(
                     invoice.ServiceDescription,
                     invoice.OrderChannel,
                     invoice.DigitalMarketplaceServiceId,
-                    InvoiceReportingDefaults.UnitOfMeasure,
-                    InvoiceReportingDefaults.Quantity,
-                    InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat),
+                    NullIfWhiteSpace(invoice.UnitOfMeasure),
+                    invoice.Quantity,
+                    invoice.PricePerUnitExVat,
                     invoice.TotalCostExVat,
-                    invoice.OriginalVendor,
-                    invoice.SubcontractorName,
+                    NullIfWhiteSpace(invoice.OriginalVendor),
+                    NullIfWhiteSpace(invoice.SubcontractorName),
                     reportingMonth,
                     imported.WorkbookName,
                     now));
@@ -707,12 +827,12 @@ public sealed class ReportingWorkspace(
                 NullIfWhiteSpace(entry.ServiceDescription),
                 NullIfWhiteSpace(entry.OrderChannel),
                 NullIfWhiteSpace(entry.DigitalMarketplaceServiceId),
-                InvoiceReportingDefaults.UnitOfMeasure,
-                InvoiceReportingDefaults.Quantity,
-                InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat),
+                NullIfWhiteSpace(entry.UnitOfMeasure) ?? InvoiceReportingDefaults.UnitOfMeasure,
+                entry.Quantity ?? InvoiceReportingDefaults.Quantity,
+                entry.PricePerUnitExVat ?? InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat),
                 entry.TotalCostExVat,
-                NullIfWhiteSpace(entry.OriginalVendor),
-                NullIfWhiteSpace(entry.SubcontractorName),
+                NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor,
+                NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName,
                 entry.ReportMonth,
                 string.IsNullOrWhiteSpace(entry.SourceDescription) ? "Manual entry" : entry.SourceDescription.Trim(),
                 now);
@@ -999,7 +1119,7 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract change does not belong to this invoice's contract.", []);
             }
 
-            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), InvoiceReportingDefaults.UnitOfMeasure, InvoiceReportingDefaults.Quantity, InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor), NullIfWhiteSpace(entry.SubcontractorName), entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
+            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure) ?? InvoiceReportingDefaults.UnitOfMeasure, entry.Quantity ?? InvoiceReportingDefaults.Quantity, entry.PricePerUnitExVat ?? InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor, NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName, entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Invoices.IndexOf(existing);
             var previousLinks = database.InvoiceContractChangeLinks.Where(link => link.InvoiceId == invoiceId).ToList();
             database.Invoices[index] = updated;
@@ -1482,9 +1602,9 @@ public sealed class ReportingWorkspace(
                 CardField("Lot number", invoice.LotNumber),
                 CardField("Service Group", invoice.ServiceGroup),
                 CardField("Digital Marketplace Service ID", invoice.DigitalMarketplaceServiceId),
-                CardField("Unit of Measure", InvoiceReportingDefaults.UnitOfMeasure),
-                CardField("Quantity", (int)InvoiceReportingDefaults.Quantity),
-                CardField("Price per Unit", InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat)),
+                CardField("Unit of Measure", invoice.UnitOfMeasure),
+                CardField("Quantity", invoice.Quantity),
+                CardField("Price per Unit", invoice.PricePerUnitExVat),
                 CardField("Total Cost (ex VAT)", invoice.TotalCostExVat),
             ];
 
@@ -2001,6 +2121,70 @@ public sealed class ReportingWorkspace(
             DigitalMarketplaceServiceId = Coalesce(ledger.DigitalMarketplaceServiceId, contract.DigitalMarketplaceServiceId),
             TotalContractValueExVat = ledger.TotalContractValueExVat is > 0 ? ledger.TotalContractValueExVat.Value : contract.TotalContractValueExVat,
         };
+
+    private static ContractRecord MergeMiContractDetails(ContractRecord contract, ImportedContract source) =>
+        contract with
+        {
+            CustomerName = Coalesce(contract.CustomerName, source.CustomerName) ?? contract.CustomerName,
+            CustomerUrn = Coalesce(contract.CustomerUrn, source.CustomerUrn),
+            StartDate = contract.StartDate ?? source.StartDate,
+            EndDate = contract.EndDate ?? source.EndDate,
+            LotNumber = Coalesce(contract.LotNumber, source.LotNumber),
+            ServiceGroup = Coalesce(contract.ServiceGroup, source.ServiceGroup),
+            ServiceGroupLevel2 = Coalesce(contract.ServiceGroupLevel2, source.ServiceGroupLevel2),
+            ServiceDescription = Coalesce(contract.ServiceDescription, source.ServiceDescription),
+            OrderChannel = Coalesce(contract.OrderChannel, source.OrderChannel),
+            DigitalMarketplaceServiceId = Coalesce(contract.DigitalMarketplaceServiceId, source.DigitalMarketplaceServiceId),
+        };
+
+    private static InvoiceRecord MergeMiInvoiceDetails(InvoiceRecord invoice, ImportedInvoice source) =>
+        invoice with
+        {
+            CustomerName = Coalesce(invoice.CustomerName, source.CustomerName) ?? invoice.CustomerName,
+            CustomerUrn = Coalesce(invoice.CustomerUrn, source.CustomerUrn),
+            InvoiceDate = invoice.InvoiceDate ?? source.InvoiceDate,
+            LotNumber = Coalesce(invoice.LotNumber, source.LotNumber),
+            ServiceGroup = Coalesce(invoice.ServiceGroup, source.ServiceGroup),
+            ServiceGroupLevel2 = Coalesce(invoice.ServiceGroupLevel2, source.ServiceGroupLevel2),
+            ServiceDescription = Coalesce(invoice.ServiceDescription, source.ServiceDescription),
+            OrderChannel = Coalesce(invoice.OrderChannel, source.OrderChannel),
+            DigitalMarketplaceServiceId = Coalesce(invoice.DigitalMarketplaceServiceId, source.DigitalMarketplaceServiceId),
+            UnitOfMeasure = Coalesce(invoice.UnitOfMeasure, source.UnitOfMeasure),
+            Quantity = invoice.Quantity ?? source.Quantity,
+            PricePerUnitExVat = invoice.PricePerUnitExVat ?? source.PricePerUnitExVat,
+            OriginalVendor = Coalesce(invoice.OriginalVendor, source.OriginalVendor),
+            SubcontractorName = Coalesce(invoice.SubcontractorName, source.SubcontractorName),
+        };
+
+    private static InvoiceRecord CompleteMigratedInvoice(
+        InvoiceRecord invoice,
+        ContractRecord? contract,
+        IReadOnlyList<InvoiceRecord> relatedInvoices)
+    {
+        string? RelatedValue(Func<InvoiceRecord, string?> selector) => relatedInvoices
+            .Select(selector)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        decimal? RelatedNumber(Func<InvoiceRecord, decimal?> selector) => relatedInvoices
+            .Select(selector)
+            .FirstOrDefault(value => value is > 0);
+
+        return invoice with
+        {
+            CustomerName = Coalesce(invoice.CustomerName, contract?.CustomerName) ?? invoice.CustomerName,
+            CustomerUrn = Coalesce(invoice.CustomerUrn, Coalesce(contract?.CustomerUrn, RelatedValue(item => item.CustomerUrn))),
+            LotNumber = Coalesce(invoice.LotNumber, Coalesce(contract?.LotNumber, RelatedValue(item => item.LotNumber))),
+            ServiceGroup = Coalesce(invoice.ServiceGroup, Coalesce(contract?.ServiceGroup, RelatedValue(item => item.ServiceGroup))),
+            ServiceGroupLevel2 = Coalesce(invoice.ServiceGroupLevel2, Coalesce(contract?.ServiceGroupLevel2, RelatedValue(item => item.ServiceGroupLevel2))),
+            ServiceDescription = Coalesce(invoice.ServiceDescription, Coalesce(contract?.ServiceDescription, RelatedValue(item => item.ServiceDescription))),
+            OrderChannel = Coalesce(invoice.OrderChannel, Coalesce(contract?.OrderChannel, RelatedValue(item => item.OrderChannel))),
+            DigitalMarketplaceServiceId = Coalesce(invoice.DigitalMarketplaceServiceId, Coalesce(contract?.DigitalMarketplaceServiceId, RelatedValue(item => item.DigitalMarketplaceServiceId))),
+            UnitOfMeasure = Coalesce(invoice.UnitOfMeasure, RelatedValue(item => item.UnitOfMeasure)) ?? InvoiceReportingDefaults.UnitOfMeasure,
+            Quantity = invoice.Quantity ?? RelatedNumber(item => item.Quantity) ?? InvoiceReportingDefaults.Quantity,
+            PricePerUnitExVat = invoice.PricePerUnitExVat ?? RelatedNumber(item => item.PricePerUnitExVat) ?? InvoiceReportingDefaults.PricePerUnitExVat(invoice.TotalCostExVat),
+            OriginalVendor = Coalesce(invoice.OriginalVendor, RelatedValue(item => item.OriginalVendor)) ?? InvoiceReportingDefaults.OriginalVendor,
+            SubcontractorName = Coalesce(invoice.SubcontractorName, RelatedValue(item => item.SubcontractorName)) ?? InvoiceReportingDefaults.SubcontractorName,
+        };
+    }
 
     private static string? Coalesce(string? preferred, string? fallback) =>
         string.IsNullOrWhiteSpace(preferred) ? fallback : preferred.Trim();

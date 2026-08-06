@@ -192,12 +192,12 @@ public sealed class XlsxMiWorkbookImporter : IWorkbookImporter
             isVas ? Optional(row, "productservicedescription") : null,
             isVas ? Optional(row, "orderchannel") : null,
             isVas ? null : Optional(row, "digitalmarketplaceserviceid"),
-            InvoiceReportingDefaults.UnitOfMeasure,
-            InvoiceReportingDefaults.Quantity,
-            InvoiceReportingDefaults.PricePerUnitExVat(totalCostExVat),
+            Optional(row, "unitofmeasure"),
+            ReadDecimal(Optional(row, "quantity")),
+            ReadDecimal(Optional(row, "priceperunit")),
             totalCostExVat,
-            isVas ? Optional(row, "originalvendor") : null,
-            isVas ? Optional(row, "subcontractorname") : null);
+            Optional(row, "originalvendor"),
+            Optional(row, "subcontractorname"));
     }
 
     private static XDocument LoadXml(ZipArchive archive, string path)
