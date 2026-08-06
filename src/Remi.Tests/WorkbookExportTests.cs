@@ -74,6 +74,64 @@ public sealed class WorkbookExportTests
         AssertDateText(invoiceSheet, InvoiceHeaders(framework), "Customer invoice credit note date", "31/07/2026");
     }
 
+    [Fact]
+    public async Task Export_expands_worksheet_dimensions_to_include_every_generated_row()
+    {
+        using var template = CreateTemplate(FrameworkCode.GCloud14);
+        var exporter = new XlsxMiWorkbookExporter();
+        var firstInvoice = Invoice(FrameworkCode.GCloud14);
+        var secondInvoice = firstInvoice with { Id = Guid.NewGuid(), InvoiceNumber = "INV-002" };
+
+        var generated = await exporter.GenerateAsync(
+            FrameworkCode.GCloud14,
+            template,
+            [Contract(FrameworkCode.GCloud14)],
+            [firstInvoice, secondInvoice]);
+
+        using var archive = new ZipArchive(generated.Content, ZipArchiveMode.Read, leaveOpen: true);
+        var contractSheet = ReadXml(archive, "xl/worksheets/sheet1.xml");
+        var invoiceSheet = ReadXml(archive, "xl/worksheets/sheet2.xml");
+
+        Assert.Equal("A1:G2", (string?)contractSheet.Root?.Element(SpreadsheetNamespace + "dimension")?.Attribute("ref"));
+        Assert.Equal("A1:L3", (string?)invoiceSheet.Root?.Element(SpreadsheetNamespace + "dimension")?.Attribute("ref"));
+    }
+
+    [Fact]
+    public async Task Gcloud_export_writes_numeric_urn_lot_and_service_identifiers_as_numbers()
+    {
+        using var template = CreateTemplate(FrameworkCode.GCloud14);
+        var exporter = new XlsxMiWorkbookExporter();
+        var contract = Contract(FrameworkCode.GCloud14) with
+        {
+            CustomerUrn = "10001001",
+            LotNumber = "2",
+            DigitalMarketplaceServiceId = "309912649523824",
+        };
+        var invoice = Invoice(FrameworkCode.GCloud14) with
+        {
+            CustomerUrn = "10001001",
+            LotNumber = "2",
+            DigitalMarketplaceServiceId = "309912649523824",
+        };
+
+        var generated = await exporter.GenerateAsync(
+            FrameworkCode.GCloud14,
+            template,
+            [contract],
+            [invoice]);
+
+        using var archive = new ZipArchive(generated.Content, ZipArchiveMode.Read, leaveOpen: true);
+        var invoiceSheet = ReadXml(archive, "xl/worksheets/sheet2.xml");
+        var cells = invoiceSheet.Descendants(SpreadsheetNamespace + "c")
+            .Where(cell => ((string?)cell.Attribute("r")) is "B2" or "F2" or "H2")
+            .ToDictionary(cell => (string)cell.Attribute("r")!, cell => cell, StringComparer.Ordinal);
+
+        Assert.Equal("10001001", CellValue(cells["B2"]));
+        Assert.Equal("2", CellValue(cells["F2"]));
+        Assert.Equal("309912649523824", CellValue(cells["H2"]));
+        Assert.All(cells.Values, cell => Assert.Null((string?)cell.Attribute("t")));
+    }
+
     private static MemoryStream CreateTemplate(FrameworkCode framework, bool includeSparseInvoiceDataRow = false)
     {
         var output = new MemoryStream();
@@ -114,7 +172,10 @@ public sealed class WorkbookExportTests
                 new XElement(SpreadsheetNamespace + "c", new XAttribute("r", $"{ColumnName(index)}2"), new XAttribute("s", index == 3 ? "4" : "3")))));
         }
 
-        return new XDocument(new XElement(SpreadsheetNamespace + "worksheet", new XElement(SpreadsheetNamespace + "sheetData", rows)));
+        return new XDocument(new XElement(
+            SpreadsheetNamespace + "worksheet",
+            new XElement(SpreadsheetNamespace + "dimension", new XAttribute("ref", $"A1:{ColumnName(headers.Count - 1)}1")),
+            new XElement(SpreadsheetNamespace + "sheetData", rows)));
     }
 
     private static IReadOnlyList<string> ContractHeaders(FrameworkCode framework) =>

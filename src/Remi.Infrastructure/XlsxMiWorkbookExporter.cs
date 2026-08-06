@@ -226,8 +226,45 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
             sheetData.Add(row);
         }
 
+        UpdateSheetDimension(sheetDocument, sheetData);
         replacements[sheet.Path] = Serialize(sheetDocument);
         UpdateTableReferences(archive, sheet, values.Count, replacements);
+    }
+
+    private static void UpdateSheetDimension(XDocument sheetDocument, XElement sheetData)
+    {
+        var cells = sheetData
+            .Descendants(SpreadsheetNamespace + "c")
+            .Select(cell => (string?)cell.Attribute("r"))
+            .Where(reference => !string.IsNullOrWhiteSpace(reference))
+            .Select(reference => new CellReference(ColumnName(reference!), ParseRowNumber(reference!)))
+            .Where(reference => reference.Column.Length != 0 && reference.Row > 0)
+            .ToList();
+        if (cells.Count == 0 || sheetDocument.Root is null)
+        {
+            return;
+        }
+
+        var firstColumn = cells.MinBy(reference => ColumnIndex(reference.Column))!.Column;
+        var lastColumn = cells.MaxBy(reference => ColumnIndex(reference.Column))!.Column;
+        var firstRow = cells.Min(reference => reference.Row);
+        var lastRow = cells.Max(reference => reference.Row);
+        var dimension = sheetDocument.Root.Element(SpreadsheetNamespace + "dimension");
+        if (dimension is null)
+        {
+            dimension = new XElement(SpreadsheetNamespace + "dimension");
+            var sheetViews = sheetDocument.Root.Element(SpreadsheetNamespace + "sheetViews");
+            if (sheetViews is null)
+            {
+                sheetDocument.Root.AddFirst(dimension);
+            }
+            else
+            {
+                sheetViews.AddBeforeSelf(dimension);
+            }
+        }
+
+        dimension.SetAttributeValue("ref", $"{firstColumn}{firstRow}:{lastColumn}{lastRow}");
     }
 
     private static void UpdateTableReferences(
@@ -273,34 +310,34 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
     private static IReadOnlyDictionary<string, object?> ToContractRow(ContractRecord contract) => new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["supplierreferencenumber"] = contract.SupplierReference,
-        ["customeruniquereferencenumberurn"] = contract.CustomerUrn,
+        ["customeruniquereferencenumberurn"] = WholeNumberOrText(contract.CustomerUrn),
         ["customerorganisationname"] = contract.CustomerName,
         ["contractstartdate"] = DateText(contract.StartDate),
         ["contractenddate"] = DateText(contract.EndDate),
-        ["lotnumber"] = contract.LotNumber,
+        ["lotnumber"] = WholeNumberOrText(contract.LotNumber),
         ["servicegroup"] = contract.ServiceGroup,
         ["productservicegrouplevel1"] = contract.ServiceGroup,
         ["productservicegrouplevel2"] = contract.ServiceGroupLevel2,
         ["productservicedescription"] = contract.ServiceDescription,
         ["orderchannel"] = contract.OrderChannel,
-        ["digitalmarketplaceserviceid"] = contract.DigitalMarketplaceServiceId,
+        ["digitalmarketplaceserviceid"] = WholeNumberOrText(contract.DigitalMarketplaceServiceId),
         ["totalcontractvalue"] = contract.TotalContractValueExVat,
     };
 
     private static IReadOnlyDictionary<string, object?> ToInvoiceRow(InvoiceRecord invoice) => new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["supplierreferencenumber"] = invoice.SupplierReference,
-        ["customeruniquereferencenumberurn"] = invoice.CustomerUrn,
+        ["customeruniquereferencenumberurn"] = WholeNumberOrText(invoice.CustomerUrn),
         ["customerorganisationname"] = invoice.CustomerName,
         ["customerinvoicecreditnotedate"] = DateText(invoice.InvoiceDate),
         ["customerinvoicecreditnotenumber"] = invoice.InvoiceNumber,
-        ["lotnumber"] = invoice.LotNumber,
+        ["lotnumber"] = WholeNumberOrText(invoice.LotNumber),
         ["servicegroup"] = invoice.ServiceGroup,
         ["productservicegrouplevel1"] = invoice.ServiceGroup,
         ["productservicegrouplevel2"] = invoice.ServiceGroupLevel2,
         ["productservicedescription"] = invoice.ServiceDescription,
         ["orderchannel"] = invoice.OrderChannel,
-        ["digitalmarketplaceserviceid"] = invoice.DigitalMarketplaceServiceId,
+        ["digitalmarketplaceserviceid"] = WholeNumberOrText(invoice.DigitalMarketplaceServiceId),
         ["unitofmeasure"] = invoice.UnitOfMeasure,
         ["quantity"] = invoice.Quantity,
         ["priceperunit"] = invoice.PricePerUnitExVat,
@@ -330,6 +367,10 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
                 cell.SetAttributeValue("t", null);
                 cell.Add(new XElement(SpreadsheetNamespace + "v", integer.ToString(CultureInfo.InvariantCulture)));
                 break;
+            case long integer:
+                cell.SetAttributeValue("t", null);
+                cell.Add(new XElement(SpreadsheetNamespace + "v", integer.ToString(CultureInfo.InvariantCulture)));
+                break;
             default:
                 cell.SetAttributeValue("t", "inlineStr");
                 var text = new XElement(SpreadsheetNamespace + "t", Convert.ToString(value, CultureInfo.InvariantCulture));
@@ -345,6 +386,9 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
 
     private static string? DateText(DateOnly? date) =>
         date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
+    private static object? WholeNumberOrText(string? value) =>
+        long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number : value;
 
     private static Dictionary<string, string> ReadRelationships(ZipArchive archive, string relationshipPath, string sourcePart, bool missingIsEmpty = false)
     {
@@ -481,6 +525,8 @@ public sealed class XlsxMiWorkbookExporter : IMiWorkbookExporter
 
         public WorksheetDescription? TryGetSheet(string name) => Sheets.SingleOrDefault(sheet => string.Equals(sheet.Name.Replace(" ", string.Empty, StringComparison.Ordinal), name.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase));
     }
+
+    private sealed record CellReference(string Column, int Row);
 
     private sealed record WorksheetDescription(
         string Name,
