@@ -7,6 +7,7 @@ using ContractRecordView = Remi.Web.Components.ContractRecordView;
 using Remi.Web.Components.Layout;
 using ContractsRegister = Remi.Web.Components.Pages.Contracts;
 using DashboardPage = Remi.Web.Components.Pages.Dashboard;
+using InvoiceRecordView = Remi.Web.Components.InvoiceRecordView;
 using InvoiceRegistrationPage = Remi.Web.Components.Pages.InvoiceRegistration;
 using InvoicesRegister = Remi.Web.Components.Pages.Invoices;
 using ReportingRegister = Remi.Web.Components.Pages.Reporting;
@@ -250,7 +251,12 @@ public sealed class RegisterComponentTests
         using var context = CreateContext();
         var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
 
-        cut.WaitForAssertion(() => Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim()));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim());
+            Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
+            Assert.Empty(cut.FindAll(".contract-edit-panel"));
+        });
         cut.Find(".contract-hero-actions button.secondary").Click();
 
         cut.WaitForAssertion(() =>
@@ -259,6 +265,30 @@ public sealed class RegisterComponentTests
             Assert.Equal(["Save", "Cancel"], actions.QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
             Assert.Empty(actions.QuerySelectorAll("a"));
             Assert.False(actions.QuerySelector("button.primary")!.HasAttribute("disabled"));
+            Assert.Empty(cut.FindAll(".record-display-grid"));
+            Assert.Equal(14, cut.FindAll(".contract-edit-panel .floating-field").Count);
+        });
+    }
+
+    [Fact]
+    public void Invoice_editing_replaces_display_fields_with_matching_floating_fields()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<InvoiceRecordView>(parameters => parameters.Add(component => component.InvoiceId, SampleInvoiceId));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
+            Assert.Empty(cut.FindAll(".contract-edit-panel"));
+        });
+
+        cut.Find(".contract-hero-actions button.secondary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Empty(cut.FindAll(".record-display-grid"));
+            Assert.Equal(19, cut.FindAll(".contract-edit-panel .floating-field").Count);
+            Assert.Equal(["Save", "Cancel"], cut.Find(".contract-hero-actions").QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
         });
     }
 

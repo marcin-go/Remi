@@ -482,3 +482,21 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
 .contract-change-flipper input:focus-visible + .contract-change-flipper-control { box-shadow: 0 0 0 2px #0e6a86; }
 .contract-change-flipper input:disabled + .contract-change-flipper-control { opacity: 0.55; }
 .contract-change-flipper:has(input:disabled) { cursor: default; }
+
+/* Record views use the settled state of the floating-field pattern. */
+.record-display-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.25rem; margin: 0; }
+.record-display-grid > div { display: grid; align-content: start; gap: 0.3rem; min-width: 0; min-height: 3.65rem; padding: 0.35rem 0 0.75rem; border-bottom: 1px solid #edf1f3; }
+.record-display-grid > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.record-display-grid dt { color: #597080; font-size: 0.6875rem; font-weight: 650; }
+.record-display-grid dd { margin: 0; color: #143c5d; font-size: 0.9375rem; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.record-display-grid dd.not-recorded { color: #8493a0; font-style: italic; font-weight: 500; }
+.contract-edit-panel { max-width: 64rem; margin-bottom: 0; padding: 0; background: #fff; border: 1px solid #dce5e9; border-radius: 0.75rem; }
+.contract-edit-panel .panel-heading { padding: 1.1rem 1.25rem; border-bottom: 1px solid #dce5e9; }
+.contract-edit-panel .record-edit-fields { max-width: none; margin: 0; padding: 1.25rem; }
+.contract-edit-panel .notice { margin: 0 1.25rem 1.25rem; }
+
+@media (max-width: 760px) {
+    .record-display-grid { grid-template-columns: 1fr; }
+    .record-display-grid > div:nth-last-child(-n + 2) { border-bottom: 1px solid #edf1f3; }
+    .record-display-grid > div:last-child { border-bottom: 0; }
+}

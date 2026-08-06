@@ -61,32 +61,39 @@ else
                         <ClipboardImageEvidence @ref="invoiceClipboardEvidence" OnDocumentsChanged="SetInvoiceClipboardImageCount">
                         <section class="contract-edit-panel">
                             <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Invoice information</h2></div></div>
-                            <div class="form-grid">
-                                <label>Framework<select @bind="framework">@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
-                                <label>Reporting month <span class="required">required</span><input required @bind="reportMonth" placeholder="YYYY-MM" /></label>
-                                <label>Supplier reference <span class="required">required</span><input required @bind="supplierReference" /></label>
-                                <label>Customer <span class="required">required</span><input required @bind="customerName" /></label>
-                                <label>Customer URN <span class="required">required</span><input required @bind="customerUrn" /></label><label>Invoice date<input type="date" @bind="invoiceDate" /></label>
-                                <label>Invoice or credit note number <span class="required">required</span><input required @bind="invoiceNumber" /></label><label>Lot <span class="required">required</span><input required @bind="lotNumber" /></label>
-                                <label>Service group / level 1 <span class="required">required</span><input required @bind="serviceGroup" /></label><label>Service group / level 2<input @bind="serviceGroupLevel2" /></label>
-                                <label>Service description<input @bind="serviceDescription" /></label><label>Order channel<input @bind="orderChannel" /></label>
-                                <label>Digital Marketplace service ID<input @bind="marketplaceServiceId" /></label><label>Unit of measure<input @bind="unitOfMeasure" /></label>
-                                <label>Quantity<input type="number" step="0.01" @bind="quantity" /></label><label>Price per unit, ex VAT<input type="number" step="0.01" @bind="pricePerUnitExVat" /></label>
-                                <label>Total cost, ex VAT <span class="required">required</span><input type="number" step="0.01" @bind="totalCostExVat" /></label><label>Original vendor<input @bind="originalVendor" /></label>
-                                <label>Subcontractor name<input @bind="subcontractorName" /></label>
+                            <div class="invoice-details-grid record-edit-fields">
+                                <label class="floating-field floating-field--static"><select @bind="framework">@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="reportMonth" /><span class="floating-label">Reporting month</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="supplierReference" /><span class="floating-label">Supplier reference</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="customerName" /><span class="floating-label">Customer</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="customerUrn" /><span class="floating-label">Customer URN</span></label>
+                                <label class="floating-field floating-field--static"><input type="date" @bind="invoiceDate" /><span class="floating-label">Invoice date</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" /><span class="floating-label">Invoice or credit note number</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="lotNumber" /><span class="floating-label">Lot</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="serviceGroup" /><span class="floating-label">Service group / level 1</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="serviceGroupLevel2" /><span class="floating-label">Service group / level 2</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="serviceDescription" /><span class="floating-label">Service description</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="orderChannel" /><span class="floating-label">Order channel</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="marketplaceServiceId" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="unitOfMeasure" /><span class="floating-label">Unit of measure</span></label>
+                                <label class="floating-field"><input type="number" step="0.01" @bind="quantity" /><span class="floating-label">Quantity</span></label>
+                                <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input type="number" step="0.01" @bind="pricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
+                                <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="totalCostExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="originalVendor" /><span class="floating-label">Original vendor</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="subcontractorName" /><span class="floating-label">Subcontractor name</span></label>
                             </div>
-                            <div class="action-row"><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button></div>
                             @if (submission is not null) { <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p> }
                         </section>
                         </ClipboardImageEvidence>
                     }
-
+                    else
+                    {
                     <div class="contract-overview-layout">
                         <article class="contract-content-card">
                             <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Invoice overview</h2><p>Accounting facts and reporting attributes held for this record.</p></div></header>
                             <section class="contract-detail-section">
                                 <h3>Invoice and parties</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Framework</dt><dd>@Frameworks.Get(details.Invoice.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div>
                                     <div><dt>Supplier reference</dt><dd>@details.Invoice.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Invoice.CustomerName</dd></div>
                                     <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Invoice.CustomerUrn)">@Display(details.Invoice.CustomerUrn)</dd></div><div><dt>Invoice date</dt><dd>@Display(details.Invoice.InvoiceDate)</dd></div>
@@ -95,14 +102,14 @@ else
                             </section>
                             <section class="contract-detail-section">
                                 <h3>Cost and quantity</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Total cost, ex VAT</dt><dd>@Currency(details.Invoice.TotalCostExVat)</dd></div><div><dt>Unit of measure</dt><dd class="@NotRecordedClass(details.Invoice.UnitOfMeasure)">@Display(details.Invoice.UnitOfMeasure)</dd></div>
                                     <div><dt>Quantity</dt><dd class="@NotRecordedClass(details.Invoice.Quantity)">@Display(details.Invoice.Quantity)</dd></div><div><dt>Price per unit, ex VAT</dt><dd class="@NotRecordedClass(details.Invoice.PricePerUnitExVat)">@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
                                 <h3>Service classification</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Lot</dt><dd class="@NotRecordedClass(details.Invoice.LotNumber)">@Display(details.Invoice.LotNumber)</dd></div><div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroup)">@Display(details.Invoice.ServiceGroup)</dd></div>
                                     <div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroupLevel2)">@Display(details.Invoice.ServiceGroupLevel2)</dd></div><div><dt>Service description</dt><dd class="@NotRecordedClass(details.Invoice.ServiceDescription)">@Display(details.Invoice.ServiceDescription)</dd></div>
                                     <div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Invoice.OrderChannel)">@Display(details.Invoice.OrderChannel)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Invoice.DigitalMarketplaceServiceId)">@Display(details.Invoice.DigitalMarketplaceServiceId)</dd></div>
@@ -116,6 +123,7 @@ else
                             <section><h2>Related contract</h2>@if (details.Contract is not null) { <a class="contract-source-file" href="@ContractRoute(details.Contract.Id)"><span>▧</span><strong>@details.Contract.SupplierReference<small>@details.Contract.CustomerName</small></strong><b aria-hidden="true">›</b></a> } else { <p class="muted">No registered contract matches this invoice reference.</p> }</section>
                         </aside>
                     </div>
+                    }
                 </div>
             }
             else if (activeTab == "evidence")

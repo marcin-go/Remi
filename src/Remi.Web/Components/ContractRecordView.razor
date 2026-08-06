@@ -62,28 +62,34 @@ else
                         <ClipboardImageEvidence @ref="contractClipboardEvidence" OnDocumentsChanged="SetContractClipboardImageCount">
                         <section class="contract-edit-panel">
                             <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Contract information</h2></div></div>
-                            <div class="form-grid">
-                                <label>Framework<select @bind="editFramework">@foreach (var framework in Frameworks.All) { <option value="@framework.Code">@framework.DisplayName</option> }</select></label>
-                                <label>Reporting month <span class="required">required</span><input required @bind="editReportingMonth" placeholder="YYYY-MM" /></label>
-                                <label>Supplier reference <span class="required">required</span><input required @bind="editSupplierReference" /></label>
-                                <label>Customer <span class="required">required</span><input required @bind="editCustomerName" /></label>
-                                <label>Customer URN<input @bind="editCustomerUrn" /></label><label>Lot<input @bind="editLotNumber" /></label>
-                                <label>Start date<input type="date" @bind="editStartDate" /></label><label>End date<input type="date" @bind="editEndDate" /></label>
-                                <label>Total value, ex VAT <span class="required">required</span><input type="number" step="0.01" @bind="editContractValue" /></label><label>Digital Marketplace service ID<input @bind="editMarketplaceServiceId" /></label>
-                                <label>Service group / level 1<input @bind="editServiceGroup" /></label><label>Service group / level 2<input @bind="editServiceGroupLevel2" /></label>
-                                <label>Service description<input @bind="editServiceDescription" /></label><label>Order channel<input @bind="editOrderChannel" /></label>
+                            <div class="invoice-details-grid record-edit-fields">
+                                <label class="floating-field floating-field--static"><select @bind="editFramework">@foreach (var framework in Frameworks.All) { <option value="@framework.Code">@framework.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="editReportingMonth" /><span class="floating-label">Reporting month</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="editSupplierReference" /><span class="floating-label">Supplier reference</span></label>
+                                <label class="floating-field"><input required placeholder=" " @bind="editCustomerName" /><span class="floating-label">Customer</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editCustomerUrn" /><span class="floating-label">Customer URN</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editLotNumber" /><span class="floating-label">Lot</span></label>
+                                <label class="floating-field floating-field--static"><input type="date" @bind="editStartDate" /><span class="floating-label">Start date</span></label>
+                                <label class="floating-field floating-field--static"><input type="date" @bind="editEndDate" /><span class="floating-label">End date</span></label>
+                                <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="editContractValue" /><span class="floating-label">Total value, ex VAT</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editMarketplaceServiceId" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editServiceGroup" /><span class="floating-label">Service group / level 1</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editServiceGroupLevel2" /><span class="floating-label">Service group / level 2</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editServiceDescription" /><span class="floating-label">Service description</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="editOrderChannel" /><span class="floating-label">Order channel</span></label>
                             </div>
-                            <div class="action-row"><button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save")</button></div>
                             @if (contractSubmission is not null) { <p class="notice @(contractSubmission.Succeeded ? "success" : "error")" role="status">@contractSubmission.Message</p> }
                         </section>
                         </ClipboardImageEvidence>
                     }
+                    else
+                    {
                     <div class="contract-overview-layout">
                         <article class="contract-content-card">
                             <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Contract overview</h2><p>The signed-contract information used for monthly reporting.</p></div></header>
                             <section class="contract-detail-section">
                                 <h3>▧ Framework and parties</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Framework</dt><dd>@Frameworks.Get(details.Contract.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div>
                                     <div><dt>Supplier reference</dt><dd>@details.Contract.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Contract.CustomerName</dd></div>
                                     <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Contract.CustomerUrn)">@Display(details.Contract.CustomerUrn)</dd></div><div><dt>Lot</dt><dd class="@NotRecordedClass(details.Contract.LotNumber)">@Display(details.Contract.LotNumber)</dd></div>
@@ -91,14 +97,14 @@ else
                             </section>
                             <section class="contract-detail-section">
                                 <h3>▣ Dates and commercial information</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Start date</dt><dd>@Display(details.Contract.StartDate)</dd></div><div><dt>End date</dt><dd>@Display(details.Contract.EndDate)</dd></div>
                                     <div><dt>Total value, ex VAT</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Contract.DigitalMarketplaceServiceId)">@Display(details.Contract.DigitalMarketplaceServiceId)</dd></div>
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
                                 <h3>≡ Service classification</h3>
-                                <dl class="contract-definition-grid">
+                                <dl class="record-display-grid">
                                     <div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroup)">@Display(details.Contract.ServiceGroup)</dd></div><div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Contract.ServiceGroupLevel2)">@Display(details.Contract.ServiceGroupLevel2)</dd></div>
                                     <div><dt>Service description</dt><dd class="@NotRecordedClass(details.Contract.ServiceDescription)">@Display(details.Contract.ServiceDescription)</dd></div><div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Contract.OrderChannel)">@Display(details.Contract.OrderChannel)</dd></div>
                                 </dl>
@@ -135,6 +141,7 @@ else
                             <section><h2>Register source</h2>@if (SourceEvidence is not null) { <a class="contract-source-file" href="@($"/evidence/{SourceEvidence.Id}/download")"><span>▧</span><strong>@SourceEvidence.FileName<small>Imported source workbook</small></strong><b aria-hidden="true">↓</b></a> } else { <p class="muted">@details.Contract.SourceWorkbook<br />Source file is not in the local archive.</p> }</section>
                         </aside>
                     </div>
+                    }
                 </div>
             }
             else if (activeTab == "changes")
