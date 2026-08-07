@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.DataProtection;
 using Remi.Application;
 using Remi.Infrastructure;
@@ -39,7 +41,13 @@ builder.Services.AddRazorComponents()
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDirectory, "protection-keys")))
     .SetApplicationName("Remi");
-builder.Services.AddSingleton<IRemiStore>(_ => new SqliteRemiStore(dataPath));
+builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 4L * 1024 * 1024 * 1024);
+builder.Services.AddSingleton<SqliteRemiStore>(_ => new SqliteRemiStore(dataPath));
+builder.Services.AddSingleton<IRemiStore>(services => services.GetRequiredService<SqliteRemiStore>());
+builder.Services.AddSingleton<IRemiDataTransfer>(services => new RemiDataTransferService(
+    dataDirectory,
+    dataPath,
+    services.GetRequiredService<SqliteRemiStore>()));
 builder.Services.AddSingleton<IEvidenceArchive>(_ => new FileEvidenceArchive(RemiDataPaths.EvidenceDirectoryFor(dataPath)));
 builder.Services.AddHttpClient("GcaCustomerUrnSource", client =>
 {
@@ -180,6 +188,55 @@ app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
         content,
         cancellationToken);
     return Results.Ok(new { archived });
+});
+
+app.MapGet("/data-transfer/export", async (
+    HttpResponse response,
+    IRemiDataTransfer dataTransfer,
+    CancellationToken cancellationToken) =>
+{
+    response.ContentType = "application/zip";
+    response.Headers.ContentDisposition = $"attachment; filename=remi-data-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.zip";
+    await dataTransfer.ExportAsync(response.Body, cancellationToken);
+});
+
+app.MapPost("/data-transfer/import", async (
+    HttpRequest request,
+    IAntiforgery antiforgery,
+    IRemiDataTransfer dataTransfer,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        await antiforgery.ValidateRequestAsync(request.HttpContext);
+    }
+    catch (AntiforgeryValidationException)
+    {
+        return Results.BadRequest("The import form has expired. Reload Settings and confirm the import again.");
+    }
+
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest("Choose a Remi data-transfer ZIP file.");
+    }
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var confirmsReplacement = string.Equals(form["confirmDestructiveImport"], "on", StringComparison.OrdinalIgnoreCase);
+    var confirmsPackage = string.Equals(form["confirmTransferPackage"], "on", StringComparison.OrdinalIgnoreCase);
+    if (!confirmsReplacement || !confirmsPackage || !string.Equals(form["replacementPhrase"], "REPLACE", StringComparison.Ordinal))
+    {
+        return Results.BadRequest("Import was not confirmed. Acknowledge both warnings and type REPLACE before importing.");
+    }
+
+    var package = form.Files.GetFile("package");
+    if (package is null || package.Length <= 0 || !string.Equals(Path.GetExtension(package.FileName), ".zip", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest("Choose a non-empty Remi data-transfer ZIP file.");
+    }
+
+    await using var packageStream = package.OpenReadStream();
+    await dataTransfer.ImportAsync(packageStream, cancellationToken);
+    return Results.Redirect("/settings?section=data-transfer&import=complete");
 });
 
 app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (

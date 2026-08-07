@@ -411,6 +411,61 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         return invoices;
     }
 
+    /// <summary>
+    /// Makes a transactionally consistent SQLite backup while excluding transient WAL state.
+    /// </summary>
+    public async Task BackupAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureInitializedAsync(cancellationToken);
+            var destinationDirectory = Path.GetDirectoryName(Path.GetFullPath(destinationPath))
+                ?? throw new InvalidOperationException("The SQLite backup path has no parent directory.");
+            Directory.CreateDirectory(destinationDirectory);
+            if (File.Exists(destinationPath))
+            {
+                File.Delete(destinationPath);
+            }
+
+            await using var source = await OpenConnectionAsync(cancellationToken);
+            await using var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = destinationPath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false,
+            }.ToString());
+            await destination.OpenAsync(cancellationToken);
+            source.BackupDatabase(destination);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Prevents register operations while a verified datastore is being swapped in.
+    /// </summary>
+    public async Task ReplaceDataAsync(Func<CancellationToken, Task> replacement, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureInitializedAsync(cancellationToken);
+            SqliteConnection.ClearAllPools();
+            initialized = false;
+            await replacement(cancellationToken);
+            await EnsureInitializedAsync(cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     private static async Task<List<ContractChangeRecord>> LoadContractChangesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using var command = CreateCommand(connection, "SELECT id, contract_id, kind, agreement_date, effective_start_date, effective_end_date, incremental_value_ex_vat, was_provided_for_in_original_call_off, has_written_agreement, reference, created_at_utc FROM contract_changes ORDER BY agreement_date, created_at_utc, id;");

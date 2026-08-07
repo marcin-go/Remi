@@ -22,6 +22,7 @@
             <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
             <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
             <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
+            <a class="@SectionLinkClass(DataTransferSection)" href="@SectionLink(DataTransferSection)">Import / Export</a>
         </nav>
     </aside>
     <div class="settings-content">
@@ -172,6 +173,50 @@
 {
     <Templates View="audit" />
 }
+
+@if (ActiveSection == DataTransferSection)
+{
+<section class="panel maintenance-panel data-transfer-panel">
+    <p class="eyebrow">Data transfer</p>
+    <h2>Export complete Remi data</h2>
+    <p>Download a portable Remi data-transfer ZIP to move this instance to another computer. It includes the register, all retained evidence, approved templates, reference data and other persistent Remi data.</p>
+    <div class="action-row">
+        <a class="button primary" href="/data-transfer/export">Export Remi data</a>
+    </div>
+    <p class="caption">Keep the ZIP secure. It can contain customer, contract, invoice and evidence information. Runtime logs are not included.</p>
+</section>
+
+<section class="panel maintenance-panel data-transfer-panel data-transfer-panel--danger">
+    <p class="eyebrow">Destructive action</p>
+    <h2>Import and replace this Remi datastore</h2>
+    <p><strong>Warning:</strong> importing permanently replaces every item currently stored by this Remi instance with the contents of the selected ZIP. This includes the register, evidence, templates and locally stored reference data. It cannot be undone.</p>
+    <p>Export this computer's current data first if there is any chance you will need to recover it. Only import ZIPs exported by Remi.</p>
+    <form class="data-transfer-import" method="post" action="/data-transfer/import" enctype="multipart/form-data">
+        <AntiforgeryToken />
+        <label for="data-transfer-package">Remi data-transfer ZIP
+            <input id="data-transfer-package" name="package" type="file" accept=".zip,application/zip" required />
+        </label>
+        <label class="review-confirmation destructive-confirmation">
+            <input name="confirmDestructiveImport" type="checkbox" required />
+            <span>I understand that the current Remi datastore on this computer will be permanently destroyed and replaced.</span>
+        </label>
+        <label class="review-confirmation destructive-confirmation">
+            <input name="confirmTransferPackage" type="checkbox" required />
+            <span>I have exported a backup of the current data and have checked that this is the correct Remi transfer package.</span>
+        </label>
+        <label for="data-transfer-replacement-phrase">To make the replacement, type <strong>REPLACE</strong>
+            <input id="data-transfer-replacement-phrase" name="replacementPhrase" type="text" autocomplete="off" spellcheck="false" pattern="REPLACE" required />
+        </label>
+        <div class="action-row">
+            <button class="button danger" type="submit">Import and replace all data</button>
+        </div>
+    </form>
+    @if (ImportCompleted)
+    {
+        <p class="notice success" role="status">The Remi datastore was imported and replaced successfully. Refresh the page if you have an earlier Remi screen open.</p>
+    }
+</section>
+}
     </div>
 </section>
 
@@ -181,9 +226,13 @@
     private const string CustomerUrnsSection = "customer-urns";
     private const string TemplatesSection = "templates";
     private const string AuditSection = "audit";
+    private const string DataTransferSection = "data-transfer";
 
     [Parameter, SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "import")]
+    public string? Import { get; set; }
 
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
@@ -208,8 +257,11 @@
         DigitalMarketplaceSection => DigitalMarketplaceSection,
         TemplatesSection => TemplatesSection,
         AuditSection => AuditSection,
+        DataTransferSection => DataTransferSection,
         _ => CustomerUrnsSection,
     };
+
+    private bool ImportCompleted => string.Equals(Import, "complete", StringComparison.Ordinal);
 
     private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 
