@@ -39,4 +39,4 @@ if not exist "%OUTPUT%\Start Remi.cmd" (
     exit /b 1
 )
 
-start "Remi" /D "%OUTPUT%" "%OUTPUT%\Start Remi.cmd"
+start "Remi" /D "%OUTPUT%" "%OUTPUT%\Start Remi.cmd" --browser=edge

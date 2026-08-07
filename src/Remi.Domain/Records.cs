@@ -25,6 +25,7 @@ public enum EvidenceKind
     ContractDocument,
     SupportingDocument,
     CustomerUrnList,
+    SubmissionEvidence,
 }
 
 public sealed record ContractRecord(

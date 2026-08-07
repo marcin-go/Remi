@@ -218,8 +218,7 @@
     <h2>Restore this Remi backup</h2>
     <p><strong>Warning:</strong> restoring permanently replaces every item currently stored by this Remi instance with the contents of the selected backup. This includes the register, evidence, templates and locally stored reference data. It cannot be undone.</p>
     <p>Create a backup of this computer's current data first if there is any chance you will need to recover it. Only restore ZIPs created by Remi.</p>
-    <form class="data-transfer-import" method="post" action="/data-transfer/restore" enctype="multipart/form-data">
-        <AntiforgeryToken />
+    <form class="data-transfer-import" method="post" action="@RestoreAction" enctype="multipart/form-data" data-remi-restore-form>
         <label class="clipboard-document-dropzone data-transfer-file-picker" for="data-transfer-package">
             <input id="data-transfer-package" name="package" type="file" accept=".zip,application/zip" required />
             <strong>Choose a Remi backup ZIP</strong>
@@ -237,12 +236,12 @@
             <input id="data-transfer-replacement-phrase" name="replacementPhrase" type="text" autocomplete="off" spellcheck="false" pattern="REPLACE" required />
         </label>
         <div class="action-row">
-            <button class="button danger" type="submit">Restore and replace all data</button>
+            <button class="button danger" type="button" data-remi-restore-submit>Restore and replace all data</button>
         </div>
     </form>
-    @if (RestoreCompleted)
+    @if (RestoreMessage is { } restoreMessage)
     {
-        <p class="notice success" role="status">The Remi datastore was restored successfully. Refresh the page if you have an earlier Remi screen open.</p>
+        <p class="notice @(RestoreCompleted ? "success" : "error")" role="@(RestoreCompleted ? "status" : "alert")">@restoreMessage</p>
     }
 </section>
 }
@@ -296,6 +295,20 @@
 
     private bool RestoreCompleted => string.Equals(Restore, "complete", StringComparison.Ordinal);
 
+    private string? RestoreMessage => Restore switch
+    {
+        "complete" => "The Remi datastore was restored successfully.",
+        "expired" => "The restore form had expired. Reload Settings, select the backup again and reconfirm the replacement.",
+        "not-confirmed" => "Restore was not confirmed. Acknowledge both warnings and type REPLACE before restoring.",
+        "missing-file" => "Choose a non-empty Remi backup ZIP file before restoring.",
+        "invalid-package" => "That file is not a valid, intact Remi backup. Your current data was not replaced.",
+        "package-too-large" => "That backup is too large for Remi to accept.",
+        "invalid-upload" => "Remi could not read the selected backup. Select it again and retry the restore.",
+        "token-failure" => "Remi could not start the restore securely. Reload Settings and try again.",
+        "failed" => "Remi could not complete the restore. Check the Remi log before trying again.",
+        _ => null,
+    };
+
     private PreparedDataTransfer? PreparedExport => Guid.TryParse(Backup, out var id)
         ? DataTransfer.GetPreparedExport(id)
         : null;
@@ -316,6 +329,8 @@
 
     private void BeginPreparedDownload(PreparedDataTransfer preparedExport) =>
         preparedDownloadUrl = $"/data-transfer/backup/{preparedExport.Id:D}?download={Guid.NewGuid():N}";
+
+    private string RestoreAction => ReportingRoutes.WithPeriod("/data-transfer/restore", ReportingPeriod.SelectedPeriod);
 
     private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 

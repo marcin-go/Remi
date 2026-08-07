@@ -1291,6 +1291,37 @@ public sealed class ReportingWorkspace(
             .ToList(), cancellationToken);
     }
 
+    public Task<IReadOnlyList<ValidationFinding>> GetReportingFindingsAsync(
+        FrameworkCode framework,
+        string reportingMonth,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateReportingMonth(reportingMonth);
+        return store.ReadAsync(database => (IReadOnlyList<ValidationFinding>)ReportingRules.Validate(database)
+            .Where(finding => IsInReportingPeriod(database, finding, framework, reportingMonth))
+            .ToList(), cancellationToken);
+    }
+
+    public Task<IReadOnlyList<ReturnSubmissionHistoryItem>> GetReturnSubmissionHistoryAsync(
+        Guid? returnId,
+        CancellationToken cancellationToken = default)
+    {
+        if (returnId is not Guid id)
+        {
+            return Task.FromResult<IReadOnlyList<ReturnSubmissionHistoryItem>>([]);
+        }
+
+        return store.ReadAsync(database => (IReadOnlyList<ReturnSubmissionHistoryItem>)database.AuditEvents
+            .Where(item => item.EntityType == "MonthlyReturn" && item.EntityId == id &&
+                item.Action is "ReturnSubmitted" or "NilReturnRecorded")
+            .OrderByDescending(item => item.OccurredAtUtc)
+            .Select(item => new ReturnSubmissionHistoryItem(
+                item.OccurredAtUtc,
+                item.Action == "NilReturnRecorded",
+                item.Reason))
+            .ToList(), cancellationToken);
+    }
+
     public Task<ReportingCardModel> GetReportingCardAsync(
         FrameworkCode framework,
         string reportingMonth,
@@ -1519,9 +1550,51 @@ public sealed class ReportingWorkspace(
     public Task<ReturnActionResult> MarkNilReturnAsync(
         FrameworkCode framework,
         string reportingMonth,
+        string? submissionReference = null,
         string? actor = null,
         CancellationToken cancellationToken = default) =>
-        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.NilReturn, null, null, actor, cancellationToken);
+        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.NilReturn, submissionReference, null, actor, cancellationToken);
+
+    public Task<ReturnActionResult> UpdateSubmissionReferenceAsync(
+        FrameworkCode framework,
+        string reportingMonth,
+        string? submissionReference,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateReportingMonth(reportingMonth);
+        if (string.IsNullOrWhiteSpace(submissionReference))
+        {
+            return Task.FromResult(new ReturnActionResult(false, "Enter the GCA task reference before saving it.", []));
+        }
+
+        return store.UpdateAsync(database =>
+        {
+            var existing = database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework && item.ReportMonth == reportingMonth);
+            if (existing is null || existing.Status is not (ReturnStatus.Submitted or ReturnStatus.NilReturn))
+            {
+                return new ReturnActionResult(false, "Record the submission before adding its GCA task reference.", []);
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var replacement = existing with
+            {
+                SubmissionReference = submissionReference.Trim(),
+                UpdatedAtUtc = now,
+            };
+            database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = replacement;
+            RecordAudit(
+                database,
+                now,
+                "SubmissionReferenceUpdated",
+                "MonthlyReturn",
+                existing.Id,
+                $"{Frameworks.Get(framework).DisplayName} {reportingMonth} GCA task reference was recorded.",
+                null,
+                actor);
+            return new ReturnActionResult(true, "The GCA task reference has been saved.", [], existing.Id);
+        }, cancellationToken);
+    }
 
     public Task<ReturnActionResult> RequestCorrectionAsync(
         FrameworkCode framework,
@@ -1574,7 +1647,7 @@ public sealed class ReportingWorkspace(
                 Status = status,
                 SubmittedAtUtc = status switch
                 {
-                    ReturnStatus.Submitted => now,
+                    ReturnStatus.Submitted or ReturnStatus.NilReturn => now,
                     ReturnStatus.CorrectionRequired => existing.SubmittedAtUtc,
                     _ => null,
                 },
@@ -1592,7 +1665,13 @@ public sealed class ReportingWorkspace(
                 ReturnStatus.CorrectionRequired => "CorrectionRequested",
                 _ => "ReturnUpdated",
             };
-            RecordAudit(database, now, action, "MonthlyReturn", existing.Id, $"{Frameworks.Get(framework).DisplayName} {reportingMonth} status changed to {status}.", correctionReason, actor);
+            var auditReason = status switch
+            {
+                ReturnStatus.CorrectionRequired => correctionReason,
+                ReturnStatus.Submitted or ReturnStatus.NilReturn => string.IsNullOrWhiteSpace(submissionReference) ? null : submissionReference.Trim(),
+                _ => null,
+            };
+            RecordAudit(database, now, action, "MonthlyReturn", existing.Id, $"{Frameworks.Get(framework).DisplayName} {reportingMonth} status changed to {status}.", auditReason, actor);
 
             var message = status switch
             {
@@ -1600,7 +1679,7 @@ public sealed class ReportingWorkspace(
                 ReturnStatus.CorrectionRequired => "The return has been marked for correction and the reason is retained in the audit trail.",
                 _ => "The return has been recorded as submitted.",
             };
-            return new ReturnActionResult(true, message, []);
+            return new ReturnActionResult(true, message, [], replacement.Id);
         }, cancellationToken);
     }
 
@@ -1616,7 +1695,8 @@ public sealed class ReportingWorkspace(
             var lastSubmittedAudit = monthlyReturn is null
                 ? null
                 : database.AuditEvents
-                    .Where(item => item.EntityType == "MonthlyReturn" && item.EntityId == monthlyReturn.Id && item.Action == "ReturnSubmitted")
+                    .Where(item => item.EntityType == "MonthlyReturn" && item.EntityId == monthlyReturn.Id &&
+                        item.Action is "ReturnSubmitted" or "NilReturnRecorded")
                     .OrderByDescending(item => item.OccurredAtUtc)
                     .FirstOrDefault();
             var submissionCutoff = monthlyReturn?.SubmittedAtUtc ?? lastSubmittedAudit?.OccurredAtUtc;
@@ -1881,7 +1961,8 @@ public sealed class ReportingWorkspace(
                 return new MonthlyReturnRegisterEntry(
                     framework,
                     reportingMonth,
-                    monthlyReturn?.Status,
+                    ReportLifecycleFor(monthlyReturn?.Status),
+                    monthlyReturn?.Status == ReturnStatus.NilReturn,
                     contracts.Count,
                     contracts.Sum(contract => contract.TotalContractValueExVat),
                     invoices.Count,
@@ -1889,9 +1970,13 @@ public sealed class ReportingWorkspace(
                     frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Error),
                     frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Warning),
                     monthlyReturn?.SubmittedAtUtc,
+                    monthlyReturn is { SubmittedAtUtc: null } && IsPersistedSubmission(monthlyReturn.Status)
+                        ? framework.ReportingDeadline?.Calculate(reportingMonth)
+                        : null,
                     monthlyReturn?.SubmissionReference,
                     monthlyReturn?.OriginalWorkbookName,
-                    monthlyReturn?.UpdatedAtUtc);
+                    monthlyReturn?.UpdatedAtUtc,
+                    monthlyReturn?.Id);
             }))
             .ToList();
 
@@ -1911,6 +1996,18 @@ public sealed class ReportingWorkspace(
             .SingleOrDefault(item => item.Framework == framework.Code)
             ?.StartDate
         ?? framework.DefaultStartDate;
+
+    private static ReportLifecycleStatus ReportLifecycleFor(ReturnStatus? status) => status switch
+    {
+        ReturnStatus.Submitted or ReturnStatus.NilReturn => ReportLifecycleStatus.Submitted,
+        ReturnStatus.CorrectionRequired => ReportLifecycleStatus.CorrectionRequired,
+        _ => ReportLifecycleStatus.Draft,
+    };
+
+    private static bool IsPersistedSubmission(ReturnStatus status) => status is
+        ReturnStatus.Submitted or
+        ReturnStatus.NilReturn or
+        ReturnStatus.CorrectionRequired;
 
     private MonthlyReturn EnsureReturn(
         RemiDatabase database,

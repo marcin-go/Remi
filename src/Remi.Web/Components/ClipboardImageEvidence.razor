@@ -2,13 +2,13 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JsRuntime
 
-<div class="clipboard-evidence-layout" @ref="host">
+<div class="clipboard-evidence-layout @LayoutClass" @ref="host">
     <div class="clipboard-evidence-form">
         @ChildContent
     </div>
-    <aside class="clipboard-image-panel" aria-label="Documents ready to save">
-        <header><strong>Documents</strong><span>@(documents.Count == 0 ? "Add supporting files" : $"{documents.Count} ready to save")</span></header>
-        <label class="clipboard-document-dropzone"><input type="file" multiple /><strong>Drop files here</strong><span>or choose from disk</span></label>
+    <aside class="clipboard-image-panel" aria-label="@Heading ready to save">
+        <header><strong>@Heading</strong><span>@(documents.Count == 0 ? EmptyStatus : $"{documents.Count} ready to save")</span></header>
+        <label class="clipboard-document-dropzone"><input type="file" multiple /><strong>@DropZoneTitle</strong><span>or choose from disk</span></label>
         @if (documents.Count != 0)
         {
             <div class="clipboard-image-list">
@@ -24,7 +24,7 @@
         }
         else
         {
-            <p class="clipboard-documents-empty">Paste screenshots, or add signed contracts, pricing and related files.</p>
+            <p class="clipboard-documents-empty">@EmptyMessage</p>
         }
     </aside>
 </div>
@@ -32,6 +32,11 @@
 @code {
     [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
     [Parameter] public EventCallback<int> OnDocumentsChanged { get; set; }
+    [Parameter] public string Heading { get; set; } = "Documents";
+    [Parameter] public string EmptyStatus { get; set; } = "Add supporting files";
+    [Parameter] public string DropZoneTitle { get; set; } = "Drop files here";
+    [Parameter] public string EmptyMessage { get; set; } = "Paste screenshots, or add signed contracts, pricing and related files.";
+    [Parameter] public string? LayoutClass { get; set; }
 
     private ElementReference host;
     private IJSObjectReference? module;

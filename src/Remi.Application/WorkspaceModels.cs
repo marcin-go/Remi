@@ -57,10 +57,22 @@ public sealed record MonthlyReturnRegisterModel(
     IReadOnlyList<string> ReportingMonths,
     IReadOnlyList<MonthlyReturnRegisterEntry> Entries);
 
+/// <summary>
+/// The report lifecycle presented to users. A persisted <see cref="ReturnStatus.NilReturn"/>
+/// remains a submitted report with an additional nil-return content indicator.
+/// </summary>
+public enum ReportLifecycleStatus
+{
+    Draft,
+    Submitted,
+    CorrectionRequired,
+}
+
 public sealed record MonthlyReturnRegisterEntry(
     FrameworkDefinition Framework,
     string ReportingMonth,
-    ReturnStatus? ReturnStatus,
+    ReportLifecycleStatus LifecycleStatus,
+    bool IsNilReturn,
     int ContractCount,
     decimal ContractTotalExVat,
     int InvoiceCount,
@@ -68,9 +80,16 @@ public sealed record MonthlyReturnRegisterEntry(
     int BlockingFindingCount,
     int ReviewFindingCount,
     DateTimeOffset? SubmittedAtUtc,
+    DateOnly? InferredSubmissionDeadline,
     string? SubmissionReference,
     string? OriginalWorkbookName,
-    DateTimeOffset? UpdatedAtUtc);
+    DateTimeOffset? UpdatedAtUtc,
+    Guid? ReturnId = null);
+
+public sealed record ReturnSubmissionHistoryItem(
+    DateTimeOffset OccurredAtUtc,
+    bool IsNilReturn,
+    string? SubmissionReference);
 
 public sealed record ContractProgress(
     Guid ContractId,

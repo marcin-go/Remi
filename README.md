@@ -37,7 +37,7 @@ Open the local address displayed in the terminal. Development data is written to
 
 Run `publish.bat` from the repository root. It creates `publish\Remi\Remi.exe` as a Windows x64 self-contained executable, so the recipient does not need a separate .NET installation. Run it again whenever you want to rebuild the portable folder.
 
-Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address and opens your default browser. Closing its command window stops Remi. No installer, service or registry configuration is used.
+Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address in Microsoft Edge. Closing its command window stops Remi. No installer, service or registry configuration is used.
 
 In **Settings**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. No customer data is sent from Remi.
 

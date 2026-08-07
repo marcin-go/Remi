@@ -13,6 +13,17 @@
 </head>
 <body>
     <Routes @rendermode="InteractiveServer" />
+    <div id="remi-restore-progress" class="restore-progress" hidden role="status" aria-labelledby="remi-restore-progress-title" aria-describedby="remi-restore-progress-description" aria-live="assertive">
+        <section class="restore-progress-card">
+            <span class="restore-progress-spinner" aria-hidden="true"></span>
+            <p class="eyebrow" data-remi-restore-progress-eyebrow>Data restore in progress</p>
+            <h1 id="remi-restore-progress-title" data-remi-restore-progress-title>Remi is restoring your data from backup.</h1>
+            <p id="remi-restore-progress-description" data-remi-restore-progress-description>Please stay put while Remi checks the backup and safely replaces the local datastore.</p>
+            <p class="restore-progress-warning" data-remi-restore-progress-warning>Do not close Remi, refresh this page or submit the restore again.</p>
+            <a class="button secondary restore-progress-return" href="/settings?section=data-transfer" data-remi-restore-progress-return hidden>Return to Backup / Restore</a>
+        </section>
+    </div>
+    <script src="restore-progress.js"></script>
     <script src="_framework/blazor.web.js"></script>
     <script>
         if ('serviceWorker' in navigator) {

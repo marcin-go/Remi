@@ -184,17 +184,103 @@ public sealed class ReportingWorkflowTests
         var julyEntries = register.Entries.Where(item => item.ReportingMonth == "2026-07").ToList();
         Assert.Equal(Frameworks.All.Count(item => item.DefaultStartDate is DateOnly startDate && startDate <= new DateOnly(2026, 7, 31)), julyEntries.Count);
         var gCloud14July = Assert.Single(julyEntries.Where(item => item.Framework.Code == FrameworkCode.GCloud14));
-        Assert.Equal(ReturnStatus.Submitted, gCloud14July.ReturnStatus);
+        Assert.Equal(ReportLifecycleStatus.Submitted, gCloud14July.LifecycleStatus);
         Assert.Equal(1, gCloud14July.ContractCount);
         Assert.Equal(1000, gCloud14July.ContractTotalExVat);
         Assert.Equal(1, gCloud14July.InvoiceCount);
         Assert.Equal(100, gCloud14July.InvoiceTotalExVat);
         Assert.Equal("portal-123", gCloud14July.SubmissionReference);
 
+        var gCloud14June = Assert.Single(register.Entries.Where(item => item.Framework.Code == FrameworkCode.GCloud14 && item.ReportingMonth == "2026-06"));
+        Assert.Equal(ReportLifecycleStatus.Submitted, gCloud14June.LifecycleStatus);
+        Assert.True(gCloud14June.IsNilReturn);
+        Assert.Null(gCloud14June.SubmittedAtUtc);
+        Assert.Equal(new DateOnly(2026, 7, 7), gCloud14June.InferredSubmissionDeadline);
+
         var gCloud14Entries = register.Entries
             .Where(item => item.Framework.Code == FrameworkCode.GCloud14)
             .Select(item => item.ReportingMonth);
         Assert.Equal(["2026-07", "2026-06"], gCloud14Entries);
+    }
+
+    [Fact]
+    public async Task Nil_return_records_its_gca_task_reference_and_returns_its_identifier()
+    {
+        var database = new RemiDatabase();
+        var taskReference = "e0303f95-3441-4d48-bd32-e028a66f87db";
+
+        var recorded = await Workspace(database).MarkNilReturnAsync(FrameworkCode.GCloud13, "2026-07", taskReference);
+
+        Assert.True(recorded.Succeeded);
+        Assert.NotNull(recorded.EntityId);
+        var monthlyReturn = Assert.Single(database.MonthlyReturns);
+        Assert.Equal(recorded.EntityId, monthlyReturn.Id);
+        Assert.Equal(ReturnStatus.NilReturn, monthlyReturn.Status);
+        Assert.NotNull(monthlyReturn.SubmittedAtUtc);
+        Assert.Equal(taskReference, monthlyReturn.SubmissionReference);
+        Assert.Contains(database.AuditEvents, item => item.Action == "NilReturnRecorded" && item.EntityId == monthlyReturn.Id);
+        var history = await Workspace(database).GetReturnSubmissionHistoryAsync(monthlyReturn.Id);
+        Assert.Equal(taskReference, Assert.Single(history).SubmissionReference);
+    }
+
+    [Fact]
+    public async Task Recorded_nil_return_can_add_its_gca_task_reference_later()
+    {
+        var database = new RemiDatabase
+        {
+            MonthlyReturns =
+            [
+                new MonthlyReturn(Guid.NewGuid(), FrameworkCode.GCloud13, "2026-07", ReturnStatus.NilReturn, null, null, null, DateTimeOffset.UtcNow),
+            ],
+        };
+        var taskReference = "e0303f95-3441-4d48-bd32-e028a66f87db";
+
+        var saved = await Workspace(database).UpdateSubmissionReferenceAsync(FrameworkCode.GCloud13, "2026-07", taskReference);
+
+        Assert.True(saved.Succeeded);
+        Assert.Equal(taskReference, Assert.Single(database.MonthlyReturns).SubmissionReference);
+        Assert.Contains(database.AuditEvents, item => item.Action == "SubmissionReferenceUpdated");
+    }
+
+    [Fact]
+    public async Task Reporting_findings_are_loaded_from_current_period_data_not_the_last_action()
+    {
+        var database = new RemiDatabase
+        {
+            Invoices = [Invoice(Guid.NewGuid(), FrameworkCode.GCloud14, "missing-contract", "INV-001", 100, "2026-07")],
+        };
+
+        var findings = await Workspace(database).GetReportingFindingsAsync(FrameworkCode.GCloud14, "2026-07");
+
+        Assert.Contains(findings, item => item.Code == "InvoiceContractNotFound");
+    }
+
+    [Fact]
+    public async Task Corrected_return_keeps_the_prior_submission_in_its_history()
+    {
+        var returnId = Guid.NewGuid();
+        var originalSubmission = new DateTimeOffset(2026, 7, 7, 10, 30, 0, TimeSpan.Zero);
+        var replacementSubmission = new DateTimeOffset(2026, 7, 8, 11, 45, 0, TimeSpan.Zero);
+        var database = new RemiDatabase
+        {
+            MonthlyReturns =
+            [
+                new MonthlyReturn(returnId, FrameworkCode.GCloud14, "2026-06", ReturnStatus.CorrectionRequired, originalSubmission, "original-task", "june.xlsx", originalSubmission),
+            ],
+            AuditEvents =
+            [
+                new AuditEvent(Guid.NewGuid(), originalSubmission, "ReturnSubmitted", "MonthlyReturn", returnId, "Original submission.", "original-task", "test"),
+            ],
+        };
+        var workspace = Workspace(database, new FixedTimeProvider(replacementSubmission));
+
+        var recorded = await workspace.MarkSubmittedAsync(FrameworkCode.GCloud14, "2026-06", "replacement-task");
+        var history = await workspace.GetReturnSubmissionHistoryAsync(returnId);
+
+        Assert.True(recorded.Succeeded);
+        Assert.Equal(ReturnStatus.Submitted, Assert.Single(database.MonthlyReturns).Status);
+        Assert.Equal(replacementSubmission, database.MonthlyReturns.Single().SubmittedAtUtc);
+        Assert.Equal(["replacement-task", "original-task"], history.Select(item => item.SubmissionReference));
     }
 
     [Fact]

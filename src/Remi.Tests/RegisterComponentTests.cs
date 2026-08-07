@@ -550,6 +550,23 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Reports_register_separates_contracts_invoices_and_submission_from_lifecycle_status()
+    {
+        using var context = CreateContext();
+        var reports = context.Render<ReportingRegister>();
+
+        reports.WaitForAssertion(() =>
+        {
+            var table = reports.Find(".return-register-table table");
+            Assert.Contains("Contracts", table.TextContent);
+            Assert.Contains("Invoices", table.TextContent);
+            Assert.Contains("Submission", table.TextContent);
+            Assert.DoesNotContain("Activity", table.TextContent);
+            Assert.DoesNotContain("Readiness", table.TextContent);
+        });
+    }
+
+    [Fact]
     public void Return_workspace_reloads_its_framework_when_a_different_open_link_is_followed()
     {
         using var context = CreateContext();
@@ -582,7 +599,7 @@ public sealed class RegisterComponentTests
             var summary = workspace.Find(".gca-return-summary");
             Assert.Contains("RM6259 reporting summary", summary.TextContent);
             Assert.Contains("Invoices", summary.TextContent);
-            Assert.Contains("Purchase order number", summary.TextContent);
+            Assert.Contains("Purchase order", summary.TextContent);
             Assert.Contains("GCA_VAS_202607", summary.TextContent);
         });
     }

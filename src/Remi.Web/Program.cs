@@ -15,10 +15,12 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     // whichever directory happened to launch the process.
     ContentRootPath = AppContext.BaseDirectory
 });
+const long MaxDataTransferRequestSize = 4L * 1024 * 1024 * 1024;
 var dataPath = builder.Configuration["Remi:DataPath"] ?? RemiDataPaths.DefaultDatabaseFile;
 var dataDirectory = Path.GetDirectoryName(Path.GetFullPath(dataPath))
     ?? throw new InvalidOperationException("The Remi data path has no parent directory.");
 var openBrowser = bool.TryParse(builder.Configuration["open-browser"], out var shouldOpenBrowser) && shouldOpenBrowser;
+var browser = builder.Configuration["browser"];
 Directory.CreateDirectory(dataDirectory);
 
 // A portable local app normally runs without permission to create or write Windows Event Log sources.
@@ -41,7 +43,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDirectory, "protection-keys")))
     .SetApplicationName("Remi");
-builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 4L * 1024 * 1024 * 1024);
+builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = MaxDataTransferRequestSize);
 builder.Services.AddSingleton<SqliteRemiStore>(_ => new SqliteRemiStore(dataPath));
 builder.Services.AddSingleton<IRemiStore>(services => services.GetRequiredService<SqliteRemiStore>());
 builder.Services.AddSingleton<IRemiDataTransfer>(services => new RemiDataTransferService(
@@ -61,12 +63,28 @@ builder.Services.AddSingleton<ICustomerUrnDirectory>(services => new GcaCustomer
 builder.Services.AddSingleton<IWorkbookImporter, XlsxMiWorkbookImporter>();
 builder.Services.AddSingleton<IMiWorkbookExporter, XlsxMiWorkbookExporter>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<RestoreRequestTokenService>();
 builder.Services.AddScoped<ReportingPeriodContext>();
 builder.Services.AddScoped<ReportingWorkspace>();
 
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
+
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsPost(context.Request.Method) &&
+        string.Equals(context.Request.Path.Value, "/data-transfer/restore", StringComparison.OrdinalIgnoreCase))
+    {
+        var sizeLimit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (sizeLimit is { IsReadOnly: false })
+        {
+            sizeLimit.MaxRequestBodySize = MaxDataTransferRequestSize;
+        }
+    }
+
+    await next();
+});
 
 if (!app.Environment.IsDevelopment())
 {
@@ -165,6 +183,7 @@ app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
                               join contract in database.Contracts on change.ContractId equals contract.Id
                               where change.Id == entityId
                               select new ClipboardEvidenceTarget(contract.Framework, change.AgreementDate.ToString("yyyy-MM"), contract.SupplierReference)).SingleOrDefault(),
+        "monthly-return" => database.MonthlyReturns.Where(item => item.Id == entityId).Select(item => new ClipboardEvidenceTarget(item.Framework, item.ReportMonth, null)).SingleOrDefault(),
         _ => null,
     }, cancellationToken);
     if (target is null)
@@ -178,7 +197,9 @@ app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
         : $"{Path.GetFileNameWithoutExtension(title.Trim())}{extension}";
     await using var content = file.OpenReadStream();
     var archived = await workspace.ArchiveEvidenceAsync(
-        Remi.Domain.EvidenceKind.SupportingDocument,
+        string.Equals(entityType, "monthly-return", StringComparison.OrdinalIgnoreCase)
+            ? Remi.Domain.EvidenceKind.SubmissionEvidence
+            : Remi.Domain.EvidenceKind.SupportingDocument,
         target.Framework,
         target.ReportMonth,
         fileName,
@@ -230,43 +251,82 @@ app.MapGet("/data-transfer/backup/{id:guid}", async (
     return Results.File(stream, "application/zip", prepared.FileName, enableRangeProcessing: true);
 });
 
+string RestoreResultLocation(HttpRequest request, string result)
+{
+    var period = request.Query["period"].ToString();
+    var periodQuery = ReportingPeriodContext.IsValidPeriod(period)
+        ? $"&period={Uri.EscapeDataString(period)}"
+        : string.Empty;
+    return $"/settings?section=data-transfer&restore={Uri.EscapeDataString(result)}{periodQuery}";
+}
+
+app.MapGet("/data-transfer/restore/token", (RestoreRequestTokenService restoreRequestTokens) =>
+    Results.Json(new { requestToken = restoreRequestTokens.Issue() }));
+
 app.MapPost("/data-transfer/restore", async (
     HttpRequest request,
-    IAntiforgery antiforgery,
     IRemiDataTransfer dataTransfer,
+    RestoreRequestTokenService restoreRequestTokens,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
-    try
+    if (!restoreRequestTokens.TryConsume(request.Headers["X-Remi-Restore-Token"].ToString()))
     {
-        await antiforgery.ValidateRequestAsync(request.HttpContext);
-    }
-    catch (AntiforgeryValidationException)
-    {
-        return Results.BadRequest("The restore form has expired. Reload Settings and confirm the restore again.");
+        logger.LogWarning("Rejected a Remi restore request because its one-time restore token was missing or invalid.");
+        return Results.Redirect(RestoreResultLocation(request, "expired"));
     }
 
     if (!request.HasFormContentType)
     {
-        return Results.BadRequest("Choose a Remi backup ZIP file.");
+        logger.LogWarning("Rejected a Remi restore request because it was not submitted as a form.");
+        return Results.Redirect(RestoreResultLocation(request, "missing-file"));
     }
 
-    var form = await request.ReadFormAsync(cancellationToken);
+    IFormCollection form;
+    try
+    {
+        form = await request.ReadFormAsync(cancellationToken);
+    }
+    catch (BadHttpRequestException exception)
+    {
+        logger.LogWarning(exception, "Rejected a Remi restore request because its upload could not be read.");
+        var result = exception.StatusCode == StatusCodes.Status413PayloadTooLarge
+            ? "package-too-large"
+            : "invalid-upload";
+        return Results.Redirect(RestoreResultLocation(request, result));
+    }
+
     var confirmsReplacement = string.Equals(form["confirmDestructiveRestore"], "on", StringComparison.OrdinalIgnoreCase);
     var confirmsPackage = string.Equals(form["confirmBackupPackage"], "on", StringComparison.OrdinalIgnoreCase);
     if (!confirmsReplacement || !confirmsPackage || !string.Equals(form["replacementPhrase"], "REPLACE", StringComparison.Ordinal))
     {
-        return Results.BadRequest("Restore was not confirmed. Acknowledge both warnings and type REPLACE before restoring.");
+        logger.LogWarning("Rejected a Remi restore request because its destructive-action confirmation was incomplete.");
+        return Results.Redirect(RestoreResultLocation(request, "not-confirmed"));
     }
 
     var package = form.Files.GetFile("package");
     if (package is null || package.Length <= 0 || !string.Equals(Path.GetExtension(package.FileName), ".zip", StringComparison.OrdinalIgnoreCase))
     {
-        return Results.BadRequest("Choose a non-empty Remi backup ZIP file.");
+        logger.LogWarning("Rejected a Remi restore request because it did not include a non-empty ZIP package.");
+        return Results.Redirect(RestoreResultLocation(request, "missing-file"));
     }
 
-    await using var packageStream = package.OpenReadStream();
-    await dataTransfer.ImportAsync(packageStream, cancellationToken);
-    return Results.Redirect("/settings?section=data-transfer&restore=complete");
+    try
+    {
+        await using var packageStream = package.OpenReadStream();
+        await dataTransfer.ImportAsync(packageStream, cancellationToken);
+        return Results.Redirect(RestoreResultLocation(request, "complete"));
+    }
+    catch (InvalidDataException exception)
+    {
+        logger.LogWarning(exception, "Rejected an invalid Remi restore package.");
+        return Results.Redirect(RestoreResultLocation(request, "invalid-package"));
+    }
+    catch (Exception exception)
+    {
+        logger.LogError(exception, "Remi restore did not complete.");
+        return Results.Redirect(RestoreResultLocation(request, "failed"));
+    }
 });
 
 app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
@@ -303,10 +363,23 @@ app.Lifetime.ApplicationStarted.Register(() =>
     var address = app.Urls.FirstOrDefault(url => url.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
     if (address is not null)
     {
+        if (string.Equals(browser, "edge", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("msedge.exe", address) { UseShellExecute = true });
+                return;
+            }
+            catch (Exception exception)
+            {
+                app.Logger.LogWarning(exception, "Microsoft Edge could not be started; opening Remi in the default browser instead.");
+            }
+        }
+
         Process.Start(new ProcessStartInfo(address) { UseShellExecute = true });
     }
 });
 
 app.Run();
 
-sealed record ClipboardEvidenceTarget(Remi.Domain.FrameworkCode Framework, string ReportMonth, string SupplierReference);
+sealed record ClipboardEvidenceTarget(Remi.Domain.FrameworkCode Framework, string ReportMonth, string? SupplierReference);
