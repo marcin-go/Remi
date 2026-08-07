@@ -23,8 +23,16 @@ public sealed class DataTransferTests
             await File.WriteAllTextAsync(Path.Combine(dataDirectory, "evidence", "source.txt"), "source evidence");
             await File.WriteAllTextAsync(Path.Combine(dataDirectory, "reference-data.json"), "source reference data");
 
+            var prepared = await transfer.PrepareExportAsync();
+            Assert.True(prepared.FileSizeBytes > 0);
+            Assert.EndsWith(".zip", prepared.FileName, StringComparison.OrdinalIgnoreCase);
             await using var package = new MemoryStream();
-            await transfer.ExportAsync(package);
+            await using (var preparedStream = Assert.IsAssignableFrom<Stream>(await transfer.OpenPreparedExportAsync(prepared.Id)))
+            {
+                await preparedStream.CopyToAsync(package);
+            }
+            await transfer.DiscardPreparedExportAsync(prepared.Id);
+            Assert.Null(transfer.GetPreparedExport(prepared.Id));
 
             await SetServiceAsync(store, "target-service", "Target service");
             await File.WriteAllTextAsync(Path.Combine(dataDirectory, "evidence", "source.txt"), "changed evidence");

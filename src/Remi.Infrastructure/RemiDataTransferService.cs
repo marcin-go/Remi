@@ -14,8 +14,88 @@ public sealed class RemiDataTransferService(string dataDirectory, string databas
 {
     private const string ManifestEntryName = "remi-data-transfer.json";
     private const int FormatVersion = 1;
+    private static readonly TimeSpan PreparedExportLifetime = TimeSpan.FromHours(1);
     private readonly string dataDirectory = Path.GetFullPath(dataDirectory);
     private readonly string databasePath = Path.GetFullPath(databasePath);
+    private readonly Dictionary<Guid, PreparedExport> preparedExports = [];
+    private readonly Lock preparedExportsLock = new();
+
+    public async Task<PreparedDataTransfer> PrepareExportAsync(CancellationToken cancellationToken = default)
+    {
+        RemoveExpiredPreparedExports();
+        var id = Guid.NewGuid();
+        var preparedAtUtc = DateTimeOffset.UtcNow;
+        var fileName = $"remi-data-{preparedAtUtc:yyyyMMdd-HHmmss}.zip";
+        var path = CreatePreparedExportPath(id);
+        try
+        {
+            await using (var destination = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+            {
+                await ExportAsync(destination, cancellationToken);
+            }
+
+            var prepared = new PreparedDataTransfer(id, fileName, new FileInfo(path).Length, preparedAtUtc);
+            lock (preparedExportsLock)
+            {
+                preparedExports.Add(id, new PreparedExport(prepared, path, preparedAtUtc.Add(PreparedExportLifetime)));
+            }
+
+            return prepared;
+        }
+        catch
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            throw;
+        }
+    }
+
+    public PreparedDataTransfer? GetPreparedExport(Guid id)
+    {
+        RemoveExpiredPreparedExports();
+        lock (preparedExportsLock)
+        {
+            return preparedExports.TryGetValue(id, out var prepared) && File.Exists(prepared.Path)
+                ? prepared.Summary
+                : null;
+        }
+    }
+
+    public Task<Stream?> OpenPreparedExportAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        RemoveExpiredPreparedExports();
+        lock (preparedExportsLock)
+        {
+            if (!preparedExports.TryGetValue(id, out var prepared) || !File.Exists(prepared.Path))
+            {
+                return Task.FromResult<Stream?>(null);
+            }
+
+            Stream stream = new FileStream(prepared.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            return Task.FromResult<Stream?>(stream);
+        }
+    }
+
+    public Task DiscardPreparedExportAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PreparedExport? prepared;
+        lock (preparedExportsLock)
+        {
+            prepared = preparedExports.Remove(id, out var value) ? value : null;
+        }
+
+        if (prepared is not null && File.Exists(prepared.Path))
+        {
+            File.Delete(prepared.Path);
+        }
+
+        return Task.CompletedTask;
+    }
 
     public async Task ExportAsync(Stream destination, CancellationToken cancellationToken = default)
     {
@@ -252,6 +332,35 @@ public sealed class RemiDataTransferService(string dataDirectory, string databas
         return path;
     }
 
+    private string CreatePreparedExportPath(Guid id)
+    {
+        var parent = Path.GetDirectoryName(dataDirectory)
+            ?? throw new InvalidOperationException("The Remi data directory has no parent directory.");
+        return Path.Combine(parent, $".remi-data-export-{id:N}.zip");
+    }
+
+    private void RemoveExpiredPreparedExports()
+    {
+        List<PreparedExport> expired;
+        lock (preparedExportsLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            expired = preparedExports.Values.Where(prepared => prepared.ExpiresAtUtc <= now).ToList();
+            foreach (var item in expired)
+            {
+                preparedExports.Remove(item.Summary.Id);
+            }
+        }
+
+        foreach (var item in expired)
+        {
+            if (File.Exists(item.Path))
+            {
+                File.Delete(item.Path);
+            }
+        }
+    }
+
     private static void DeleteDirectory(string path)
     {
         if (Directory.Exists(path))
@@ -262,4 +371,5 @@ public sealed class RemiDataTransferService(string dataDirectory, string databas
 
     private sealed record DataTransferManifest(int FormatVersion, DateTimeOffset ExportedAtUtc, IReadOnlyList<DataTransferFile> Files);
     private sealed record DataTransferFile(string Path, long Length, string Sha256);
+    private sealed record PreparedExport(PreparedDataTransfer Summary, string Path, DateTimeOffset ExpiresAtUtc);
 }

@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Components
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject IRemiDataTransfer DataTransfer
 
 <PageTitle>Remi · Settings</PageTitle>
 
@@ -180,9 +181,30 @@
     <p class="eyebrow">Data transfer</p>
     <h2>Export complete Remi data</h2>
     <p>Download a portable Remi data-transfer ZIP to move this instance to another computer. It includes the register, all retained evidence, approved templates, reference data and other persistent Remi data.</p>
-    <div class="action-row">
-        <a class="button primary" href="/data-transfer/export">Export Remi data</a>
-    </div>
+    @if (PreparedExport is { } preparedExport)
+    {
+        <div class="notice success" role="status">
+            <strong>Your export is ready to download.</strong>
+            <span>@preparedExport.FileName · @FormatFileSize(preparedExport.FileSizeBytes)</span>
+        </div>
+        <div class="action-row">
+            <a class="button primary" href="@($"/data-transfer/export/{preparedExport.Id:D}")">Download data</a>
+        </div>
+        <p class="caption">This prepared export is available for one hour or until it is downloaded.</p>
+    }
+    else
+    {
+        <form method="post" action="/data-transfer/export/prepare">
+            <AntiforgeryToken />
+            <div class="action-row">
+                <button class="button primary" type="submit">Export Remi data</button>
+            </div>
+        </form>
+        @if (!string.IsNullOrWhiteSpace(Export))
+        {
+            <p class="notice error" role="status">That prepared export is no longer available. Prepare a new export to download the current data.</p>
+        }
+    }
     <p class="caption">Keep the ZIP secure. It can contain customer, contract, invoice and evidence information. Runtime logs are not included.</p>
 </section>
 
@@ -234,6 +256,9 @@
     [Parameter, SupplyParameterFromQuery(Name = "import")]
     public string? Import { get; set; }
 
+    [Parameter, SupplyParameterFromQuery(Name = "export")]
+    public string? Export { get; set; }
+
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
     private List<EditableDigitalMarketplaceService> digitalMarketplaceServices = [];
@@ -262,6 +287,24 @@
     };
 
     private bool ImportCompleted => string.Equals(Import, "complete", StringComparison.Ordinal);
+
+    private PreparedDataTransfer? PreparedExport => Guid.TryParse(Export, out var id)
+        ? DataTransfer.GetPreparedExport(id)
+        : null;
+
+    private static string FormatFileSize(long bytes)
+    {
+        const long KiB = 1024;
+        const long MiB = KiB * 1024;
+        const long GiB = MiB * 1024;
+        return bytes switch
+        {
+            >= GiB => $"{bytes / (double)GiB:0.00} GB",
+            >= MiB => $"{bytes / (double)MiB:0.00} MB",
+            >= KiB => $"{bytes / (double)KiB:0.0} KB",
+            _ => $"{bytes:N0} bytes",
+        };
+    }
 
     private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 

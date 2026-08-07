@@ -190,14 +190,45 @@ app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
     return Results.Ok(new { archived });
 });
 
-app.MapGet("/data-transfer/export", async (
+app.MapPost("/data-transfer/export/prepare", async (
+    HttpRequest request,
+    IAntiforgery antiforgery,
+    IRemiDataTransfer dataTransfer,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        await antiforgery.ValidateRequestAsync(request.HttpContext);
+    }
+    catch (AntiforgeryValidationException)
+    {
+        return Results.BadRequest("The export form has expired. Reload Settings and prepare the export again.");
+    }
+
+    var prepared = await dataTransfer.PrepareExportAsync(cancellationToken);
+    return Results.Redirect($"/settings?section=data-transfer&export={prepared.Id:D}");
+});
+
+app.MapGet("/data-transfer/export/{id:guid}", async (
+    Guid id,
     HttpResponse response,
     IRemiDataTransfer dataTransfer,
     CancellationToken cancellationToken) =>
 {
-    response.ContentType = "application/zip";
-    response.Headers.ContentDisposition = $"attachment; filename=remi-data-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.zip";
-    await dataTransfer.ExportAsync(response.Body, cancellationToken);
+    var prepared = dataTransfer.GetPreparedExport(id);
+    if (prepared is null)
+    {
+        return Results.NotFound("This prepared export is no longer available. Prepare a new export from Settings.");
+    }
+
+    var stream = await dataTransfer.OpenPreparedExportAsync(id, cancellationToken);
+    if (stream is null)
+    {
+        return Results.NotFound("This prepared export is no longer available. Prepare a new export from Settings.");
+    }
+
+    response.OnCompleted(() => dataTransfer.DiscardPreparedExportAsync(id));
+    return Results.File(stream, "application/zip", prepared.FileName, enableRangeProcessing: true);
 });
 
 app.MapPost("/data-transfer/import", async (
