@@ -25,7 +25,7 @@ public sealed class RemiDataTransferService(string dataDirectory, string databas
         RemoveExpiredPreparedExports();
         var id = Guid.NewGuid();
         var preparedAtUtc = DateTimeOffset.UtcNow;
-        var fileName = $"remi-data-{preparedAtUtc:yyyyMMdd-HHmmss}.zip";
+        var fileName = $"remi-backup-{preparedAtUtc:yyyyMMdd-HHmmss}.zip";
         var path = CreatePreparedExportPath(id);
         try
         {

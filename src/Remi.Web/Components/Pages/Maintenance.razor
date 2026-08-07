@@ -23,7 +23,7 @@
             <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
             <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
             <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
-            <a class="@SectionLinkClass(DataTransferSection)" href="@SectionLink(DataTransferSection)">Import / Export</a>
+            <a class="@SectionLinkClass(DataTransferSection)" href="@SectionLink(DataTransferSection)">Backup / Restore</a>
         </nav>
     </aside>
     <div class="settings-content">
@@ -178,31 +178,35 @@
 @if (ActiveSection == DataTransferSection)
 {
 <section class="panel maintenance-panel data-transfer-panel">
-    <p class="eyebrow">Data transfer</p>
-    <h2>Export complete Remi data</h2>
-    <p>Download a portable Remi data-transfer ZIP to move this instance to another computer. It includes the register, all retained evidence, approved templates, reference data and other persistent Remi data.</p>
+    <p class="eyebrow">Backup</p>
+    <h2>Create a complete Remi backup</h2>
+    <p>Create a portable Remi backup ZIP to move this instance to another computer. It includes the register, all retained evidence, approved templates, reference data and other persistent Remi data.</p>
     @if (PreparedExport is { } preparedExport)
     {
         <div class="notice success" role="status">
-            <strong>Your export is ready to download.</strong>
+            <strong>Your backup is ready to download.</strong>
             <span>@preparedExport.FileName · @FormatFileSize(preparedExport.FileSizeBytes)</span>
         </div>
         <div class="action-row">
-            <a class="button primary" href="@($"/data-transfer/export/{preparedExport.Id:D}")">Download data</a>
+            <button class="button primary" type="button" @onclick="@(() => BeginPreparedDownload(preparedExport))">Download backup</button>
         </div>
-        <p class="caption">This prepared export is available for one hour or until it is downloaded.</p>
+        @if (preparedDownloadUrl is not null)
+        {
+            <iframe class="data-transfer-download-frame" src="@preparedDownloadUrl" title="Remi data download" aria-hidden="true"></iframe>
+        }
+        <p class="caption">This prepared backup is available for one hour.</p>
     }
     else
     {
-        <form method="post" action="/data-transfer/export/prepare">
+        <form method="post" action="/data-transfer/backup/prepare">
             <AntiforgeryToken />
             <div class="action-row">
-                <button class="button primary" type="submit">Export Remi data</button>
+                <button class="button primary" type="submit">Create Remi backup</button>
             </div>
         </form>
-        @if (!string.IsNullOrWhiteSpace(Export))
+        @if (!string.IsNullOrWhiteSpace(Backup))
         {
-            <p class="notice error" role="status">That prepared export is no longer available. Prepare a new export to download the current data.</p>
+            <p class="notice error" role="status">That prepared backup is no longer available. Create a new backup to download the current data.</p>
         }
     }
     <p class="caption">Keep the ZIP secure. It can contain customer, contract, invoice and evidence information. Runtime logs are not included.</p>
@@ -210,32 +214,35 @@
 
 <section class="panel maintenance-panel data-transfer-panel data-transfer-panel--danger">
     <p class="eyebrow">Destructive action</p>
-    <h2>Import and replace this Remi datastore</h2>
-    <p><strong>Warning:</strong> importing permanently replaces every item currently stored by this Remi instance with the contents of the selected ZIP. This includes the register, evidence, templates and locally stored reference data. It cannot be undone.</p>
-    <p>Export this computer's current data first if there is any chance you will need to recover it. Only import ZIPs exported by Remi.</p>
-    <form class="data-transfer-import" method="post" action="/data-transfer/import" enctype="multipart/form-data">
+    <p class="eyebrow">Restore</p>
+    <h2>Restore this Remi backup</h2>
+    <p><strong>Warning:</strong> restoring permanently replaces every item currently stored by this Remi instance with the contents of the selected backup. This includes the register, evidence, templates and locally stored reference data. It cannot be undone.</p>
+    <p>Create a backup of this computer's current data first if there is any chance you will need to recover it. Only restore ZIPs created by Remi.</p>
+    <form class="data-transfer-import" method="post" action="/data-transfer/restore" enctype="multipart/form-data">
         <AntiforgeryToken />
-        <label for="data-transfer-package">Remi data-transfer ZIP
+        <label class="clipboard-document-dropzone data-transfer-file-picker" for="data-transfer-package">
             <input id="data-transfer-package" name="package" type="file" accept=".zip,application/zip" required />
+            <strong>Choose a Remi backup ZIP</strong>
+            <span>Drop it here or choose from disk</span>
         </label>
         <label class="review-confirmation destructive-confirmation">
-            <input name="confirmDestructiveImport" type="checkbox" required />
+            <input name="confirmDestructiveRestore" type="checkbox" required />
             <span>I understand that the current Remi datastore on this computer will be permanently destroyed and replaced.</span>
         </label>
         <label class="review-confirmation destructive-confirmation">
-            <input name="confirmTransferPackage" type="checkbox" required />
-            <span>I have exported a backup of the current data and have checked that this is the correct Remi transfer package.</span>
+            <input name="confirmBackupPackage" type="checkbox" required />
+            <span>I have created a backup of the current data and have checked that this is the correct Remi backup.</span>
         </label>
         <label for="data-transfer-replacement-phrase">To make the replacement, type <strong>REPLACE</strong>
             <input id="data-transfer-replacement-phrase" name="replacementPhrase" type="text" autocomplete="off" spellcheck="false" pattern="REPLACE" required />
         </label>
         <div class="action-row">
-            <button class="button danger" type="submit">Import and replace all data</button>
+            <button class="button danger" type="submit">Restore and replace all data</button>
         </div>
     </form>
-    @if (ImportCompleted)
+    @if (RestoreCompleted)
     {
-        <p class="notice success" role="status">The Remi datastore was imported and replaced successfully. Refresh the page if you have an earlier Remi screen open.</p>
+        <p class="notice success" role="status">The Remi datastore was restored successfully. Refresh the page if you have an earlier Remi screen open.</p>
     }
 </section>
 }
@@ -253,11 +260,11 @@
     [Parameter, SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
 
-    [Parameter, SupplyParameterFromQuery(Name = "import")]
-    public string? Import { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "restore")]
+    public string? Restore { get; set; }
 
-    [Parameter, SupplyParameterFromQuery(Name = "export")]
-    public string? Export { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "backup")]
+    public string? Backup { get; set; }
 
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
@@ -275,6 +282,7 @@
     private bool savingDigitalMarketplaceServices;
     private bool digitalMarketplaceSaveSucceeded;
     private string? digitalMarketplaceMessage;
+    private string? preparedDownloadUrl;
 
     private string ActiveSection => Section switch
     {
@@ -286,9 +294,9 @@
         _ => CustomerUrnsSection,
     };
 
-    private bool ImportCompleted => string.Equals(Import, "complete", StringComparison.Ordinal);
+    private bool RestoreCompleted => string.Equals(Restore, "complete", StringComparison.Ordinal);
 
-    private PreparedDataTransfer? PreparedExport => Guid.TryParse(Export, out var id)
+    private PreparedDataTransfer? PreparedExport => Guid.TryParse(Backup, out var id)
         ? DataTransfer.GetPreparedExport(id)
         : null;
 
@@ -305,6 +313,9 @@
             _ => $"{bytes:N0} bytes",
         };
     }
+
+    private void BeginPreparedDownload(PreparedDataTransfer preparedExport) =>
+        preparedDownloadUrl = $"/data-transfer/backup/{preparedExport.Id:D}?download={Guid.NewGuid():N}";
 
     private string SectionLink(string section) => $"/settings?period={Uri.EscapeDataString(ReportingPeriod.SelectedPeriod)}&section={section}";
 

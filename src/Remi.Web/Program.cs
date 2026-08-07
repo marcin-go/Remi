@@ -190,7 +190,7 @@ app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
     return Results.Ok(new { archived });
 });
 
-app.MapPost("/data-transfer/export/prepare", async (
+app.MapPost("/data-transfer/backup/prepare", async (
     HttpRequest request,
     IAntiforgery antiforgery,
     IRemiDataTransfer dataTransfer,
@@ -202,14 +202,14 @@ app.MapPost("/data-transfer/export/prepare", async (
     }
     catch (AntiforgeryValidationException)
     {
-        return Results.BadRequest("The export form has expired. Reload Settings and prepare the export again.");
+        return Results.BadRequest("The backup form has expired. Reload Settings and create the backup again.");
     }
 
     var prepared = await dataTransfer.PrepareExportAsync(cancellationToken);
-    return Results.Redirect($"/settings?section=data-transfer&export={prepared.Id:D}");
+    return Results.Redirect($"/settings?section=data-transfer&backup={prepared.Id:D}");
 });
 
-app.MapGet("/data-transfer/export/{id:guid}", async (
+app.MapGet("/data-transfer/backup/{id:guid}", async (
     Guid id,
     HttpResponse response,
     IRemiDataTransfer dataTransfer,
@@ -218,20 +218,19 @@ app.MapGet("/data-transfer/export/{id:guid}", async (
     var prepared = dataTransfer.GetPreparedExport(id);
     if (prepared is null)
     {
-        return Results.NotFound("This prepared export is no longer available. Prepare a new export from Settings.");
+        return Results.NotFound("This prepared backup is no longer available. Create a new backup from Settings.");
     }
 
     var stream = await dataTransfer.OpenPreparedExportAsync(id, cancellationToken);
     if (stream is null)
     {
-        return Results.NotFound("This prepared export is no longer available. Prepare a new export from Settings.");
+        return Results.NotFound("This prepared backup is no longer available. Create a new backup from Settings.");
     }
 
-    response.OnCompleted(() => dataTransfer.DiscardPreparedExportAsync(id));
     return Results.File(stream, "application/zip", prepared.FileName, enableRangeProcessing: true);
 });
 
-app.MapPost("/data-transfer/import", async (
+app.MapPost("/data-transfer/restore", async (
     HttpRequest request,
     IAntiforgery antiforgery,
     IRemiDataTransfer dataTransfer,
@@ -243,31 +242,31 @@ app.MapPost("/data-transfer/import", async (
     }
     catch (AntiforgeryValidationException)
     {
-        return Results.BadRequest("The import form has expired. Reload Settings and confirm the import again.");
+        return Results.BadRequest("The restore form has expired. Reload Settings and confirm the restore again.");
     }
 
     if (!request.HasFormContentType)
     {
-        return Results.BadRequest("Choose a Remi data-transfer ZIP file.");
+        return Results.BadRequest("Choose a Remi backup ZIP file.");
     }
 
     var form = await request.ReadFormAsync(cancellationToken);
-    var confirmsReplacement = string.Equals(form["confirmDestructiveImport"], "on", StringComparison.OrdinalIgnoreCase);
-    var confirmsPackage = string.Equals(form["confirmTransferPackage"], "on", StringComparison.OrdinalIgnoreCase);
+    var confirmsReplacement = string.Equals(form["confirmDestructiveRestore"], "on", StringComparison.OrdinalIgnoreCase);
+    var confirmsPackage = string.Equals(form["confirmBackupPackage"], "on", StringComparison.OrdinalIgnoreCase);
     if (!confirmsReplacement || !confirmsPackage || !string.Equals(form["replacementPhrase"], "REPLACE", StringComparison.Ordinal))
     {
-        return Results.BadRequest("Import was not confirmed. Acknowledge both warnings and type REPLACE before importing.");
+        return Results.BadRequest("Restore was not confirmed. Acknowledge both warnings and type REPLACE before restoring.");
     }
 
     var package = form.Files.GetFile("package");
     if (package is null || package.Length <= 0 || !string.Equals(Path.GetExtension(package.FileName), ".zip", StringComparison.OrdinalIgnoreCase))
     {
-        return Results.BadRequest("Choose a non-empty Remi data-transfer ZIP file.");
+        return Results.BadRequest("Choose a non-empty Remi backup ZIP file.");
     }
 
     await using var packageStream = package.OpenReadStream();
     await dataTransfer.ImportAsync(packageStream, cancellationToken);
-    return Results.Redirect("/settings?section=data-transfer&import=complete");
+    return Results.Redirect("/settings?section=data-transfer&restore=complete");
 });
 
 app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
