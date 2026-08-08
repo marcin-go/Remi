@@ -539,6 +539,61 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 select { min-height: 0; padding: 0.25rem 0.55rem; }
 .register-filters select { min-height: 1.875rem; padding: 0.25rem 0.55rem; }
 
+/* Remi form-control convention: navy means editable; teal means active interaction. */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea) {
+    color: var(--color-navy) !important;
+    caret-color: var(--color-teal);
+    border-color: var(--color-navy) !important;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea):focus {
+    border-color: var(--color-teal) !important;
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%) !important;
+    outline: none;
+}
+
+.floating-field > .floating-label,
+.floating-field > input:not(:placeholder-shown) + .floating-label,
+.floating-field > textarea:not(:placeholder-shown) + .floating-label,
+.floating-field--static > .floating-label {
+    color: var(--color-navy);
+}
+
+.floating-field > input:focus + .floating-label,
+.floating-field > textarea:focus + .floating-label,
+.floating-field--static:focus-within > .floating-label {
+    color: var(--color-teal);
+}
+
+.invoice-money-field {
+    border-color: var(--color-navy);
+}
+
+.invoice-money-field:focus-within {
+    border-color: var(--color-teal);
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+}
+
+.invoice-money-field > input,
+.invoice-money-field > input:focus {
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+    outline: 2px solid var(--color-teal);
+    outline-offset: 2px;
+}
+
+/* Browser/OS popup menus remain native, but use teal where the platform honours option styling. */
+select option:hover,
+select option:focus,
+select option:checked {
+    color: var(--color-surface);
+    background: var(--color-teal);
+}
+
 @media (max-width: 760px) {
     .app-shell { padding: 0 1rem 2rem; }
     .app-header { min-height: 60px; margin: 0 -1rem; padding: 0 1rem; overflow-x: auto; }
