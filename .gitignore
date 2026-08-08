@@ -7,6 +7,7 @@ publish/
 
 # Local runtime state for the portable application
 data/
+backups/
 appsettings.Development.json
 
 # User-provided reporting evidence; never commit source workbooks or documents

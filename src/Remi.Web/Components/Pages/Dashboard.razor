@@ -13,7 +13,7 @@
                 <h1>Reporting overview</h1>
                 <p class="lede">Review return readiness, resolve exceptions and retain a clear audit trail for <strong>@DisplayPeriod(model.CurrentReportingMonth)</strong>.</p>
             </div>
-            <a class="remi-action remi-action--primary" href="@PeriodRoute("/reports")">Prepare →</a>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("/reports")">Prepare</a>
         </header>
 
         <section class="dashboard-period-summary" aria-label="Current reporting period">
@@ -85,7 +85,7 @@
                 <article class="dashboard-activity">
                     <header class="dashboard-section-heading">
                         <div><h2>Recent activity</h2></div>
-                        <a class="remi-action remi-action--section" href="@PeriodRoute("/settings?section=audit")">View →</a>
+                        <a class="remi-action remi-action--section" href="@PeriodRoute("/settings?section=audit")">View</a>
                     </header>
                     @if (model.RecentActivity.Count == 0)
                     {
@@ -113,19 +113,18 @@ else
 {
     <section class="page-heading">
         <div>
-            <p class="eyebrow">Monthly management information</p>
             <h1>Keep every return defensible.</h1>
             <p class="lede">Remi keeps the contract, invoice and submission trail together. The current reporting month is <strong>@model.CurrentReportingMonth</strong>.</p>
         </div>
-        <a class="button primary" href="/reports">Prepare →</a>
+        <a class="button primary" href="/reports">Prepare</a>
     </section>
 
     <section class="framework-grid" aria-label="Framework reporting summary">
         @foreach (var summary in model.Frameworks)
         {
             <article class="framework-card">
-                <p class="eyebrow">@summary.Framework.AgreementNumber</p>
                 <h2>@summary.Framework.DisplayName</h2>
+                <p class="muted">@summary.Framework.AgreementNumber</p>
                 <p class="muted">@ReturnLabel(summary.CurrentReturnStatus)</p>
                 <dl class="metric-list">
                     <div><dt>Contracts</dt><dd>@summary.ContractCount</dd></div>
@@ -140,7 +139,6 @@ else
         <article class="panel">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Contract progress</p>
                     <h2>Reported invoicing</h2>
                 </div>
                 <a href="contracts">View all contracts</a>
@@ -149,7 +147,7 @@ else
             {
                 <div class="empty-state">
                     <p>No contract data yet.</p>
-                    <a class="button secondary" href="/reports">Import →</a>
+                    <a class="button secondary" href="/reports">Import</a>
                 </div>
             }
             else
@@ -176,7 +174,6 @@ else
         <article class="panel findings-panel">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Data quality</p>
                     <h2>Needs attention</h2>
                 </div>
                 <a href="/reports">Review returns</a>
@@ -275,7 +272,7 @@ else
     }
 
     private static string ReadinessAction(FrameworkReadiness summary) =>
-        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review →" : "Open →";
+        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review" : "Open";
 
     private string? ExceptionMetricClass() =>
         BlockingItems.Count != 0 ? "has-blocking-exceptions"

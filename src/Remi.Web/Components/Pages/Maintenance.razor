@@ -8,20 +8,19 @@
 
 <section class="page-heading">
     <div>
-        <p class="eyebrow">Settings</p>
-        <h1>Configure Remi.</h1>
+        <h1>Configure Remi</h1>
         <p class="lede">Manage framework reporting dates, customer reference data and approved workbooks.</p>
     </div>
 </section>
 
 <section class="settings-layout">
     <aside class="panel settings-side-menu">
-        <p class="eyebrow">Settings menu</p>
         <nav class="settings-side-nav" aria-label="Settings sections">
             <a class="@SectionLinkClass(FrameworksSection)" href="@SectionLink(FrameworksSection)">Frameworks</a>
             <a class="@SectionLinkClass(DigitalMarketplaceSection)" href="@SectionLink(DigitalMarketplaceSection)">Digital Marketplace</a>
             <a class="@SectionLinkClass(CustomerUrnsSection)" href="@SectionLink(CustomerUrnsSection)">Customer URNs</a>
             <a class="@SectionLinkClass(TemplatesSection)" href="@SectionLink(TemplatesSection)">Templates</a>
+            <a class="@SectionLinkClass(MailSection)" href="@SectionLink(MailSection)">Mail</a>
             <a class="@SectionLinkClass(AuditSection)" href="@SectionLink(AuditSection)">Audit</a>
             <a class="@SectionLinkClass(DataTransferSection)" href="@SectionLink(DataTransferSection)">Backup / Restore</a>
         </nav>
@@ -30,7 +29,6 @@
 @if (ActiveSection == FrameworksSection)
 {
 <section class="panel maintenance-panel">
-    <p class="eyebrow">Framework catalogue</p>
     <h2>Framework reporting start dates</h2>
     <p>These dates determine when Remi includes each supported framework in its report register and dashboard readiness. The calendar month containing a start date is included.</p>
     @if (frameworkConfigurations.Count == 0)
@@ -88,7 +86,6 @@
 @if (ActiveSection == CustomerUrnsSection)
 {
 <section class="panel maintenance-panel">
-    <p class="eyebrow">Reference data</p>
     <h2>Customer URN list</h2>
     <p>Refresh from the stable GOV.UK guidance page when you need current customer/URN suggestions during contract registration. Remi resolves the dated ODS file linked there, archives that exact source locally, and records its provenance.</p>
     @if (urnDirectoryStatus is null)
@@ -116,7 +113,6 @@
 @if (ActiveSection == DigitalMarketplaceSection)
 {
 <section class="panel maintenance-panel">
-    <p class="eyebrow">Reference data</p>
     <h2>G-Cloud 14 Digital Marketplace services</h2>
     <p>These StatMap Ltd products are suggested when entering a Digital Marketplace Service ID for a contract. You can maintain the list when the supplier catalogue changes; choosing a suggestion is optional.</p>
     <div class="action-row">
@@ -175,10 +171,14 @@
     <Templates View="audit" />
 }
 
+@if (ActiveSection == MailSection)
+{
+    <MailSettings />
+}
+
 @if (ActiveSection == DataTransferSection)
 {
 <section class="panel maintenance-panel data-transfer-panel">
-    <p class="eyebrow">Backup</p>
     <h2>Create a complete Remi backup</h2>
     <p>Create a portable Remi backup ZIP to move this instance to another computer. It includes the register, all retained evidence, approved templates, reference data and other persistent Remi data.</p>
     @if (PreparedExport is { } preparedExport)
@@ -213,8 +213,6 @@
 </section>
 
 <section class="panel maintenance-panel data-transfer-panel data-transfer-panel--danger">
-    <p class="eyebrow">Destructive action</p>
-    <p class="eyebrow">Restore</p>
     <h2>Restore this Remi backup</h2>
     <p><strong>Warning:</strong> restoring permanently replaces every item currently stored by this Remi instance with the contents of the selected backup. This includes the register, evidence, templates and locally stored reference data. It cannot be undone.</p>
     <p>Create a backup of this computer's current data first if there is any chance you will need to recover it. Only restore ZIPs created by Remi.</p>
@@ -253,6 +251,7 @@
     private const string DigitalMarketplaceSection = "digital-marketplace";
     private const string CustomerUrnsSection = "customer-urns";
     private const string TemplatesSection = "templates";
+    private const string MailSection = "mail";
     private const string AuditSection = "audit";
     private const string DataTransferSection = "data-transfer";
 
@@ -288,6 +287,7 @@
         FrameworksSection => FrameworksSection,
         DigitalMarketplaceSection => DigitalMarketplaceSection,
         TemplatesSection => TemplatesSection,
+        MailSection => MailSection,
         AuditSection => AuditSection,
         DataTransferSection => DataTransferSection,
         _ => CustomerUrnsSection,

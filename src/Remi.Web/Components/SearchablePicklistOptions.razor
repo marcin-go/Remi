@@ -1,0 +1,57 @@
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@typeparam TItem
+
+<div id="@Id"
+     class="searchable-picklist-options @CssClass"
+     role="listbox"
+     aria-label="@AriaLabel"
+     data-scroll-selected="@ScrollSelectedIntoView.ToString().ToLowerInvariant()"
+     style="@ListStyle">
+    @if (Items.Count == 0)
+    {
+        <p>@EmptyMessage</p>
+    }
+    else if (Items.Count > VirtualizationThreshold)
+    {
+        <Virtualize Items="@VirtualItems" Context="item" ItemSize="40" SpacerElement="div">
+            <button type="button"
+                    role="option"
+                    aria-selected="@IsSelected(item).ToString().ToLowerInvariant()"
+                    @onmousedown:preventDefault
+                    @onclick="@(() => ItemSelected.InvokeAsync(item))">
+                @ItemTemplate(item)
+            </button>
+        </Virtualize>
+    }
+    else
+    {
+        @foreach (var item in Items)
+        {
+            <button type="button"
+                    role="option"
+                    aria-selected="@IsSelected(item).ToString().ToLowerInvariant()"
+                    @onmousedown:preventDefault
+                    @onclick="@(() => ItemSelected.InvokeAsync(item))">
+                @ItemTemplate(item)
+            </button>
+        }
+    }
+</div>
+
+@code {
+    private const int VirtualizationThreshold = 100;
+
+    [Parameter, EditorRequired] public string Id { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string AriaLabel { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<TItem> Items { get; set; } = [];
+    [Parameter, EditorRequired] public RenderFragment<TItem> ItemTemplate { get; set; } = default!;
+    [Parameter, EditorRequired] public EventCallback<TItem> ItemSelected { get; set; }
+    [Parameter] public Func<TItem, bool>? Selected { get; set; }
+    [Parameter] public string EmptyMessage { get; set; } = "No matching items.";
+    [Parameter] public string CssClass { get; set; } = string.Empty;
+    [Parameter] public bool ScrollSelectedIntoView { get; set; }
+
+    private ICollection<TItem> VirtualItems => Items as ICollection<TItem> ?? Items.ToList();
+    private string ListStyle => $"--picklist-visible-rows: {Math.Clamp(Items.Count, 1, 5)}";
+    private bool IsSelected(TItem item) => Selected?.Invoke(item) == true;
+}

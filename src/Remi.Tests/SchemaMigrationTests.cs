@@ -1,0 +1,230 @@
+using Microsoft.Data.Sqlite;
+using Remi.Application;
+using Remi.Infrastructure;
+using Xunit;
+
+namespace Remi.Tests;
+
+public sealed class SchemaMigrationTests
+{
+    [Fact]
+    public async Task Post_submission_default_upgrade_preserves_event_state_and_recipients()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "remi-data.db");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var schemaStore = new SqliteRemiStore(databasePath);
+            var mailStore = new SqliteRemiMailStore(databasePath, schemaStore);
+            var template = Assert.Single(await mailStore.GetTemplatesAsync(), item => item.EventType == MailEventTypes.PostSubmissionReport);
+            await mailStore.SaveTemplateAsync(new MailTemplateUpdate(
+                template.EventType,
+                true,
+                "Framework MI submission recorded - {{reporting_month}}",
+                "Hello,",
+                "The framework MI return has been submitted.",
+                "Submission evidence will be included when this event is enabled.",
+                "Take care",
+                "Marcin",
+                [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, "Director", "director@example.test", 0)]),
+                DateTimeOffset.UtcNow);
+            await using (var connection = await OpenAsync(databasePath))
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM remi_schema_migrations WHERE version = 3;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var upgradedSchema = new SqliteRemiStore(databasePath);
+            var upgradedMailStore = new SqliteRemiMailStore(databasePath, upgradedSchema);
+            var upgraded = Assert.Single(await upgradedMailStore.GetTemplatesAsync(), item => item.EventType == MailEventTypes.PostSubmissionReport);
+
+            Assert.True(upgraded.Enabled);
+            Assert.Equal("Framework MI submission accepted - {{reporting_month}}", upgraded.SubjectTemplate);
+            Assert.Contains("accepted by GCA", upgraded.Introduction, StringComparison.Ordinal);
+            Assert.Equal("This month we reported the following values.", upgraded.RequestText);
+            var recipient = Assert.Single(upgraded.Recipients);
+            Assert.Equal("director@example.test", recipient.EmailAddress);
+            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v3-*.db"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Current_operational_schema_is_upgraded_additively_without_losing_register_data()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "remi-data.db");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await CreatePreMigrationDatabaseAsync(databasePath);
+
+            var store = new SqliteRemiStore(databasePath);
+            var snapshot = await store.ReadAsync(database => new
+            {
+                Contracts = database.Contracts.ToList(),
+                Invoices = database.Invoices.ToList(),
+                Returns = database.MonthlyReturns.ToList(),
+                Evidence = database.Evidence.ToList(),
+                Parts = database.ContractServiceParts.ToList(),
+                ReportingOccurrences = database.ContractReportingOccurrences.ToList(),
+            });
+
+            Assert.Single(snapshot.Contracts);
+            Assert.Equal("LIVE-CONTRACT", snapshot.Contracts[0].SupplierReference);
+            Assert.Single(snapshot.Invoices);
+            Assert.Equal("INV-001", snapshot.Invoices[0].InvoiceNumber);
+            Assert.Single(snapshot.Returns);
+            Assert.Single(snapshot.Evidence);
+            Assert.Single(snapshot.Parts);
+            Assert.Equal("Planning Management", snapshot.Parts[0].Name);
+            Assert.Null(snapshot.Parts[0].GoLiveDate);
+            Assert.Single(snapshot.ReportingOccurrences);
+            Assert.Equal(snapshot.Contracts[0].Id, snapshot.ReportingOccurrences[0].ContractId);
+            Assert.Equal(snapshot.Returns[0].Id, snapshot.ReportingOccurrences[0].MonthlyReturnId);
+
+            await using var verification = await OpenAsync(databasePath);
+            var versions = new List<int>();
+            await using (var command = verification.CreateCommand())
+            {
+                command.CommandText = "SELECT version FROM remi_schema_migrations ORDER BY version;";
+                await using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    versions.Add(reader.GetInt32(0));
+                }
+            }
+            Assert.Equal([1, 2, 3], versions);
+            Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
+
+            var automaticBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v2-*.db"));
+            await using var backup = await OpenAsync(automaticBackup, readOnly: true);
+            await using var integrity = backup.CreateCommand();
+            integrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await integrity.ExecuteScalarAsync());
+
+            var postSubmissionBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v3-*.db"));
+            await using var versionThreeBackup = await OpenAsync(postSubmissionBackup, readOnly: true);
+            await using var versionThreeIntegrity = versionThreeBackup.CreateCommand();
+            versionThreeIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionThreeIntegrity.ExecuteScalarAsync());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static async Task CreatePreMigrationDatabaseAsync(string databasePath)
+    {
+        await using var connection = await OpenAsync(databasePath);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE contracts (
+                id TEXT PRIMARY KEY, framework INTEGER NOT NULL, supplier_reference TEXT NOT NULL,
+                customer_name TEXT NOT NULL, customer_urn TEXT NULL, start_date TEXT NULL,
+                end_date TEXT NULL, lot_number TEXT NULL, service_group TEXT NULL,
+                service_group_level_2 TEXT NULL, service_description TEXT NULL,
+                order_channel TEXT NULL, digital_marketplace_service_id TEXT NULL,
+                total_contract_value_ex_vat TEXT NOT NULL, report_month TEXT NOT NULL,
+                source_workbook TEXT NOT NULL, created_at_utc TEXT NOT NULL);
+            CREATE TABLE invoices (
+                id TEXT PRIMARY KEY, framework INTEGER NOT NULL, supplier_reference TEXT NOT NULL,
+                customer_name TEXT NOT NULL, customer_urn TEXT NULL, invoice_date TEXT NULL,
+                invoice_number TEXT NOT NULL, lot_number TEXT NULL, service_group TEXT NULL,
+                service_group_level_2 TEXT NULL, service_description TEXT NULL,
+                order_channel TEXT NULL, digital_marketplace_service_id TEXT NULL,
+                unit_of_measure TEXT NULL, quantity TEXT NULL, price_per_unit_ex_vat TEXT NULL,
+                total_cost_ex_vat TEXT NOT NULL, original_vendor TEXT NULL,
+                subcontractor_name TEXT NULL, report_month TEXT NOT NULL,
+                source_workbook TEXT NOT NULL, created_at_utc TEXT NOT NULL);
+            CREATE TABLE monthly_returns (
+                id TEXT PRIMARY KEY, framework INTEGER NOT NULL, report_month TEXT NOT NULL,
+                status INTEGER NOT NULL, submitted_at_utc TEXT NULL, submission_reference TEXT NULL,
+                original_workbook_name TEXT NULL, updated_at_utc TEXT NOT NULL,
+                UNIQUE (framework, report_month));
+            CREATE TABLE evidence (
+                id TEXT PRIMARY KEY, kind INTEGER NOT NULL, framework INTEGER NULL,
+                report_month TEXT NULL, file_name TEXT NOT NULL, original_relative_path TEXT NOT NULL,
+                stored_relative_path TEXT NOT NULL, content_type TEXT NOT NULL,
+                file_size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                contract_reference TEXT NULL, archived_at_utc TEXT NOT NULL);
+            CREATE TABLE charge_schedule_items (
+                id TEXT PRIMARY KEY, contract_id TEXT NOT NULL, contract_year INTEGER NOT NULL,
+                description TEXT NOT NULL, expected_invoice_date TEXT NULL, value_ex_vat TEXT NOT NULL,
+                is_optional_extension INTEGER NOT NULL DEFAULT 0, created_at_utc TEXT NOT NULL);
+
+            INSERT INTO contracts VALUES (
+                '11111111-1111-1111-1111-111111111111', 2, 'LIVE-CONTRACT', 'Mole Valley District Council',
+                '10000000', '2024-10-01', '2027-09-30', '1', NULL, NULL,
+                'Planning Management', 'Framework Catalogue', NULL, '120000.00', '2024-10',
+                'operational-source.xlsx', '2024-10-01T09:00:00.0000000+00:00');
+            INSERT INTO invoices VALUES (
+                '22222222-2222-2222-2222-222222222222', 2, 'LIVE-CONTRACT', 'Mole Valley District Council',
+                '10000000', '2026-07-15', 'INV-001', '1', NULL, NULL, 'Planning Management',
+                'Framework Catalogue', NULL, 'Per annum', '1', '40000.00', '40000.00',
+                'StatMap Ltd', 'Not applicable', '2026-07', 'manual', '2026-07-15T09:00:00.0000000+00:00');
+            INSERT INTO monthly_returns VALUES (
+                '33333333-3333-3333-3333-333333333333', 2, '2024-10', 1,
+                '2024-11-07T10:00:00.0000000+00:00', 'GCA-1', 'submitted.xlsx',
+                '2024-11-07T10:00:00.0000000+00:00');
+            INSERT INTO evidence VALUES (
+                '44444444-4444-4444-4444-444444444444', 1, 2, '2024-10', 'submitted.xlsx',
+                'submitted.xlsx', 'aa/submitted.xlsx',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 1024,
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', NULL,
+                '2024-11-07T10:00:00.0000000+00:00');
+            INSERT INTO charge_schedule_items VALUES (
+                '55555555-5555-5555-5555-555555555555',
+                '11111111-1111-1111-1111-111111111111', 1, 'Annual charge', '2024-10-01',
+                '40000.00', 0, '2024-10-01T09:00:00.0000000+00:00');
+            """;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<SqliteConnection> OpenAsync(string path, bool readOnly = false)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
+        }.ToString());
+        await connection.OpenAsync();
+        return connection;
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        SqliteConnection connection,
+        string table,
+        string column)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{table}\");";
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

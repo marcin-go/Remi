@@ -18,62 +18,13 @@ Domain records and validation
 Storage / template / evidence adapters
 ```
 
-The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, application-protection keys and Serilog rolling logs under the data folder beside the executable. The register retains each evidence file's original relative source-data path and SHA-256 checksum, while the archive stores a flat content-addressed copy under data/evidence so the physical layout does not mirror source folders and a later revision does not replace an earlier original. The customer-URN reference index also stays in that portable data folder: it is rebuilt from the dated ODS linked by the stable GOV.UK guidance page and retains that exact ODS as evidence. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
+The current adapter stores the whole register in local SQLite tables, with original evidence files, approved workbook templates, captured mail, application-protection keys and Serilog rolling logs under the data folder beside the executable. The register retains each evidence file's original relative source-data path and SHA-256 checksum, while the archive stores a flat content-addressed copy under data/evidence so the physical layout does not mirror source folders and a later revision does not replace an earlier original. The customer-URN reference index also stays in that portable data folder: it is rebuilt from the dated ODS linked by the stable GOV.UK guidance page and retains that exact ODS as evidence. A hosted deployment can replace the SQLite adapter and add authentication without replacing the UI or reporting rules.
 
-## Interface design rules: typographic hierarchy and actions
+Remi became an operational system of record on 8 August 2026. Persistent structures are therefore changed only through additive, numbered migrations. An upgraded build creates a database backup before applying a pending migration, and a release deployment takes and verifies a cold copy of the complete published data folder before the upgraded executable opens it. Prototype-style database replacement is not an upgrade strategy.
 
-Every visual treatment must have one meaning. In particular, uppercase teal text must not describe both a label and an action: this makes an otherwise borderless control ambiguous. Remi uses sentence case to describe information and uppercase only to describe an action the user can take.
+## Interface design
 
-### Commands and navigation
-
-Commands are compact, text-led controls. Their priority comes primarily from colour, weight and placement, rather than from a filled surface or a large physical button.
-
-| Context | Minimum height | Label size | Example |
-| --- | ---: | ---: | --- |
-| Page action | 30px | 11px | `REGISTER CONTRACT` |
-| Section, toolbar or filter action | 26–28px | 10.5px | `RESET FILTERS` |
-| Table-row action | 24px | 10px | `OPEN →` |
-
-All commands use bold uppercase labels, 3–6px horizontal padding, a 4px radius, no border and no permanent fill. They centre their label and icon as one unit. Hover and active states use only a restrained teal tint that hugs the text. Keep 18–24px between adjacent page commands; page-header actions use 20px separation.
-
-There are two command meanings:
-
-- **Primary workflow commands** advance or change work and use teal: `PREPARE RETURN`, `REGISTER CONTRACT`, `SAVE CHANGES`. An arrow is normally omitted because the user is performing work rather than going elsewhere.
-- **Secondary navigation actions** inspect a page or record and use navy: `OPEN RETURN →`, `VIEW AUDIT →`, `VIEW CONTRACT →`. The arrow consistently signals navigation.
-
-Put page actions at the far right of the page title block, aligned with the title or first description line. Do not leave a primary command floating between the title and the next panel. A selected-record toolbar supplies the structure around its actions: for example, `REVIEW SELECTED →` is teal and `CLEAR` is muted navy.
-
-Table actions always occupy a narrow, consistently right-aligned action column (about 70px). Do not use outlined `View` buttons in rows. Filter reset is a compact text action directly after the final filter, separated slightly from the fields; it has no pill, border or dedicated container.
-
-Icon-only controls have zero labelled-button padding, retain a readable approximately 20px icon, and have an accessible `aria-label`. A button directly beside a dropdown may stretch its outer box to match the dropdown only when both form one visual control row; its type scale and internal padding do not change.
-
-### Information hierarchy
-
-Sentence case describes information. This includes page and panel headings, page context, labels, metric labels, table headings, framework names and statuses. Non-interactive headings and labels must not use teal, uppercase or command-like tracking.
-
-| Information role | Treatment |
-| --- | --- |
-| Page and panel headings | Navy, sentence case, clear hierarchy; for panels use 16px / 700 weight. |
-| Supporting copy | Muted blue-grey, sentence case; panel descriptions use 13px / 400 weight. |
-| Context label | Optional only; muted blue-grey, sentence case, 12px / 600 weight, no letter spacing. |
-| Metric label | Muted blue-grey, sentence case, 11px / 600 weight, no letter spacing. |
-| Metric value | Navy, 18px / 700 weight; the value carries the emphasis. |
-| Table heading | Neutral blue-grey, sentence case, 10.5px / 700 weight, no letter spacing. |
-| Record data | Mixed case, bold where the value itself is important. |
-| Status | Sentence-case text inside a subtle semantic pill. |
-
-Status is never an action. Use labels such as `Submitted`, `Nil return recorded`, `Needs review` and `Evidence missing`; never uppercase them. Exception counts are semantic: zero is navy or muted, a non-blocking exception is amber, and a blocking exception is red.
-
-### Dashboard application
-
-The dashboard is the reference implementation for this hierarchy:
-
-1. Do not use a redundant uppercase eyebrow. `Reporting overview` already identifies the page; use an optional quiet `Management information` context label only when it adds useful context.
-2. Keep one primary page command, `PREPARE RETURN`, at the far right of the title block. Supporting page copy states the active reporting month.
-3. The summary strip uses sentence-case labels (`Reporting period`, `Contracts`, `Invoices`, `Ready`, `Exceptions`) above the values. The value, not the label, is visually prominent.
-4. Each panel has one direct heading and, only where helpful, accurate supporting text. For example, `Return readiness` with `Frameworks included in the June 2026 reporting period`; when there are no issues, `Needs attention` says that no validation issues were found rather than telling the user to resolve them.
-5. `Recent activity` may have the navy navigation action `VIEW AUDIT →` aligned at its right. Do not duplicate it with a second `Audit trail` heading.
-6. The readiness table uses sentence-case headings (`Framework`, `Contracts`, `Invoices`, `Readiness`) and a right-aligned `OPEN RETURN →` action column.
+[The Remi interface blueprint](design-blueprint.md) is the definitive design contract for page structure, controls, view and edit modes, responsive behaviour, copy and accessibility. It supersedes earlier interface notes and screenshots whenever they conflict.
 
 ## Reporting workflow
 
@@ -100,10 +51,6 @@ The supplied workbooks contain:
 
 Each recognised historical MI workbook is recorded as a **submitted** monthly return. For each of the three frameworks represented in the supplied history, a reporting month found for another represented framework but without a workbook for that framework is recorded as a **NIL** return. The migration does not create retrospective returns for G-Cloud 15, because it is not part of the supplied historical source. Remi deliberately leaves the portal submission timestamp blank for these records: the evidence proves the return was supplied, but not the time at which it was submitted.
 
-Each recognised historical MI workbook is recorded as a **submitted** monthly return. For each of the three frameworks represented in the supplied history, a reporting month found for another represented framework but without a workbook for that framework is recorded as a **NIL** return. The migration does not create retrospective returns for G-Cloud 15, because it is not part of the supplied historical source. Remi deliberately leaves the portal submission timestamp blank for these records: the evidence proves the return was supplied, but not the time at which it was submitted.
-
-Each recognised historical MI workbook is recorded as a **submitted** monthly return. For each of the three frameworks represented in the supplied history, a reporting month found for another represented framework but without a workbook for that framework is recorded as a **NIL** return. The migration does not create retrospective returns for G-Cloud 15, because it is not part of the supplied historical source. Remi deliberately leaves the portal submission timestamp blank for these records: the evidence proves the return was supplied, but not the time at which it was submitted.
-
 The migration preflight intentionally reports two errors without changing source data:
 
 - `WYC_202507_GMS` under VAS has an end date of 17 May 2025 and a start date of 18 May 2025.
@@ -117,11 +64,16 @@ These are exactly the sort of exceptions Remi should make visible. They should b
 | --- | --- |
 | Framework | Agreement number, current reporting authority, template/version policy and deadline configuration |
 | Contract | Framework, supplier reference, customer/URN, dates, lot, service/order attributes, value and first reporting month |
+| Contract service part | A system or billing group within a contract, its order and actual go-live date; ordinary contracts retain one whole-contract part |
+| Contract reporting occurrence | Historical evidence of the first submitted monthly return in which a contract was reported; this drives the monthly `NEW` label without a mutable flag |
 | Invoice | Framework, supplier reference, invoice number/date, service fields and ex-VAT value |
-| Charge schedule item | Contract year, description, expected amount/date; supports several positions per year for instalment-accurate completion |
+| Charge schedule item | Contract year, description, expected amount/date and optional contract-part link; supports several positions per year for instalment-accurate completion |
 | Monthly return | Framework/month, draft/submitted/nil state, timestamp, portal reference and original workbook name |
 | Evidence | Immutable original MI workbooks, order forms, pricing/dates documents, screenshots and guidance; source path, checksum and optional contract link |
 | Audit event | Append-only actor, time, action, summary and correction reason |
+| Customer reference entry | Locally indexed organisation name, eight-digit URN and address from the archived GCA customer list |
+| Mail template | Event wording, trigger mode, enablement, schedule and event-specific To/Cc/Bcc recipients |
+| Captured mail | Immutable recipient snapshot, delivery key, subject, related record/period, SHA-256 and `.eml` content; Capture mode performs no external delivery |
 
 The model deliberately retains the framework-specific fields instead of flattening everything into free text. G-Cloud needs service group and Digital Marketplace Service ID; VAS needs product/service and order-channel attributes.
 
@@ -145,14 +97,23 @@ Deadlines are **not** hard-coded as a legal rule. They should be stored per agre
 4. Generated `.xlsx` returns are copied from the registered template, then validated after only the Contracts and Invoices Raised table rows are replaced.
 5. Material actions append audit events; a reviewer can mark a return as requiring correction with an explicit reason.
 6. The one-off source-data migration is run through the validated command-line workflow, which rebuilds the local register, evidence archive and reporting history from the approved source folder.
-7. Remi deliberately does not perform in-place upgrades of earlier prototype databases. Settings can validate a source folder and, after a separate destructive confirmation, rebuild the complete local register and evidence archive from that source.
+7. Published databases are upgraded only through additive, numbered migrations with preservation tests and pre-migration backup. Destructive restore remains a separate, explicitly confirmed recovery operation; it is never used as a routine upgrade.
 8. Settings can refresh the customer-URN directory. Contract intake then offers local organisation/URN suggestions, while the downloaded source ODS, URL and checksum remain reviewable evidence.
+9. A contract has one operational part by default. A staged contract can expose several system/billing groups with separate actual go-live dates and optional charge-schedule links. Status is derived as `Not live`, `Partially live`, `Live` or `Ended`.
+10. Mail initially runs in Capture mode only. The monthly active-contract message is eligible on the 1st for the preceding month; `NEW` is evaluated against the inventory and reporting-occurrence state at the scheduled instant. A group of contract parts first marked live creates one customer-go-live capture.
+11. The manually triggered post-submission message is one immutable capture per reporting month. It requires every reporting framework to have a submitted or nil return plus image evidence recorded after its latest submission event. Those original evidence bytes are embedded inline beneath the G-Cloud 13, G-Cloud 14 and VAS headings; missing state blocks the capture rather than producing a misleading acceptance message.
+
+## Mail delivery boundary
+
+Capture, Redirect and Live are explicit delivery modes, but only Capture is enabled at go-live. Capture renders an RFC 822 message, stores it immutably under `data/mail`, records recipients and a checksum in SQLite, and never calls Mailgun or any other transport. Attempting to configure this release for Redirect or Live fails closed at startup.
+
+The Settings > Mail screen owns event templates and their recipients. Monthly active contracts, customer going live and the manual post-submission report have active renderers. Contracts expiring within three months and the submission-deadline reminder remain visible but disabled until their remaining selection and scheduling rules are approved. This preserves the event contracts without pretending unfinished automation is live.
 
 ## Next delivery slice
 
-1. Add field-level record amendments with before/after values and a reviewer resolution step.
-2. Record the formal GCA submission deadline and template-specific validation policy for each registered version.
-3. Add automated coverage for representative G-Cloud and VAS template exports.
+1. Agree and implement the three-month contract-expiry selection rules.
+2. Record the formal GCA submission deadline and enable its reminder schedule.
+3. Add field-level record amendments with before/after values and a reviewer resolution step.
 
 ## Path to colleague access
 

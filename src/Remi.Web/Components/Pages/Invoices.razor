@@ -17,13 +17,8 @@ else
             <div>
                 <h1>Invoices</h1>
             </div>
-            <a class="remi-action remi-action--primary" href="@PeriodRoute("invoices/new")">Register →</a>
+            <a class="remi-action remi-action--primary" href="@PeriodRoute("invoices/new")">Register</a>
         </header>
-
-        @if (!string.IsNullOrWhiteSpace(selectionNotice))
-        {
-            <p class="register-notice" role="status">@selectionNotice</p>
-        }
 
         <section class="register-workspace register-workspace-full" id="invoice-register">
             <article class="register-card">
@@ -33,36 +28,22 @@ else
                 </header>
 
                 <div class="register-filters invoice-filters">
-                    <label class="register-search">Search invoices<input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /></label>
-                    <label>Framework<select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select></label>
-                    <label>Contract match<select @bind="matchFilter" @bind:after="ResetPage"><option value="">All records</option><option value="matched">Matched</option><option value="unmatched">Needs a contract</option></select></label>
-                    <label>Documents<select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select></label>
+                    <label class="register-search floating-field floating-field--static"><input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /><span class="floating-label">Search invoices</span></label>
+                    <label class="floating-field floating-field--static"><select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
+                    <label class="floating-field floating-field--static"><select @bind="matchFilter" @bind:after="ResetPage"><option value="">All records</option><option value="matched">Matched</option><option value="unmatched">Needs a contract</option></select><span class="floating-label">Contract match</span></label>
+                    <label class="floating-field floating-field--static"><select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select><span class="floating-label">Documents</span></label>
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
                         <button class="@QuickButtonClass("current")" @onclick="@(() => SetQuickFilter("current"))">Selected period</button>
                         <button class="@QuickButtonClass("unmatched")" @onclick="@(() => SetQuickFilter("unmatched"))">Needs a contract</button>
                         <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Documents missing</button>
-                        <button class="@QuickButtonClass("selected")" @onclick="@(() => SetQuickFilter("selected"))">Selected</button>
                     </div>
-                </div>
-
-                <div class="register-table-toolbar">
-                    @if (SelectedInvoices.Count > 0)
-                    {
-                        <strong>@SelectedInvoices.Count selected</strong><span>from the current register</span>
-                    }
-                    else
-                    {
-                        <span>Select invoices to review them together.</span>
-                    }
-                    <div><button class="remi-action remi-action--compact" @onclick="ToggleAllVisible" disabled="@(PagedInvoices.Count == 0)">@(AllVisibleSelected ? "Clear" : "Select")</button></div>
                 </div>
 
                 <div class="register-table-scroll">
                     <table class="register-table invoice-register-table">
                         <thead><tr>
-                            <th class="checkbox-cell"><input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" aria-label="Select visible invoices" /></th>
                             <th aria-sort="@SortAria("invoice")"><button class="table-sort" @onclick="@(() => SortBy("invoice"))">Invoice designation <span aria-hidden="true">@SortIndicator("invoice")</span></button></th>
                             <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer &amp; contract <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
                             <th aria-sort="@SortAria("invoiceDate")"><button class="table-sort" @onclick="@(() => SortBy("invoiceDate"))">Invoice date <span aria-hidden="true">@SortIndicator("invoiceDate")</span></button></th>
@@ -73,12 +54,11 @@ else
                         <tbody>
                         @if (PagedInvoices.Count == 0)
                         {
-                            <tr><td colspan="7" class="register-empty">No invoices match these filters.</td></tr>
+                            <tr><td colspan="6" class="register-empty">No invoices match these filters.</td></tr>
                         }
                         @foreach (var invoice in PagedInvoices)
                         {
-                            <tr class="@(IsSelected(invoice.InvoiceId) ? "selected-row" : null)">
-                                <td class="checkbox-cell"><input type="checkbox" checked="@IsSelected(invoice.InvoiceId)" @onchange="@(() => ToggleSelection(invoice.InvoiceId))" aria-label="Select @invoice.InvoiceNumber" /></td>
+                            <tr>
                                 <td><a class="register-reference" href="@InvoiceRoute(invoice.InvoiceId)">@invoice.InvoiceNumber</a></td>
                                 <td><strong>@invoice.CustomerName</strong><span>@invoice.SupplierReference</span></td>
                                 <td class="register-date">@DisplayDate(invoice.InvoiceDate)</td>
@@ -105,38 +85,6 @@ else
                     <div><button disabled="@(page == 1)" @onclick="PreviousPage" aria-label="Previous page">‹</button><strong>@(page)</strong><span>of @TotalPages</span><button disabled="@(page == TotalPages)" @onclick="NextPage" aria-label="Next page">›</button></div>
                 </footer>
             </article>
-
-            @if (SelectedInvoices.Count > 0)
-            {
-                <section class="register-selection-bar" aria-label="Selected invoices">
-                    <strong>@SelectedInvoices.Count selected</strong>
-                    <span>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat)) combined value</span>
-                    <span class="@(SelectedInvoices.Any(HasIssues) ? "selection-bar-warning" : "selection-bar-ready")">@SelectedInvoices.Count(HasIssues) with issues</span>
-                    <div><button class="remi-action remi-action--primary" @onclick="ToggleSelectionDrawer">Review <span aria-hidden="true">→</span></button><button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button></div>
-                </section>
-            }
-
-            @if (selectionDrawerOpen && SelectedInvoices.Count > 0)
-            {
-                <div class="register-drawer-backdrop" @onclick="CloseSelectionDrawer"></div>
-                <aside class="register-selection-drawer" role="dialog" aria-modal="true" aria-labelledby="selected-invoices-heading">
-                    <header><div><span class="selection-count">@SelectedInvoices.Count</span><h2 id="selected-invoices-heading">Selected invoices</h2></div><button class="register-drawer-close" @onclick="CloseSelectionDrawer" aria-label="Close selected invoices">&#215;</button></header>
-                <p>Review the records that will be included in the next monthly return.</p>
-                <dl class="register-selection-summary"><div><dt>Combined value</dt><dd>@Currency(SelectedInvoices.Sum(invoice => invoice.TotalCostExVat))</dd></div><div><dt>Reporting issues</dt><dd class="warning-number">@SelectedInvoices.Sum(invoice => invoice.Findings.Count)</dd></div><div><dt>Documents missing</dt><dd class="warning-number">@SelectedInvoices.Count(invoice => invoice.EvidenceCount == 0)</dd></div></dl>
-                @if (SelectedInvoices.Any(HasIssues))
-                {
-                    <p class="selection-warning">Resolve the listed reporting issues or missing documents before submitting this group to the return.</p>
-                }
-                <ul class="selected-records">
-                    @foreach (var invoice in SelectedInvoices)
-                    {
-                        <li><span><strong>@invoice.InvoiceNumber</strong><small>@invoice.CustomerName</small></span><button @onclick="@(() => ToggleSelection(invoice.InvoiceId))" aria-label="Remove @invoice.InvoiceNumber">×</button></li>
-                    }
-                </ul>
-                <button class="remi-action remi-action--primary selection-review" disabled="@(SelectedInvoices.Count == 0)" @onclick="ReviewSelection">Review <span aria-hidden="true">→</span></button>
-                @if (SelectedInvoices.Count > 0) { <button class="remi-action remi-action--compact clear-selection" @onclick="ClearSelection">Clear</button> }
-                </aside>
-            }
         </section>
     </section>
 }
@@ -144,15 +92,12 @@ else
 @code {
     private const int PageSize = 10;
     private IReadOnlyList<InvoiceRegisterItem>? invoices;
-    private readonly HashSet<Guid> selectedInvoiceIds = [];
     private string reportingMonth = string.Empty;
     private string searchTerm = string.Empty;
     private string frameworkFilter = string.Empty;
     private string matchFilter = string.Empty;
     private string evidenceFilter = string.Empty;
     private string quickFilter = string.Empty;
-    private string? selectionNotice;
-    private bool selectionDrawerOpen;
     private int page = 1;
     private string sortColumn = "invoice";
     private bool sortDescending = true;
@@ -184,18 +129,16 @@ else
         ? []
         : SortInvoices(invoices.Where(MatchesFilters)).ToList();
     private IReadOnlyList<InvoiceRegisterItem> PagedInvoices => FilteredInvoices.Skip((page - 1) * PageSize).Take(PageSize).ToList();
-    private IReadOnlyList<InvoiceRegisterItem> SelectedInvoices => invoices?.Where(invoice => selectedInvoiceIds.Contains(invoice.InvoiceId)).OrderByDescending(invoice => invoice.InvoiceDate).ToList() ?? [];
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredInvoices.Count / (double)PageSize));
     private int FirstItem => FilteredInvoices.Count == 0 ? 0 : ((page - 1) * PageSize) + 1;
     private int LastItem => Math.Min(page * PageSize, FilteredInvoices.Count);
-    private bool AllVisibleSelected => PagedInvoices.Count > 0 && PagedInvoices.All(invoice => IsSelected(invoice.InvoiceId));
 
     private bool MatchesFilters(InvoiceRegisterItem invoice) =>
         (string.IsNullOrWhiteSpace(searchTerm) || invoice.InvoiceNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || invoice.SupplierReference.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || invoice.CustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
         && (string.IsNullOrWhiteSpace(frameworkFilter) || invoice.Framework.ToString() == frameworkFilter)
         && (string.IsNullOrWhiteSpace(matchFilter) || (matchFilter == "matched" && invoice.HasMatchingContract) || (matchFilter == "unmatched" && !invoice.HasMatchingContract))
         && (string.IsNullOrWhiteSpace(evidenceFilter) || (evidenceFilter == "available" && invoice.EvidenceCount > 0) || (evidenceFilter == "missing" && invoice.EvidenceCount == 0))
-        && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "current" && invoice.ReportMonth == reportingMonth) || (quickFilter == "unmatched" && !invoice.HasMatchingContract) || (quickFilter == "missing" && invoice.EvidenceCount == 0) || (quickFilter == "selected" && IsSelected(invoice.InvoiceId)));
+        && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "current" && invoice.ReportMonth == reportingMonth) || (quickFilter == "unmatched" && !invoice.HasMatchingContract) || (quickFilter == "missing" && invoice.EvidenceCount == 0));
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
     private void SortBy(string column)
@@ -223,7 +166,6 @@ else
         _ => items.OrderBy(item => item.InvoiceNumber, InvoiceDesignationComparer),
     };
     private static readonly Comparer<string> InvoiceDesignationComparer = Comparer<string>.Create(CompareInvoiceDesignations);
-    private static bool HasIssues(InvoiceRegisterItem item) => IssueCount(item) > 0;
     private static int IssueCount(InvoiceRegisterItem item) => item.Findings.Count + (item.EvidenceCount == 0 ? 1 : 0);
     private static int CompareInvoiceDesignations(string left, string right)
     {
@@ -239,15 +181,8 @@ else
             ? leftIsNumber ? -1 : 1
             : StringComparer.OrdinalIgnoreCase.Compare(left, right);
     }
-    private void ResetPage() { page = 1; selectionNotice = null; }
+    private void ResetPage() => page = 1;
     private void ResetFilters() { searchTerm = frameworkFilter = matchFilter = evidenceFilter = quickFilter = string.Empty; ResetPage(); }
-    private bool IsSelected(Guid id) => selectedInvoiceIds.Contains(id);
-    private void ToggleSelection(Guid id) { if (!selectedInvoiceIds.Add(id)) selectedInvoiceIds.Remove(id); selectionNotice = null; if (SelectedInvoices.Count == 0) selectionDrawerOpen = false; }
-    private void ToggleAllVisible() { var shouldSelect = !AllVisibleSelected; foreach (var invoice in PagedInvoices) { if (shouldSelect) selectedInvoiceIds.Add(invoice.InvoiceId); else selectedInvoiceIds.Remove(invoice.InvoiceId); } selectionNotice = null; if (SelectedInvoices.Count == 0) selectionDrawerOpen = false; }
-    private void ClearSelection() { selectedInvoiceIds.Clear(); selectionNotice = null; selectionDrawerOpen = false; }
-    private void ToggleSelectionDrawer() => selectionDrawerOpen = !selectionDrawerOpen;
-    private void CloseSelectionDrawer() => selectionDrawerOpen = false;
-    private void ReviewSelection() { selectionNotice = $"{SelectedInvoices.Count} invoice record(s) are ready for review. Open the reporting workspace to prepare the return."; selectionDrawerOpen = false; }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
     private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";

@@ -39,7 +39,7 @@ Run `publish.bat` from the repository root. It creates `publish\Remi\Remi.exe` a
 
 Copy the resulting publish\Remi folder to a normal writable location (not Program Files) and run Start Remi.cmd. It launches Remi at a local-only address in Microsoft Edge. Closing its command window stops Remi. No installer, service or registry configuration is used.
 
-In **Settings**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. No customer data is sent from Remi.
+In **Settings**, use **Refresh customer URN list** before registering a contract when you want current customer suggestions. Remi resolves the dated ODS link from the stable [GOV.UK customer-URN guidance](https://www.gov.uk/guidance/current-crown-commercial-service-suppliers-what-you-need-to-know#customer-unique-reference-number-urn-list), keeps the downloaded ODS in the local evidence archive, and records the source page, resolved URL, download time and checksum. Organisation names, eight-digit URNs and GCA-listed addresses are indexed locally so either customer field can find and populate the same record. No customer data is sent from Remi.
 
 ## Validate and migrate the existing history
 
@@ -63,4 +63,4 @@ dotnet run --project .\src\Remi.Migration -- --source "D:\Projects\Remi\source-d
 
 ## Design
 
-See [the product and architecture brief](docs/product-and-architecture.md) for the chosen desktop/web approach, the reporting workflow, migration findings, data model and next delivery slice.
+See [the product and architecture brief](docs/product-and-architecture.md) for the chosen desktop/web approach, reporting workflow and data model. Use [the Remi interface blueprint](docs/design-blueprint.md) as the definitive design contract for every UI feature and mode.

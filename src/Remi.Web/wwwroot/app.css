@@ -6,6 +6,8 @@
     --color-canvas: #F4F7F8;
     --color-surface: #FFFFFF;
     --color-border: #D7E1E5;
+    --color-control-border: #B9CBD4;
+    --color-control-border-hover: #8FA7B4;
     --color-text: #172D3C;
     --color-text-muted: #5E7482;
     --color-success: #1B704B;
@@ -42,7 +44,6 @@ main { width: 100%; padding-top: 2rem; }
 
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 2.2rem; }
 .lede { max-width: 720px; margin-bottom: 0; color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.5; }
-.eyebrow { margin-bottom: 0.42rem; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; letter-spacing: normal; text-transform: none; }
 .muted, .caption, .cell-secondary { color: #607482; }
 .caption { margin: 1.25rem 0 0; font-size: 0.88rem; line-height: 1.45; }
 
@@ -79,7 +80,6 @@ main { width: 100%; padding-top: 2rem; }
 .dashboard-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr); gap: 1rem; align-items: start; }
 .dashboard-readiness, .dashboard-attention, .dashboard-activity { overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-surface); }
 .dashboard-section-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--color-border); }
-.dashboard-section-heading .eyebrow { margin-bottom: 0.25rem; }
 .dashboard-section-heading h2 { margin: 0; font-size: 1rem; font-weight: 700; }
 .dashboard-section-heading p { margin: 0.25rem 0 0; color: var(--color-text-muted); font-size: 0.8125rem; font-weight: 400; line-height: 1.4; }
 .dashboard-section-heading > .remi-action { flex: 0 0 auto; }
@@ -215,9 +215,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .restore-progress[hidden] { display: none; }
 .restore-progress { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1.5rem; background: rgb(18 50 74 / 94%); }
 .restore-progress-card { width: min(100%, 38rem); padding: clamp(2rem, 6vw, 3.75rem); color: #eaf4f6; background: #12324a; border: 1px solid rgb(255 255 255 / 22%); border-radius: 1rem; box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 28%); text-align: center; }
-.restore-progress-card .eyebrow, .restore-progress-card h1 { color: #fff; }
+.restore-progress-card .restore-progress-status, .restore-progress-card h1 { color: #fff; }
+.restore-progress-status { margin-bottom: 0.42rem; font-size: 0.75rem; font-weight: 700; }
 .restore-progress-card h1 { margin: 1.2rem auto 0.9rem; font-size: clamp(1.7rem, 4vw, 2.35rem); }
-.restore-progress-card p:not(.eyebrow) { max-width: 30rem; margin: 0 auto; color: #d5e5e9; line-height: 1.55; }
+.restore-progress-card p:not(.restore-progress-status) { max-width: 30rem; margin: 0 auto; color: #d5e5e9; line-height: 1.55; }
 .restore-progress-card .restore-progress-warning { margin-top: 1.35rem; color: #fff; font-weight: 750; }
 .restore-progress-return { margin-top: 1.2rem; color: #fff; border: 1px solid rgb(255 255 255 / 45%); }
 .restore-progress-return:hover:not(:disabled) { color: #fff; background: rgb(255 255 255 / 12%); }
@@ -370,7 +371,6 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .submission-history ul { display: grid; gap: 0.35rem; margin: 0.6rem 0 0; padding-left: 1.2rem; }
 .remi-action--quiet { color: var(--color-text-muted); background: transparent; border-color: var(--color-border); }
 .return-next-action { align-items: end; padding: 1rem; background: var(--color-canvas); border-radius: 0.45rem; }
-.return-next-action .eyebrow { margin-bottom: 0.2rem; }
 .return-next-action .muted { max-width: 42rem; margin: 0.25rem 0 0; }
 .return-next-action-control { display: flex; flex-wrap: wrap; align-items: end; gap: 0.65rem; }
 .submission-reference { min-width: min(100%, 18rem); margin: 0; font-size: 0.8rem; }
@@ -445,7 +445,6 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .register-page > .register-breadcrumbs, .register-page > .register-stepper, .register-page > .register-context { display: none; }
 .register-page-header-compact { align-items: center; margin-bottom: 1rem; }
 .register-page-header-compact h1 { margin: 0; font-size: clamp(1.7rem, 2.5vw, 2.15rem); }
-.register-page-header-compact .eyebrow { margin-bottom: 0.3rem; }
 .register-period-line { margin: 0.3rem 0 0; color: #607482; font-size: 0.86rem; }
 .register-period-line span { margin: 0 0.25rem; color: #9aaeb7; }
 .register-workspace-full { display: block; }
@@ -488,12 +487,80 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .invoice-record .contract-summary-item:nth-child(2) > strong { font-size: 1.15rem; }
 
 @media (min-width: 761px) {
-    .register-table th.checkbox-cell, .register-table td.checkbox-cell { position: sticky; left: 0; }
-    .register-table th:nth-child(2), .register-table td:nth-child(2) { position: sticky; left: 38px; }
-    .register-table th.checkbox-cell, .register-table th:nth-child(2) { z-index: 3; background: #f7fafb; }
-    .register-table td.checkbox-cell, .register-table td:nth-child(2) { z-index: 2; background: #fff; }
-    .register-table tr.selected-row td.checkbox-cell, .register-table tr.selected-row td:nth-child(2), .register-table tr:focus-within td.checkbox-cell, .register-table tr:focus-within td:nth-child(2) { background: #edf8f8; }
-    .register-table tr:not(.selected-row):hover td.checkbox-cell, .register-table tr:not(.selected-row):hover td:nth-child(2) { background: #f5fafb; }
+    .register-table th:first-child, .register-table td:first-child { position: sticky; left: 0; }
+    .register-table th:first-child { z-index: 3; background: #f7fafb; }
+    .register-table td:first-child { z-index: 2; background: #fff; }
+    .register-table tr:focus-within td:first-child { background: #edf8f8; }
+    .register-table tr:hover td:first-child { background: #f5fafb; }
+}
+
+/* Contract operational delivery */
+.contract-status.is-not-live { color: #6b5b35; background: #f5efe0; }
+.contract-status.is-partial { color: #8b5a12; background: #fff1d4; }
+.contract-status.is-ended { color: #607482; background: #e9eef0; }
+.operations-stage-toggle { margin: 0 0 1rem; }
+.operations-simple-editor { display: grid; grid-template-columns: minmax(15rem, 24rem) minmax(0, 1fr); align-items: center; gap: 1rem; }
+.operations-simple-editor p { margin: 0; color: #607482; font-size: 0.8rem; }
+.operations-part-editor { display: grid; gap: 0.7rem; }
+.operations-part-row { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(11rem, 0.45fr) 2rem; align-items: center; gap: 0.7rem; }
+.operations-part-row .payment-position-remove { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; color: #6b8190; background: transparent; border: 0; border-radius: 0.35rem; font-size: 1.3rem; cursor: pointer; }
+.operations-part-row .payment-position-remove:disabled { opacity: 0.35; cursor: default; }
+.operations-status-line { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.8rem; }
+.operations-status-line small { color: #607482; }
+.operations-summary-grid { max-width: 42rem; }
+.payment-schedule-heading.has-contract-part,
+.payment-position-editor .payment-position-row.has-contract-part { grid-template-columns: 4.5rem minmax(13rem, 1fr) minmax(12rem, 0.65fr) 10rem 10rem 4.5rem 2rem; }
+.payment-part-picklist .floating-field { min-height: 2.35rem; }
+.payment-part-picklist .floating-field > .remi-picklist-trigger { min-height: 2.35rem; padding-top: 0.65rem; padding-bottom: 0.2rem; font-size: 0.8rem; }
+
+@media (max-width: 700px) {
+    .operations-simple-editor,
+    .operations-part-row { grid-template-columns: 1fr; }
+    .operations-part-row .payment-position-remove { justify-self: end; }
+    .contract-operations-section .contract-section-actions { flex-wrap: wrap; justify-content: flex-end; margin: 0 0 0.9rem; }
+}
+
+/* Capture mail settings */
+.mail-capture-banner { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.1rem; padding: 0.85rem 1rem; color: #23495b; background: #e8f5f4; border: 1px solid #b9deda; border-radius: 0.65rem; }
+.mail-capture-banner strong { flex: 0 0 auto; color: #087977; }
+.mail-capture-banner span { font-size: 0.84rem; }
+.mail-settings-layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1.2rem; }
+.mail-template-nav { display: grid; align-content: start; gap: 0.35rem; }
+.mail-template-nav button { display: grid; gap: 0.18rem; width: 100%; padding: 0.75rem 0.8rem; color: #36556a; text-align: left; background: #f7fafb; border: 1px solid #dce5e9; border-radius: 0.5rem; font: inherit; cursor: pointer; }
+.mail-template-nav button.active { color: #143c5d; background: #eaf5f5; border-color: #84c4c1; box-shadow: inset 3px 0 #087977; }
+.mail-template-nav span { font-size: 0.82rem; font-weight: 750; }
+.mail-template-nav small { color: #607482; font-size: 0.68rem; }
+.mail-template-editor { min-width: 0; padding-left: 1.2rem; border-left: 1px solid #dce5e9; }
+.mail-template-editor > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.mail-template-editor h2 { margin: 0; }
+.mail-template-editor header p { max-width: 48rem; margin: 0.3rem 0 0; color: #607482; font-size: 0.82rem; }
+.mail-trigger-badge, .mail-capture-state { display: inline-flex; padding: 0.3rem 0.55rem; color: #176779; background: #e1f1f2; border-radius: 999px; font-size: 0.7rem; font-weight: 800; }
+.mail-schedule-note { padding: 0.7rem 0.8rem; color: #526874; background: #f7fafb; border-left: 3px solid #84c4c1; font-size: 0.78rem; }
+.mail-recipient-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 1rem 0 0.4rem; }
+.mail-copy-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem; }
+.mail-copy-fields > :first-child { grid-column: 1 / -1; }
+.mail-copy-fields textarea { min-height: 6rem; resize: vertical; }
+.mail-copy-fields .floating-field { min-height: 5rem; }
+.mail-copy-fields .floating-field > textarea { width: 100%; min-height: 6rem; padding: 1.2rem 0.75rem 0.55rem; color: var(--color-control-text); background: var(--color-control-surface); border: 1px solid var(--color-control-border); border-radius: 0.375rem; font: inherit; outline: none; }
+.mail-copy-fields .floating-field > textarea:focus { border-color: var(--color-teal); box-shadow: 0 0 0 3px rgb(8 121 119 / 18%); }
+.mail-manual-capture { max-width: 28rem; margin-top: 1rem; }
+.mail-manual-capture .caption { margin: 0.45rem 0 0; }
+.mail-settings-panel code { font-size: 0.76rem; }
+
+@media (max-width: 850px) {
+    .mail-settings-layout { grid-template-columns: 1fr; }
+    .mail-template-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mail-template-editor { padding: 1rem 0 0; border-top: 1px solid #dce5e9; border-left: 0; }
+    .mail-recipient-grid,
+    .mail-copy-fields { grid-template-columns: 1fr; }
+    .mail-copy-fields > :first-child { grid-column: auto; }
+}
+
+@media (max-width: 520px) {
+    .mail-capture-banner { align-items: start; flex-direction: column; }
+    .mail-template-nav { grid-template-columns: 1fr; }
+    .mail-template-editor > header { display: grid; }
+    .mail-trigger-badge { justify-self: start; }
 }
 
 @media (max-width: 760px) {
@@ -506,11 +573,67 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .registration-page { width: 100%; padding-bottom: 2rem; }.registration-heading { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.5rem; }.registration-heading h1 { margin-bottom: 0.45rem; color: #183242; font-size: clamp(2rem, 3vw, 2.55rem); }.framework-choice-panel, .registration-form-panel { padding: 1.5rem; background: #fff; border: 1px solid #d9e3e7; border-radius: 0.75rem; box-shadow: 0 2px 7px rgb(30 63 80 / 6%); }.framework-choice-panel > p, .registration-form-panel header > p:not(.eyebrow) { color: #607482; }.framework-choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.85rem; margin-top: 1.3rem; }.framework-choice { display: grid; gap: 0.65rem; min-height: 205px; padding: 1rem; color: #183c50; background: #fff; border: 1px solid #cbdbe1; border-radius: 0.65rem; text-align: left; cursor: pointer; }.framework-choice:hover, .framework-choice:focus-visible { border-color: #0b9798; box-shadow: 0 0 0 3px #d8f1f0; outline: none; }.framework-choice > span { color: #607482; font-size: 0.77rem; font-weight: 600; }.framework-choice strong { font-size: 1rem; }.framework-choice small { color: #607482; font-size: 0.8rem; line-height: 1.4; }.framework-choice b { margin-top: auto; color: #0e6693; font-size: 0.82rem; }.registration-framework-context { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.85rem; margin-bottom: 1rem; padding: 0.85rem 1rem; color: #183c50; background: #e9f6f5; border: 1px solid #c5e5e2; border-radius: 0.65rem; }.registration-framework-context > span { color: #577380; font-size: 0.75rem; font-weight: 600; letter-spacing: normal; text-transform: none; }.registration-framework-context button { margin-left: auto; padding: 0; color: #0e6693; background: transparent; border: 0; font: inherit; font-size: 0.82rem; font-weight: 750; cursor: pointer; }.registration-form-panel header { padding-bottom: 1.15rem; border-bottom: 1px solid #e1eaed; }.registration-section { padding: 1.25rem 0; border-bottom: 1px solid #e1eaed; }.registration-section:last-of-type { border-bottom: 0; }.registration-section h3 { margin: 0 0 0.25rem; color: #183c50; font-size: 1rem; }.registration-section p { margin-bottom: 0.9rem; color: #607482; font-size: 0.88rem; }.framework-fields { padding: 1.2rem; margin: 1.25rem -0.2rem 0; background: #f3f9f9; border: 1px solid #d6e9e8; border-radius: 0.65rem; }.catalogue-notice { display: grid; gap: 0.28rem; margin: 0.9rem 0 1rem; padding: 0.75rem 0.85rem; color: #1c5260; background: #e9f6f5; border: 1px solid #c5e5e2; border-radius: 0.5rem; font-size: 0.85rem; line-height: 1.4; }.catalogue-notice strong { color: #124552; }.catalogue-notice.pending { color: #6d4a12; background: #fff7e7; border-color: #f0d79c; }.catalogue-notice.pending strong { color: #6d4a12; }
 .payment-term-grid { max-width: 34rem; }.payment-position-header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-top: 1.25rem; }.payment-position-header h4 { margin: 0; color: #183c50; font-size: 0.9rem; }.payment-position-header p { margin: 0.2rem 0 0; }.payment-position-list { display: grid; gap: 0.65rem; margin-top: 0.8rem; }.payment-position-row { display: grid; grid-template-columns: 8rem minmax(0, 1fr) 10rem auto; gap: 0.7rem; align-items: end; padding: 0.8rem; background: #f7fafb; border: 1px solid #d9e3e7; border-radius: 0.55rem; }.payment-position-row label { margin: 0; }.payment-position-remove { white-space: nowrap; }
 .contract-content-card tr.optional-payment-position td { background: #fff8d8; }.contract-content-card tr.contract-payment-total td { color: #5f4a08; background: #f7f9fa; border-top: 1px solid #c8d5dd; font-weight: 800; }.contract-content-card tr.contract-payment-total.optional-payment-position td { background: #fff1b8; }
-.contract-edit-panel { margin-bottom: 1.3rem; padding: 1.25rem; background: #f7fafb; border: 1px solid #cbdde3; border-radius: 0.75rem; }.contract-edit-panel .form-grid { max-width: 64rem; }.contract-section-actions { display: flex; justify-content: end; margin: -2.2rem 0 0.8rem; }.payment-position-editor { display: grid; gap: 0.7rem; margin: 0.8rem 0 1rem; }.payment-position-editor .payment-position-row { grid-template-columns: 5rem minmax(10rem, 1fr) 10rem 9rem auto; }.payment-optional { display: flex; align-items: center; gap: 0.4rem; min-height: 2.4rem; white-space: nowrap; }.payment-optional input { width: auto; }
+.contract-edit-panel { margin-bottom: 1.3rem; padding: 1.25rem; background: #f7fafb; border: 1px solid #cbdde3; border-radius: 0.75rem; }.contract-edit-panel .form-grid { max-width: 64rem; }.contract-section-actions { display: flex; justify-content: end; gap: 0.55rem; margin: -2.2rem 0 0.8rem; }.payment-position-editor { margin: 0.8rem 0 1rem; overflow-x: auto; }.payment-schedule-grid { min-width: 52rem; }.payment-schedule-heading, .payment-position-editor .payment-position-row { display: grid; grid-template-columns: 4.5rem minmax(15rem, 1fr) 10rem 10rem 4.5rem 2rem; gap: 0.7rem; align-items: center; }.payment-schedule-heading { padding: 0 0 0.45rem; color: #526874; border-bottom: 1px solid #cfdde2; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; }.payment-schedule-heading span:nth-child(4) { text-align: right; }.payment-position-editor .payment-position-row { min-height: 3.65rem; padding: 0.55rem 0; background: transparent; border: 0; border-bottom: 1px solid #dce5e9; border-radius: 0; }.payment-schedule-input { width: 100%; min-width: 0; height: 2.35rem; padding: 0.4rem 0.55rem; color: #17364b; background: #fff; border: 1px solid var(--color-control-border); border-radius: 0.375rem; font: inherit; font-size: 0.84rem; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }.payment-schedule-input:hover:not(:focus) { border-color: var(--color-control-border-hover); }.payment-schedule-input:focus { border-color: var(--color-teal); box-shadow: 0 0 0 3px rgb(8 121 119 / 18%); }.payment-schedule-money { position: relative; }.payment-schedule-money > span { position: absolute; top: 50%; left: 0.6rem; z-index: 1; color: #597080; font-size: 0.84rem; pointer-events: none; transform: translateY(-50%); }.payment-schedule-money .payment-schedule-input { padding-left: 1.5rem; text-align: right; font-variant-numeric: tabular-nums; }.payment-schedule-money:focus-within > span { color: var(--color-teal); }.payment-optional { display: grid; min-height: 2.35rem; place-items: center; margin: 0; }.payment-optional input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--color-teal); }.payment-position-editor .payment-position-remove { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; color: #6b8190; background: transparent; border: 0; border-radius: 0.35rem; font-size: 1.3rem; line-height: 1; cursor: pointer; }.payment-position-editor .payment-position-remove:hover, .payment-position-editor .payment-position-remove:focus-visible { color: var(--color-error); background: #fbeceb; box-shadow: 0 0 0 3px rgb(169 54 54 / 12%); outline: none; }
 
-.urn-customer-field { position: relative; }.urn-customer-field > label { display: grid; }.urn-suggestions { position: absolute; z-index: 5; right: 0; left: 0; display: grid; max-height: 17rem; overflow-y: auto; margin-top: 0.3rem; background: #fff; border: 1px solid #b9d2d8; border-radius: 0.45rem; box-shadow: 0 8px 18px rgb(30 63 80 / 16%); }.urn-suggestions button { display: grid; gap: 0.1rem; padding: 0.65rem 0.75rem; color: #183c50; background: #fff; border: 0; border-bottom: 1px solid #e1eaed; text-align: left; cursor: pointer; }.urn-suggestions button:last-child { border-bottom: 0; }.urn-suggestions button:hover, .urn-suggestions button:focus-visible { background: #e9f6f5; outline: none; }.urn-suggestions strong { font-size: 0.86rem; }.urn-suggestions span { color: #607482; font-size: 0.78rem; }
-
-.contract-picker { position: relative; }.contract-picker > label { display: grid; gap: 0.35rem; }.contract-suggestions { position: absolute; z-index: 6; top: calc(100% + 0.3rem); right: 0; left: 0; display: grid; overflow: hidden; background: #fff; border: 1px solid #b9d2d8; border-radius: 0.45rem; box-shadow: 0 8px 18px rgb(30 63 80 / 16%); }.contract-suggestions button { overflow: hidden; min-height: 2.5rem; padding: 0.55rem 0.75rem; color: #183c50; background: #fff; border: 0; border-bottom: 1px solid #e1eaed; font: inherit; font-size: 0.86rem; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }.contract-suggestions button:last-child { border-bottom: 0; }.contract-suggestions button:hover, .contract-suggestions button:focus-visible { background: #e9f6f5; outline: none; }.contract-suggestions p { margin: 0; padding: 0.7rem 0.75rem; color: #607482; font-size: 0.86rem; }
+.searchable-picklist,
+.contract-picker { position: relative; min-width: 0; }
+.searchable-picklist > label,
+.contract-picker > label { display: grid; gap: 0.35rem; }
+.searchable-picklist-options {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 0.3rem);
+    right: 0;
+    left: 0;
+    height: calc((var(--picklist-visible-rows) * 2.5rem) + 2px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--color-surface);
+    border: 1px solid #b9d2d8;
+    border-radius: 0.45rem;
+    box-shadow: 0 8px 18px rgb(30 63 80 / 16%);
+}
+.searchable-picklist-options button {
+    display: grid;
+    align-content: center;
+    gap: 0.08rem;
+    width: 100%;
+    height: 2.5rem;
+    overflow: hidden;
+    padding: 0.35rem 0.75rem;
+    color: #183c50;
+    background: var(--color-surface);
+    border: 0;
+    border-bottom: 1px solid #e1eaed;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1.15;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.searchable-picklist-options button:last-child { border-bottom: 0; }
+.searchable-picklist-options button:hover,
+.searchable-picklist-options button:focus-visible { color: var(--color-surface); background: var(--color-teal); outline: none; }
+.searchable-picklist-options button > strong,
+.searchable-picklist-options button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.searchable-picklist-options button > strong { font-size: 0.8rem; }
+.searchable-picklist-options button > span { color: var(--color-text-muted); font-size: 0.7rem; }
+.searchable-picklist-options button:hover > span,
+.searchable-picklist-options button:focus-visible > span { color: color-mix(in srgb, var(--color-surface) 82%, var(--color-teal)); }
+.searchable-picklist-options p { display: grid; height: 2.5rem; place-items: center start; margin: 0; padding: 0 0.75rem; color: var(--color-text-muted); font-size: 0.78rem; }
+.remi-picklist-trigger { display: flex; align-items: center; gap: 0.75rem; width: 100%; height: 42px; padding: 13px 12px 7px; color: #17364b; background: #fff; border: 1px solid #b9cbd4; border-radius: 6px; font: inherit; font-size: 14px; font-weight: 600; line-height: 1; text-align: left; cursor: pointer; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.remi-picklist-trigger > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remi-picklist-chevron { flex: 0 0 auto; width: 0.5rem; height: 0.5rem; margin-left: auto; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.remi-picklist-trigger:focus { border-color: #0b918f; box-shadow: 0 0 0 1px #0b918f; }
+.remi-picklist-trigger:disabled { color: #8798a2; background: #fafcfc; cursor: not-allowed; opacity: 0.72; }
+.remi-picklist-options button[aria-selected="true"] { color: var(--color-navy); background: color-mix(in srgb, var(--color-teal) 9%, var(--color-surface)); box-shadow: inset 3px 0 0 var(--color-teal); }
+.remi-picklist-options button[aria-selected="true"] > span { color: var(--color-text-muted); }
+.customer-address-verification { display: grid; min-height: 42px; align-content: center; gap: 0.12rem; padding: 0 0.25rem; }
+.customer-address-verification span { color: var(--color-text-muted); font-size: 0.68rem; font-weight: 600; }
+.customer-address-verification strong { color: var(--color-navy); font-size: 0.78rem; font-weight: 600; line-height: 1.35; }
 
 /* Invoice intake: one compact transactional workspace. */
 .invoice-intake-page { width: 100%; padding-bottom: 1.5rem; }.invoice-intake-header { display: flex; align-items: start; justify-content: space-between; gap: 1.5rem; margin: -0.25rem 0 1.25rem; }.invoice-intake-header h1 { margin: 0 0 0.25rem; color: #183242; font-size: clamp(1.875rem, 2.5vw, 2rem); font-weight: 650; }.invoice-intake-header p { margin: 0; color: #5e7482; font-size: 0.875rem; line-height: 1.4; }.invoice-command { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; padding: 0 5px; color: #12324a; background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 11px; font-weight: 800; letter-spacing: 0.065em; line-height: 1; text-align: center; text-decoration: none; text-transform: uppercase; white-space: nowrap; cursor: pointer; }.invoice-command:hover:not(:disabled) { color: #087f7d; background: rgb(11 145 143 / 7%); }.invoice-command:disabled { cursor: not-allowed; opacity: 0.45; }.invoice-intake-header > .invoice-command { margin-top: 0.18rem; }.invoice-intake-surface { padding: 1.375rem 1.5rem 0; background: #fff; border: 1px solid #d7e1e5; border-radius: 10px; }.invoice-contract-section { padding-bottom: 1.15rem; }.invoice-contract-section h2, .invoice-details-section h2 { margin: 0; color: #183c50; font-size: 1.1rem; font-weight: 700; }.invoice-contract-section > label, .invoice-details-grid > label { display: grid; gap: 0.375rem; margin-top: 0.875rem; color: #385566; font-size: 0.8125rem; font-weight: 700; }.invoice-contract-section input, .invoice-contract-section select, .invoice-details-grid input, .invoice-details-grid select { width: 100%; min-height: 40px; padding: 0.45rem 0.65rem; border-color: #b7cad3; border-radius: 0.45rem; color: #183242; background: #fff; font: inherit; font-size: 0.875rem; }.required-marker { margin-left: 2px; color: #b44747; font-weight: 700; }.invoice-empty-contracts { margin: 0.75rem 0 0; color: #5e7482; font-size: 0.8125rem; }.invoice-contract-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 52px; margin: 0 -0.15rem; padding: 0.45rem 0.75rem; background: #f2f8f8; border-left: 3px solid #0b918f; border-radius: 4px; }.invoice-contract-summary > div { display: grid; gap: 0.18rem; min-width: 0; }.invoice-contract-summary strong { overflow: hidden; color: #183c50; font-size: 0.875rem; text-overflow: ellipsis; white-space: nowrap; }.invoice-contract-summary span { color: #5e7482; font-size: 0.75rem; }.invoice-contract-summary .invoice-command { flex: 0 0 auto; color: #0a687f; }.invoice-details-section { padding-top: 1.5rem; }.invoice-details-section > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.85rem; }.invoice-details-section > header > span { color: #6a7d88; font-size: 0.75rem; }.invoice-details-section > header b { color: #b44747; }.invoice-details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.25rem; }.invoice-money-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; overflow: hidden; min-height: 40px; border: 1px solid #b7cad3; border-radius: 0.45rem; background: #fff; }.invoice-money-field:focus-within { border-color: #0b918f; box-shadow: 0 0 0 2px rgb(11 145 143 / 14%); }.invoice-money-field b { padding-left: 0.7rem; color: #5e7482; font-size: 0.875rem; }.invoice-details-grid .invoice-money-field input { min-width: 0; padding-left: 0.45rem; border: 0; text-align: right; font-variant-numeric: tabular-nums; }.invoice-details-grid .invoice-money-field input:focus { outline: 0; }.invoice-field-help { margin: 0.7rem 0 0; color: #6a7d88; font-size: 0.75rem; }.invoice-intake-actions { position: sticky; z-index: 2; bottom: 0; display: flex; align-items: center; justify-content: space-between; min-height: 54px; margin: 1.25rem -1.5rem 0; padding: 0 1.5rem; background: rgb(255 255 255 / 97%); border-top: 1px solid #d7e1e5; backdrop-filter: blur(8px); }.invoice-command-muted { color: #49616f; }.invoice-command-save { color: #087f7d; font-size: 12px; }
@@ -522,8 +645,39 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .contract-invoice-form { padding: 1.25rem; background: #fff; }.contract-invoice-form-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; }.contract-invoice-form-heading h3 { margin: 0; color: #183c50; font-size: 1.05rem; }.contract-invoice-form-heading span { color: #607482; font-size: 0.78rem; }.contract-invoice-form .contract-invoice-context { display: flex; min-height: 52px; margin: 0 0 1.2rem; padding: 0.45rem 0.75rem; background: #f2f8f8; border: 0; border-left: 3px solid #0b918f; border-radius: 4px; }.contract-invoice-form .contract-invoice-context strong { color: #183c50; font-size: 0.875rem; }.contract-invoice-form .contract-invoice-context span { color: #5e7482; font-size: 0.75rem; }.contract-invoice-fields { max-width: 58rem; }.contract-invoice-prefill { max-width: 58rem; margin-top: 1rem; }.contract-invoice-prefill .invoice-field-help { margin: 0 0 0.8rem; line-height: 1.4; }.contract-invoice-actions { display: flex; align-items: center; justify-content: space-between; min-height: 54px; margin: 1.2rem -1.25rem -1.25rem; padding: 0 1.25rem; background: rgb(255 255 255 / 97%); border-top: 1px solid #d7e1e5; }.contract-invoice-actions .invoice-command-save { margin-left: auto; }
 .clipboard-evidence-hint { margin: 0.85rem 0 0; color: #607482; font-size: 0.78rem; }.clipboard-evidence-hint::before { margin-right: 0.35rem; color: #087f7d; content: "⌘"; font-weight: 800; }
 .clipboard-evidence-layout { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); gap: 1.25rem; align-items: start; }.clipboard-evidence-form { min-width: 0; }.clipboard-image-panel { position: sticky; top: 1rem; overflow: hidden; background: #fff; border: 1px solid #d7e1e5; border-radius: 0.65rem; box-shadow: 0 4px 16px rgb(28 58 77 / 7%); }.clipboard-image-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; padding: 0.8rem 0.9rem; border-bottom: 1px solid #e1eaed; }.clipboard-image-panel header strong { color: #183c50; font-size: 0.85rem; }.clipboard-image-panel header span { color: #607482; font-size: 0.7rem; }.clipboard-documents-empty { display: grid; gap: 0.35rem; margin: 0; padding: 0 0.9rem 0.9rem; color: #607482; font-size: 0.78rem; line-height: 1.4; }.clipboard-documents-empty strong { color: #183c50; font-size: 0.83rem; }.clipboard-image-list { display: grid; gap: 0.75rem; max-height: calc(100vh - 8rem); padding: 0.8rem; overflow: auto; }.clipboard-image-list figure { margin: 0; overflow: hidden; border: 1px solid #dce5e9; border-radius: 0.45rem; }.clipboard-image-list img { display: block; width: 100%; max-height: 12rem; object-fit: contain; background: #f5f7f8; }.clipboard-image-list figcaption { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.45rem 0.55rem; }.clipboard-image-list figcaption span { min-width: 0; overflow: hidden; color: #526874; font-size: 0.7rem; text-overflow: ellipsis; white-space: nowrap; }.clipboard-image-list button { padding: 0; color: #9c3c3c; background: transparent; border: 0; font: inherit; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; cursor: pointer; }
-.clipboard-document-dropzone { position: relative; display: grid; min-height: 5.6rem; place-content: center; justify-items: center; gap: 0.25rem; margin: 0.8rem; padding: 0.75rem; color: #526874; background: linear-gradient(135deg, #f6fbfb, #f2f7fa); border: 1.5px dashed #8aaab6; border-radius: 0.5rem; cursor: pointer; text-align: center; }.clipboard-document-dropzone:hover, .clipboard-document-dropzone.is-dragging { color: #087f7d; background: #edf9f8; border-color: #0b918f; }.clipboard-document-dropzone strong { color: #183c50; font-size: 0.78rem; }.clipboard-document-dropzone span { font-size: 0.7rem; }.clipboard-document-dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }.clipboard-document-item { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto; gap: 0.6rem; align-items: start; padding: 0.55rem; border: 1px solid #dce5e9; border-radius: 0.45rem; }.clipboard-document-item img, .clipboard-document-icon { display: grid; width: 4.5rem; height: 4.5rem; place-items: center; object-fit: contain; color: #176779; background: #f2f8f8; border-radius: 0.3rem; }.clipboard-document-item label { display: grid; gap: 0.2rem; color: #526874; font-size: 0.68rem; font-weight: 750; }.clipboard-document-item input { min-width: 0; width: 100%; padding: 0.28rem 0.35rem; border: 1px solid #b9cbd4; border-radius: 0.25rem; color: #183c50; font: inherit; font-size: 0.75rem; }.clipboard-document-item small { display: block; margin-top: 0.35rem; overflow: hidden; color: #607482; font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }.clipboard-document-item > button { margin-top: 0.2rem; }
-@media (max-width: 980px) { .clipboard-evidence-layout { grid-template-columns: 1fr; }.clipboard-image-panel { position: static; }.clipboard-image-list { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); max-height: none; }.clipboard-image-list img { max-height: 9rem; } }
+.clipboard-document-dropzone { position: relative; display: grid; min-height: 6.7rem; place-content: center; justify-items: center; gap: 0.3rem; margin: 0.8rem; padding: 0.75rem; color: #526874; background: linear-gradient(135deg, #f6fbfb, #f2f7fa); border: 1.5px dashed #8aaab6; border-radius: 0.5rem; cursor: default; text-align: center; }.clipboard-document-dropzone:hover, .clipboard-document-dropzone:focus, .clipboard-document-dropzone.is-dragging { color: #087f7d; background: #edf9f8; border-color: #0b918f; box-shadow: 0 0 0 3px rgb(8 121 119 / 18%); outline: none; }.clipboard-document-dropzone strong { color: #183c50; font-size: 0.78rem; }.clipboard-document-dropzone span { font-size: 0.7rem; }.clipboard-instruction-mobile { display: none; }.clipboard-document-dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }.clipboard-document-choose { min-height: 1.7rem; padding: 0.18rem 0.5rem; color: var(--color-navy); background: var(--color-surface); border: 1px solid var(--color-navy); border-radius: 0.3rem; font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }.clipboard-document-choose:hover, .clipboard-document-choose:focus-visible { color: var(--color-surface); background: var(--color-teal); border-color: var(--color-teal); outline: none; }.clipboard-document-item { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto; gap: 0.6rem; align-items: start; padding: 0.55rem; border: 1px solid #dce5e9; border-radius: 0.45rem; }.clipboard-document-item img, .clipboard-document-icon { display: grid; width: 4.5rem; height: 4.5rem; place-items: center; object-fit: contain; color: #176779; background: #f2f8f8; border-radius: 0.3rem; }.clipboard-document-item label { display: grid; gap: 0.2rem; color: #526874; font-size: 0.68rem; font-weight: 750; }.clipboard-document-item input { min-width: 0; width: 100%; padding: 0.28rem 0.35rem; border: 1px solid #b9cbd4; border-radius: 0.25rem; color: #183c50; font: inherit; font-size: 0.75rem; }.clipboard-document-item small { display: block; margin-top: 0.35rem; overflow: hidden; color: #607482; font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }.clipboard-document-item > button { margin-top: 0.2rem; }
+.clipboard-image-panel--plain { overflow: visible; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.clipboard-image-panel--plain .clipboard-document-dropzone { margin: 0; background: var(--color-surface); }
+.clipboard-image-panel--plain .clipboard-documents-empty { margin: 0; padding: 0.65rem 0 0; }
+.contract-registration-evidence { grid-template-columns: minmax(0, 7fr) minmax(20rem, 3fr); }
+.contract-reporting-context { padding-bottom: 1.25rem; }
+.contract-registration-evidence .contract-framework-details { margin-top: 0; border-top: 0; }
+.contract-intake-page .invoice-intake-actions .invoice-command { padding-inline: 0.55rem; font-size: 0.8125rem; }
+.registration-field { display: grid; gap: 0.32rem; min-width: 0; align-content: start; }
+.registration-field > .floating-field { width: 100%; }
+.field-validation-message { color: var(--color-error); font-size: 0.72rem; font-weight: 650; line-height: 1.35; }
+.contract-registration-validation { margin: 0.15rem 0 0.25rem; padding: 0.65rem 0.8rem; color: var(--color-error); background: color-mix(in srgb, var(--color-error) 7%, var(--color-surface)); border-left: 3px solid var(--color-error); font-size: 0.78rem; font-weight: 650; line-height: 1.4; }
+.clipboard-document-item { background: var(--color-surface); }
+.clipboard-document-item .floating-field > .floating-label { background: var(--color-surface); }
+.clipboard-document-remove {
+    display: grid;
+    width: 1.75rem;
+    height: 1.75rem;
+    place-items: center;
+    margin: 0;
+    padding: 0;
+    color: var(--color-error);
+    background: transparent;
+    border: 0;
+    border-radius: 0.35rem;
+    font: inherit;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.clipboard-document-remove:hover,
+.clipboard-document-remove:focus-visible { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 9%, var(--color-surface)); }
+@media (max-width: 980px) { .clipboard-evidence-layout { grid-template-columns: 1fr; }.clipboard-image-panel { position: static; }.contract-registration-evidence .clipboard-image-panel { order: -1; }.clipboard-image-list { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); max-height: none; }.clipboard-image-list img { max-height: 9rem; } }
 
 /* Remi command tiers take precedence over older page-specific button treatments. */
 .urn-customer-field > .floating-field { display: block; height: 42px; }.invoice-contract-section .contract-picker > .floating-field { display: block; height: 42px; }
@@ -539,11 +693,15 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 select { min-height: 0; padding: 0.25rem 0.55rem; }
 .register-filters select { min-height: 1.875rem; padding: 0.25rem 0.55rem; }
 
-/* Remi form-control convention: navy means editable; teal means active interaction. */
+/* Remi form-control convention: quiet neutral controls, with teal reserved for active interaction. */
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea) {
     color: var(--color-navy) !important;
     caret-color: var(--color-teal);
-    border-color: var(--color-navy) !important;
+    border-color: var(--color-control-border) !important;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea):hover:not(:focus):not(:disabled):not([readonly]) {
+    border-color: var(--color-control-border-hover) !important;
 }
 
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea):focus {
@@ -556,7 +714,7 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
 .floating-field > input:not(:placeholder-shown) + .floating-label,
 .floating-field > textarea:not(:placeholder-shown) + .floating-label,
 .floating-field--static > .floating-label {
-    color: var(--color-navy);
+    color: var(--color-text-muted);
 }
 
 .floating-field > input:focus + .floating-label,
@@ -566,7 +724,11 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
 }
 
 .invoice-money-field {
-    border-color: var(--color-navy);
+    border-color: var(--color-control-border);
+}
+
+.invoice-money-field:hover:not(:focus-within) {
+    border-color: var(--color-control-border-hover);
 }
 
 .invoice-money-field:focus-within {
@@ -580,10 +742,24 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
     box-shadow: none !important;
 }
 
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea):user-invalid,
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea)[aria-invalid="true"] {
+    border-color: var(--color-error) !important;
+    box-shadow: 0 0 0 3px rgb(169 54 54 / 16%) !important;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea):disabled,
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea)[readonly] {
+    color: var(--color-text-muted) !important;
+    background: #F7F9FA;
+    border-color: var(--color-border) !important;
+    box-shadow: none !important;
+}
+
 input[type="checkbox"]:focus-visible,
 input[type="radio"]:focus-visible {
-    outline: 2px solid var(--color-teal);
-    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+    outline: none;
 }
 
 /* Browser/OS popup menus remain native, but use teal where the platform honours option styling. */
@@ -675,8 +851,380 @@ select option:checked {
 .contract-edit-panel .notice { margin: 0 1.25rem 1.25rem; }
 .invoice-contract-section > .invoice-details-grid { margin-top: 0.875rem; }
 
+/* Keep invoice records concise: page navigation stays in the slim hero and editing belongs with its overview. */
+.invoice-record .contract-hero { align-items: center; margin-bottom: 0.9rem; }
+.invoice-record .contract-hero h1 { font-size: clamp(2rem, 3vw, 2.35rem); }
+.invoice-record .contract-hero .lede { margin-top: 0.2rem; font-size: 0.875rem; }
+.invoice-record .contract-hero-actions { padding-top: 0; }
+.invoice-overview-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 3.4rem; padding: 0.75rem 1.25rem !important; }
+.invoice-overview-header h2 { margin: 0; }
+.invoice-overview-actions { display: flex; align-items: center; justify-content: end; gap: 0.55rem; }
+.invoice-edit-evidence-layout { grid-template-columns: minmax(0, 1.1fr) minmax(30rem, 0.9fr); }
+.invoice-edit-evidence-layout .contract-edit-panel { max-width: none; }
+.clipboard-document-error { margin: -0.15rem 0.8rem 0.8rem; padding: 0.65rem 0.75rem; color: var(--color-error); background: #fbeceb; border: 1px solid #edc9c6; border-radius: 0.45rem; font-size: 0.76rem; line-height: 1.35; }
+.clipboard-document-dropzone { min-height: 5.6rem; cursor: pointer; }
+.clipboard-document-dropzone:focus { box-shadow: none; }
+
+/* Unified interaction controls: quiet at rest, teal only for the current action or selection. */
+:where(button, a, summary, [role="button"], [role="tab"], [role="option"]):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+}
+
+:where(.remi-action, .button, .invoice-command) {
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+:where(.remi-action, .button, .invoice-command):hover:not(:disabled):not(.danger):not(.remi-action--danger) {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+}
+
+:where(.remi-action, .button, .invoice-command):active:not(:disabled):not(.danger):not(.remi-action--danger) {
+    background: rgb(8 121 119 / 13%);
+}
+
+.navigation a:hover {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+}
+
+.contract-tabs button,
+.return-register-views .button {
+    border-radius: 0.35rem;
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.contract-tabs button:hover,
+.contract-tabs button:focus-visible {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+}
+
+.contract-tabs button.active {
+    color: var(--color-teal);
+}
+
+.return-register-views .button.active {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 9%);
+    border-color: var(--color-teal);
+}
+
+.quick-filter {
+    color: var(--color-navy);
+    background: var(--color-surface);
+    border-color: var(--color-control-border);
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.quick-filter:hover,
+.quick-filter:focus-visible {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+    border-color: var(--color-control-border-hover);
+}
+
+.quick-filter.active {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 9%);
+    border-color: var(--color-teal);
+}
+
+.register-pagination button {
+    color: var(--color-navy);
+    background: var(--color-surface);
+    border-color: var(--color-control-border);
+}
+
+.register-pagination button:hover:not(:disabled) {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+    border-color: var(--color-teal);
+}
+
+.register-pagination strong {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 9%);
+    border: 1px solid var(--color-teal);
+}
+
+.table-sort:hover,
+.table-sort:focus-visible {
+    color: var(--color-teal);
+}
+
+.table-sort:focus-visible {
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+}
+
+.searchable-picklist-options button:hover,
+.searchable-picklist-options button:focus-visible {
+    color: var(--color-surface);
+    background: var(--color-teal);
+}
+
+.searchable-picklist-options button:hover span,
+.searchable-picklist-options button:focus-visible span {
+    color: color-mix(in srgb, var(--color-surface) 82%, var(--color-teal));
+}
+
+.contract-change-flipper input:focus-visible + .contract-change-flipper-control {
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+}
+
+.template-file-dropzone:hover,
+.template-file-dropzone:focus-within,
+.clipboard-document-dropzone:hover,
+.clipboard-document-dropzone.is-dragging {
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 18%);
+}
+
+.framework-choice:hover,
+.framework-choice:focus-visible,
+.evidence-item:hover,
+.evidence-item:focus-visible,
+.contract-source-file:hover,
+.contract-source-file:focus-visible,
+.contract-evidence-file:hover,
+.contract-evidence-file:focus-visible {
+    border-color: var(--color-teal);
+    box-shadow: 0 0 0 3px rgb(8 121 119 / 12%);
+    outline: none;
+}
+
+.register-drawer-close:hover,
+.register-drawer-close:focus-visible {
+    color: var(--color-teal);
+    background: rgb(8 121 119 / 7%);
+    border-color: var(--color-teal);
+}
+
+@media (max-width: 980px) {
+    .invoice-edit-evidence-layout { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 760px) {
     .record-display-grid { grid-template-columns: 1fr; }
     .record-display-grid > div:nth-last-child(-n + 2) { border-bottom: 1px solid #edf1f3; }
     .record-display-grid > div:last-child { border-bottom: 0; }
+}
+
+/* Definitive Remi density rules: compact facts, persistent floating labels, no decorative title rows. */
+.app-shell { overflow-x: hidden; }
+main { min-width: 0; }
+
+.dashboard-layout,
+.dashboard-readiness,
+.dashboard-table-scroll { min-width: 0; }
+
+.dashboard-period-summary {
+    align-items: center;
+    overflow-x: auto;
+    padding: 0.3rem 0;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+}
+
+.dashboard-period-current {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    min-width: max-content;
+    padding: 0.5rem 1rem 0.5rem 0;
+}
+
+.dashboard-period-current strong { font-size: 0.95rem; }
+.dashboard-metrics { display: flex; flex: 0 0 auto; }
+.dashboard-metrics div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    min-width: max-content;
+    padding: 0.5rem 1rem;
+}
+.dashboard-metrics dd { font-size: 0.95rem; }
+
+.migration-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 1rem 0;
+    padding: 0.3rem 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+}
+.migration-metrics div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border-right: 1px solid var(--color-border);
+    border-radius: 0;
+}
+.migration-metrics div:first-child { padding-left: 0; }
+.migration-metrics div:last-child { border-right: 0; }
+.migration-metrics dd { margin: 0; font-size: 0.95rem; }
+
+.contract-summary-grid {
+    display: flex;
+    align-items: stretch;
+    overflow: visible;
+    margin-bottom: 1rem;
+    padding: 0.3rem 0;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.contract-summary-item {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    align-content: center;
+    align-items: baseline;
+    gap: 0.18rem 0.45rem;
+    min-width: 0;
+    padding: 0.55rem 1rem;
+}
+
+.contract-summary-item:first-child { padding-left: 0; }
+.contract-summary-item > span { flex: 0 0 100%; }
+.contract-summary-item > strong { font-size: 1rem; }
+.invoice-record .contract-summary-item:nth-child(2) > strong { font-size: 1rem; }
+.contract-summary-item small { font-size: 0.7rem; font-weight: 600; }
+.contract-summary-progress { width: 5rem; height: 0.3rem; margin: 0; }
+
+.contract-findings h2 { margin: 0 0 0.55rem; font-size: 0.95rem; }
+.settings-side-nav { margin-top: 0; }
+
+.register-filters { align-items: center; padding-top: 1.15rem; }
+.register-filters .floating-field { display: block; height: 42px; gap: 0; }
+.register-filters .floating-field > input,
+.register-filters .floating-field > select {
+    height: 42px;
+    min-height: 42px;
+    padding: 13px 12px 7px;
+    font-size: 14px;
+}
+.register-filters .floating-field > select { padding-right: 2rem; }
+.register-filters .floating-field > .floating-label { background: #f7fafb; }
+.filter-actions { align-self: center; height: 42px; }
+.register-reset { height: 28px; min-height: 28px; }
+
+.submission-reference.floating-field,
+.correction-reason.floating-field,
+.return-register-filter.floating-field,
+.template-registration-fields .floating-field,
+.audit-controls .floating-field,
+.clipboard-document-item .floating-field { height: 42px; }
+
+.submission-reference.floating-field > input,
+.correction-reason.floating-field > input,
+.return-register-filter.floating-field > select,
+.template-registration-fields .floating-field > select,
+.audit-controls .floating-field > select,
+.clipboard-document-item .floating-field > input {
+    height: 42px;
+    min-height: 42px;
+    margin-top: 0;
+    padding: 13px 12px 7px;
+}
+
+.submission-reference.floating-field > input { min-width: 18rem; }
+.return-register-filter.floating-field > select { min-width: 13rem; }
+.clipboard-document-item .floating-field { display: block; color: var(--color-text); font-size: inherit; }
+.clipboard-document-item .floating-field > input { width: 100%; font-size: 0.75rem; }
+
+@media (max-width: 980px) {
+    .contract-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .contract-summary-item { border-bottom: 1px solid var(--color-border); }
+    .contract-summary-item:nth-child(2n) { border-right: 0; }
+    .contract-summary-item:nth-last-child(-n + 2) { border-bottom: 0; }
+    .contract-summary-item:first-child { padding-left: 1rem; }
+}
+
+@media (max-width: 600px) {
+    .dashboard-period-summary { align-items: stretch; }
+    .dashboard-period-current,
+    .dashboard-metrics div { padding-inline: 0.75rem; }
+    .dashboard-period-current { padding-left: 0; }
+
+    .dashboard-table { display: block; width: 100%; min-width: 0; }
+    .dashboard-table thead { display: none; }
+    .dashboard-table tbody { display: block; }
+    .dashboard-table tr {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        gap: 0.45rem 0.75rem;
+        align-items: center;
+        padding: 0.8rem 1rem;
+        border-bottom: 1px solid var(--color-border);
+    }
+    .dashboard-table tr:last-child { border-bottom: 0; }
+    .dashboard-table td {
+        display: block;
+        padding: 0;
+        border: 0;
+    }
+    .dashboard-table td:first-child { grid-column: 1 / 4; grid-row: 1; }
+    .dashboard-table td:nth-child(2) { grid-column: 1; grid-row: 2; }
+    .dashboard-table td:nth-child(3) { grid-column: 2; grid-row: 2; }
+    .dashboard-table td:nth-child(4) { grid-column: 3 / 5; grid-row: 2; justify-self: end; }
+    .dashboard-table td:last-child { grid-column: 4; grid-row: 1; align-self: start; }
+    .dashboard-table td:nth-child(2)::before,
+    .dashboard-table td:nth-child(3)::before {
+        margin-right: 0.3rem;
+        color: var(--color-text-muted);
+        font-size: 0.67rem;
+        font-weight: 600;
+    }
+    .dashboard-table td:nth-child(2)::before { content: "Contracts"; }
+    .dashboard-table td:nth-child(3)::before { content: "Invoices"; }
+
+    .contract-summary-grid { grid-template-columns: 1fr; }
+    .contract-summary-item,
+    .contract-summary-item:nth-child(2n) { padding-inline: 0; border-right: 0; border-bottom: 1px solid var(--color-border); }
+    .contract-summary-item:last-child { border-bottom: 0; }
+}
+
+@media (max-width: 760px) {
+    .app-header {
+        gap: 0.4rem;
+        min-height: 58px;
+        padding-inline: 0.65rem;
+        overflow: visible;
+    }
+    .brand { gap: 0.35rem; font-size: 0.875rem; }
+    .brand-mark { width: 1.7rem; height: 1.7rem; }
+    .navigation {
+        flex: 1 1 auto;
+        justify-content: space-between;
+        gap: 0;
+        margin-left: 0;
+        overflow: hidden;
+    }
+    .navigation a { flex: 0 1 auto; padding-inline: 0.25rem; font-size: 0.68rem; }
+
+    .floating-field,
+    .remi-picklist-trigger { height: 46px; }
+    .floating-field > input,
+    .floating-field > select,
+    .remi-picklist-trigger {
+        min-height: 46px;
+        font-size: 16px;
+    }
+
+    .clipboard-instruction-desktop { display: none; }
+    .clipboard-instruction-mobile { display: inline; }
+    .contract-registration-evidence .clipboard-document-dropzone { min-height: 4.8rem; }
 }

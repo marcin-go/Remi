@@ -11,7 +11,7 @@
 <section class="invoice-intake-page">
     <header class="invoice-intake-header">
         <div><h1>Register invoice</h1><p>Choose a contract and enter the invoice details.</p></div>
-        <button type="button" class="invoice-command" @onclick="ConfirmCancelAsync">Back <span aria-hidden="true">←</span></button>
+        <button type="button" class="invoice-command" @onclick="ConfirmCancelAsync">Back</button>
     </header>
 
     @if (contracts is null)
@@ -47,24 +47,21 @@
                 <h2>Contract</h2>
                 <div class="contract-picker">
                     <label for="contract-search" class="floating-field floating-field--static">
-                        <input id="contract-search" role="combobox" aria-label="Contract" aria-autocomplete="list" aria-controls="contract-suggestions" aria-expanded="@contractSuggestionsOpen.ToString().ToLowerInvariant()" autocomplete="off" placeholder="Search by reference, customer or framework" value="@contractSearch" @oninput="SearchContracts" @onfocus="OpenContractSuggestions" @onkeydown="HandleContractSearchKeyDown" />
+                        <input id="contract-search" role="combobox" aria-label="Contract" aria-autocomplete="list" aria-controls="contract-suggestions" aria-expanded="@contractSuggestionsOpen.ToString().ToLowerInvariant()" autocomplete="off" placeholder="Search by reference, customer or framework" value="@contractSearch" @oninput="SearchContracts" @onfocus="OpenContractSuggestions" @onblur="CloseContractSuggestions" @onkeydown="HandleContractSearchKeyDown" />
                         <span class="floating-label">Contract</span>
                     </label>
                     @if (contractSuggestionsOpen)
                     {
-                        <div id="contract-suggestions" class="contract-suggestions" role="listbox" aria-label="Contract suggestions">
-                            @if (MatchingContracts.Count == 0)
-                            {
-                                <p>No matching contracts.</p>
-                            }
-                            else
-                            {
-                                @foreach (var contract in MatchingContracts)
-                                {
-                                    <button type="button" role="option" aria-selected="@(contract.ContractId == selectedContractId)" @onclick="@(() => SelectContractAsync(contract))">@ContractDescription(contract)</button>
-                                }
-                            }
-                        </div>
+                        <SearchablePicklistOptions TItem="InvoiceRegistrationContract"
+                                                   Id="contract-suggestions"
+                                                   AriaLabel="Contract suggestions"
+                                                   Items="@MatchingContracts"
+                                                   ItemSelected="@SelectContractAsync"
+                                                   Selected="@(contract => contract.ContractId == selectedContractId)"
+                                                   EmptyMessage="No matching contracts."
+                                                   CssClass="contract-suggestions">
+                            <ItemTemplate Context="contract">@ContractDescription(contract)</ItemTemplate>
+                        </SearchablePicklistOptions>
                     }
                 </div>
             </section>
@@ -76,7 +73,7 @@
                         <strong>@SelectedContract.SupplierReference <span aria-hidden="true">·</span> @SelectedContract.CustomerName</strong>
                         <span>@Frameworks.Get(SelectedContract.Framework).DisplayName <span aria-hidden="true">·</span> @Frameworks.Get(SelectedContract.Framework).AgreementNumber</span>
                     </div>
-                    <a class="invoice-command" href="@ContractRoute(SelectedContract.ContractId)">View contract <span aria-hidden="true">→</span></a>
+                    <a class="invoice-command" href="@ContractRoute(SelectedContract.ContractId)">View contract</a>
                 </section>
 
                 @if (SelectedContract.UnconfirmedChangeCount != 0)
@@ -229,6 +226,7 @@
     private Guid? selectedContractId;
     private string contractSearch = string.Empty;
     private bool contractSuggestionsOpen;
+    private bool contractFilterActive;
     private string invoiceNumber = string.Empty;
     private DateOnly? invoiceDate;
     private string reportingMonth = string.Empty;
@@ -250,10 +248,9 @@
     private ContractChangeRecord? SelectedChange => contractChangeId is Guid changeId
         ? SelectedContract?.AgreedChanges.SingleOrDefault(change => change.Id == changeId)
         : null;
-    private IReadOnlyList<InvoiceRegistrationContract> MatchingContracts => (contracts ?? [])
-        .Where(MatchesContractSearch)
-        .Take(5)
-        .ToList();
+    private IReadOnlyList<InvoiceRegistrationContract> MatchingContracts => contractFilterActive
+        ? (contracts ?? []).Where(MatchesContractSearch).ToList()
+        : contracts ?? [];
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
     private MiInvoiceIntakeForm? IntakeForm => SelectedContract is { } contract ? MiInvoiceIntakeForms.For(contract.Framework) : null;
     private IReadOnlyList<string> ServiceGroupOptions => IntakeForm?.ServiceGroupsFor(lotNumber) ?? [];
@@ -296,11 +293,18 @@
         || contract.CustomerName.Contains(contractSearch, StringComparison.OrdinalIgnoreCase)
         || Frameworks.Get(contract.Framework).DisplayName.Contains(contractSearch, StringComparison.OrdinalIgnoreCase);
 
-    private void OpenContractSuggestions() => contractSuggestionsOpen = true;
+    private void OpenContractSuggestions()
+    {
+        contractFilterActive = false;
+        contractSuggestionsOpen = true;
+    }
+
+    private void CloseContractSuggestions() => contractSuggestionsOpen = false;
 
     private void SearchContracts(ChangeEventArgs args)
     {
         contractSearch = args.Value?.ToString() ?? string.Empty;
+        contractFilterActive = true;
         selectedContractId = null;
         contractSuggestionsOpen = true;
         submission = null;
@@ -323,6 +327,7 @@
         selectedContractId = contract.ContractId;
         contractChangeId = null;
         contractSearch = ContractDescription(contract);
+        contractFilterActive = false;
         contractSuggestionsOpen = false;
         submission = null;
         await PopulateInvoiceReportingFieldsAsync(contract);

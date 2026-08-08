@@ -290,7 +290,20 @@ public sealed record ChargeScheduleEntry(
     string Description,
     DateOnly? ExpectedInvoiceDate,
     decimal ValueExVat,
-    bool IsOptionalExtension = false);
+    bool IsOptionalExtension = false,
+    Guid? ContractServicePartId = null);
+
+public sealed record ContractServicePartEntry(
+    Guid? Id,
+    string Name,
+    DateOnly? GoLiveDate,
+    int SortOrder);
+
+public sealed record ContractOperationsUpdateResult(
+    bool Succeeded,
+    string Message,
+    IReadOnlyList<ContractServicePart> Parts,
+    IReadOnlyList<Guid> NewlyLivePartIds);
 
 public sealed record TemplateConfigurationSummary(
     Guid Id,
@@ -340,6 +353,7 @@ public sealed record ContractDetailsModel(
     ContractRecord Contract,
     IReadOnlyList<InvoiceRecord> Invoices,
     IReadOnlyList<ChargeScheduleItem> ChargeSchedule,
+    IReadOnlyList<ContractServicePart> ServiceParts,
     IReadOnlyList<ContractChangeRecord> ContractChanges,
     IReadOnlyList<EvidenceLink> Evidence,
     IReadOnlyList<ValidationFinding> Findings);

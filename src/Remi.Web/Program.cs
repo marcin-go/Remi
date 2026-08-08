@@ -19,6 +19,17 @@ const long MaxDataTransferRequestSize = 4L * 1024 * 1024 * 1024;
 var dataPath = builder.Configuration["Remi:DataPath"] ?? RemiDataPaths.DefaultDatabaseFile;
 var dataDirectory = Path.GetDirectoryName(Path.GetFullPath(dataPath))
     ?? throw new InvalidOperationException("The Remi data path has no parent directory.");
+var configuredMailMode = Enum.TryParse<MailDeliveryMode>(builder.Configuration["Remi:Mail:DeliveryMode"], ignoreCase: true, out var parsedMailMode)
+    ? parsedMailMode
+    : MailDeliveryMode.Capture;
+if (configuredMailMode != MailDeliveryMode.Capture)
+{
+    throw new InvalidOperationException("This Remi release supports Capture mail mode only. Redirect and Live delivery cannot be enabled yet.");
+}
+var mailOptions = new MailRuntimeOptions(
+    configuredMailMode,
+    builder.Configuration["Remi:Mail:FromAddress"] ?? "remi@localhost",
+    builder.Configuration["Remi:Mail:FromDisplayName"] ?? "Remi");
 var openBrowser = bool.TryParse(builder.Configuration["open-browser"], out var shouldOpenBrowser) && shouldOpenBrowser;
 var browser = builder.Configuration["browser"];
 Directory.CreateDirectory(dataDirectory);
@@ -46,6 +57,13 @@ builder.Services.AddDataProtection()
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = MaxDataTransferRequestSize);
 builder.Services.AddSingleton<SqliteRemiStore>(_ => new SqliteRemiStore(dataPath));
 builder.Services.AddSingleton<IRemiStore>(services => services.GetRequiredService<SqliteRemiStore>());
+builder.Services.AddSingleton<SqliteRemiMailStore>(services => new SqliteRemiMailStore(dataPath, services.GetRequiredService<SqliteRemiStore>()));
+builder.Services.AddSingleton<IRemiMailStore>(services => services.GetRequiredService<SqliteRemiMailStore>());
+builder.Services.AddSingleton<IMailContentStore>(_ => new FileMailContentStore(Path.Combine(dataDirectory, "mail")));
+builder.Services.AddSingleton(mailOptions);
+builder.Services.AddSingleton<MailCaptureService>();
+builder.Services.AddSingleton<RemiMailEventService>();
+builder.Services.AddHostedService<MonthlyActiveContractsCaptureWorker>();
 builder.Services.AddSingleton<IRemiDataTransfer>(services => new RemiDataTransferService(
     dataDirectory,
     dataPath,
@@ -159,6 +177,20 @@ app.MapGet("/evidence/{id:guid}/download", async (
     return stream is null
         ? Results.NotFound()
         : Results.File(stream, evidence.ContentType, fileDownloadName: evidence.FileName, enableRangeProcessing: true);
+});
+
+app.MapGet("/mail/{id:guid}/download", async (
+    Guid id,
+    IRemiMailStore mailStore,
+    IMailContentStore contentStore,
+    CancellationToken cancellationToken) =>
+{
+    var message = await mailStore.GetMessageAsync(id, cancellationToken);
+    if (message is null) return Results.NotFound();
+    var stream = await contentStore.OpenReadAsync(message.StorageKey, cancellationToken);
+    return stream is null
+        ? Results.NotFound()
+        : Results.File(stream, "message/rfc822", fileDownloadName: $"{message.EventType}-{message.CreatedAtUtc:yyyyMMdd-HHmmss}.eml", enableRangeProcessing: true);
 });
 
 app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (

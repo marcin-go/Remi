@@ -12,14 +12,14 @@
     </div>
     <div class="template-registration-fields">
         <div class="form-grid">
-            <label>
-                Framework
+            <label class="floating-field floating-field--static">
                 <select @bind="templateFramework">
                     @foreach (var definition in Frameworks.All)
                     {
                         <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
                     }
                 </select>
+                <span class="floating-label">Framework</span>
             </label>
         </div>
     </div>
@@ -60,7 +60,6 @@
 <section class="panel template-panel">
     <div class="panel-heading">
         <div>
-            <p class="eyebrow">Approved template register</p>
             <h2>Template history</h2>
         </div>
     </div>
@@ -95,7 +94,6 @@
 <section class="panel audit-panel">
     <div class="panel-heading">
         <div>
-            <p class="eyebrow">Review and correction trail</p>
             <h2>Recent audit events</h2>
         </div>
     </div>
@@ -106,8 +104,7 @@
     else
     {
         <div class="audit-controls">
-            <label>
-                Event type
+            <label class="floating-field floating-field--static">
                 <select @bind="auditActionFilter">
                     <option value="">All activity</option>
                     @foreach (var action in auditEvents.Select(item => item.Action).Distinct().OrderBy(item => item))
@@ -115,6 +112,7 @@
                         <option value="@action">@FriendlyAuditAction(action)</option>
                     }
                 </select>
+                <span class="floating-label">Event type</span>
             </label>
             <span class="muted">Showing @VisibleAuditEvents.Count of @auditEvents.Count events</span>
         </div>

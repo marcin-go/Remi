@@ -44,7 +44,6 @@
     <section class="return-workflow" aria-labelledby="return-workflow-heading">
         <div class="return-workflow-heading">
             <div>
-                <p class="eyebrow">Monthly return</p>
                 <h2 id="return-workflow-heading">@LifecycleHeading</h2>
                 @if (IsNilReturn) { <p class="nil-return-context">Nil return</p> }
                 @if (IsCorrectionRequired) { <p class="muted">A correction has been requested. The earlier submission remains in the record below.</p> }
@@ -76,7 +75,7 @@
                 <section class="return-current-action return-submission-capture" id="submission-record" aria-labelledby="return-action-heading">
                     <div><h3 id="return-action-heading">@SubmissionActionHeading</h3><p class="muted">@SubmissionActionGuidance</p></div>
                     <div class="return-submission-capture-actions">
-                        <label class="submission-reference">GCA task reference <span class="optional">(optional)</span><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /></label>
+                        <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference (optional)</span></label>
                         <button class="remi-action remi-action--primary" disabled="@working" @onclick="RecordCurrentSubmissionAsync">@(IsNilReturnDraft ? "Record nil submission" : IsCorrectionRequired ? "Record corrected submission" : "Record submission")</button>
                     </div>
                 </section>
@@ -89,7 +88,7 @@
                 @if (!string.IsNullOrWhiteSpace(SelectedReturn?.SubmissionReference))
                 {
                     <p class="submission-reference-display">GCA task reference <code>@SelectedReturn!.SubmissionReference</code></p>
-                    @if (GcaSubmissionTaskUrl is { } gcaSubmissionTaskUrl) { <a class="remi-action remi-action--section" href="@gcaSubmissionTaskUrl" target="_blank" rel="noreferrer">Open GCA submission <span aria-hidden="true">↗</span></a> }
+                    @if (GcaSubmissionTaskUrl is { } gcaSubmissionTaskUrl) { <a class="remi-action remi-action--section" href="@gcaSubmissionTaskUrl" target="_blank" rel="noreferrer">Open GCA submission</a> }
                 }
                 else { <p class="muted">No GCA task reference was retained.</p> }
                 @if (SubmissionEvidence.Count == 0) { <p class="muted">No submission screenshot has been retained.</p> }
@@ -108,7 +107,7 @@
                                             EmptyStatus="Paste a confirmation screenshot"
                                             DropZoneTitle="Drop screenshot or file"
                                             EmptyMessage="Use this only to add a missing GCA reference or confirmation screenshot. It does not reopen the return.">
-                        <div class="submission-evidence-recovery"><label class="submission-reference">GCA task reference <input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /></label><button class="remi-action remi-action--section" disabled="@(!CanSaveMissingSubmissionEvidence)" @onclick="SaveMissingSubmissionEvidenceAsync">@(working ? "Saving…" : "Save missing evidence")</button></div>
+                        <div class="submission-evidence-recovery"><label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference</span></label><button class="remi-action remi-action--section" disabled="@(!CanSaveMissingSubmissionEvidence)" @onclick="SaveMissingSubmissionEvidenceAsync">@(working ? "Saving…" : "Save missing evidence")</button></div>
                     </ClipboardImageEvidence>
                 }
             </section>
@@ -187,7 +186,7 @@
         {
             <details class="return-disclosure return-disclosure--secondary">
                 <summary><span><strong>Correction</strong><small>Use only when the submitted return needs amendment</small></span></summary>
-                <label class="correction-reason">Correction reason <input @bind="correctionReason" @bind:event="oninput" placeholder="What needs correcting and why?" /></label>
+                <label class="correction-reason floating-field floating-field--static"><input @bind="correctionReason" @bind:event="oninput" placeholder="What needs correcting and why?" /><span class="floating-label">Correction reason</span></label>
                 <button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
             </details>
         }
@@ -212,11 +211,11 @@ else
             </div>
             @if (registerView == "month")
             {
-                <label class="return-register-filter">Reporting month<select @bind="registerMonth">@foreach (var month in returnRegister?.ReportingMonths ?? []) { <option value="@month">@DisplayReportingMonth(month)</option> }</select></label>
+                <label class="return-register-filter floating-field floating-field--static"><select @bind="registerMonth">@foreach (var month in returnRegister?.ReportingMonths ?? []) { <option value="@month">@DisplayReportingMonth(month)</option> }</select><span class="floating-label">Reporting month</span></label>
             }
             else
             {
-                <label class="return-register-filter">Framework<select @bind="registerFramework">@foreach (var definition in RegisterFrameworks) { <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option> }</select></label>
+                <label class="return-register-filter floating-field floating-field--static"><select @bind="registerFramework">@foreach (var definition in RegisterFrameworks) { <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option> }</select><span class="floating-label">Framework</span></label>
             }
         </div>
         @if (returnRegister is null)
@@ -248,7 +247,7 @@ else
                             @if (!string.IsNullOrWhiteSpace(item.SubmissionReference)) { <span class="cell-secondary">GCA ref @ShortReference(item.SubmissionReference)</span> }
                         }
                     </td>
-                    <td class="table-action-cell"><a class="remi-action remi-action--table" href="@WorkspaceRoute(item)">Open <span aria-hidden="true">→</span></a></td>
+                    <td class="table-action-cell"><a class="remi-action remi-action--table" href="@WorkspaceRoute(item)">Open</a></td>
                 </tr>
             }
             </tbody></table></div>

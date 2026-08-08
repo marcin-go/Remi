@@ -8,6 +8,9 @@ public interface ICustomerUrnDirectory
 {
     Task<CustomerUrnDirectoryStatus?> GetStatusAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CustomerUrnSuggestion>> GetAllAsync(
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<CustomerUrnSuggestion>> SearchAsync(
         string query,
         int maximumResults = 8,
@@ -20,7 +23,8 @@ public interface ICustomerUrnDirectory
 
 public sealed record CustomerUrnSuggestion(
     string Urn,
-    string OrganisationName);
+    string OrganisationName,
+    string? Address = null);
 
 public sealed record CustomerUrnDirectoryStatus(
     Guid EvidenceId,

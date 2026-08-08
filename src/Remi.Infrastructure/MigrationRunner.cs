@@ -323,6 +323,10 @@ public sealed class MigrationRunner(
         public Task<CustomerUrnDirectoryStatus?> GetStatusAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<CustomerUrnDirectoryStatus?>(null);
 
+        public Task<IReadOnlyList<CustomerUrnSuggestion>> GetAllAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CustomerUrnSuggestion>>([]);
+
         public Task<IReadOnlyList<CustomerUrnSuggestion>> SearchAsync(
             string query,
             int maximumResults = 8,

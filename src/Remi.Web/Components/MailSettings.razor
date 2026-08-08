@@ -1,0 +1,266 @@
+@using System.Globalization
+@using System.Net.Mail
+@using Remi.Application
+@inject IRemiMailStore MailStore
+@inject RemiMailEventService MailEvents
+@inject ReportingWorkspace Workspace
+@inject TimeProvider TimeProvider
+
+<section class="panel maintenance-panel mail-settings-panel">
+    <div class="mail-capture-banner"><strong>Capture mode</strong><span>Remi can compose and retain messages, but this release cannot send them or contact Mailgun.</span></div>
+    <div class="mail-settings-layout">
+        <nav class="mail-template-nav" aria-label="Mail events">
+            @foreach (var template in templates)
+            {
+                <button type="button" class="@(template.EventType == selectedEventType ? "active" : null)" @onclick="@(() => SelectTemplate(template))">
+                    <span>@template.DisplayName</span><small>@TemplateStatus(template)</small>
+                </button>
+            }
+        </nav>
+        @if (selectedTemplate is not null)
+        {
+            <div class="mail-template-editor">
+                <header><div><h2>@selectedTemplate.DisplayName</h2><p>@TemplateExplanation(selectedTemplate.EventType)</p></div><span class="mail-trigger-badge">@selectedTemplate.TriggerMode</span></header>
+                @if (selectedTemplate.TriggerMode == MailTriggerMode.Automatic && selectedTemplate.ScheduleDay is not null)
+                {
+                    <p class="mail-schedule-note">Scheduled for day @selectedTemplate.ScheduleDay at @selectedTemplate.ScheduleTimeLocal?.ToString("HH:mm") (@selectedTemplate.TimeZoneId). The monthly active-contract event is initialised without historical catch-up; its first eligible run is the next 1st of the month.</p>
+                }
+                <label class="contract-change-flipper"><input type="checkbox" @bind="editEnabled" /><span class="contract-change-flipper-control" aria-hidden="true"></span><span>Enable this event</span></label>
+                <div class="mail-recipient-grid">
+                    <label class="floating-field"><input placeholder=" " @bind="editTo" /><span class="floating-label">To</span></label>
+                    <label class="floating-field"><input placeholder=" " @bind="editCc" /><span class="floating-label">Cc</span></label>
+                    <label class="floating-field"><input placeholder=" " @bind="editBcc" /><span class="floating-label">Bcc</span></label>
+                </div>
+                <p class="caption">Separate several addresses with commas or semicolons. Display names such as <code>Jane Smith &lt;jane@example.com&gt;</code> are supported.</p>
+                <div class="mail-copy-fields">
+                    <label class="floating-field"><input required placeholder=" " @bind="editSubject" /><span class="floating-label">Subject</span></label>
+                    <label class="floating-field"><textarea required placeholder=" " @bind="editGreeting"></textarea><span class="floating-label">Greeting</span></label>
+                    <label class="floating-field"><textarea required placeholder=" " @bind="editIntroduction"></textarea><span class="floating-label">Introduction</span></label>
+                    <label class="floating-field"><textarea required placeholder=" " @bind="editRequestText"></textarea><span class="floating-label">Request or explanation</span></label>
+                    <label class="floating-field"><textarea required placeholder=" " @bind="editClosing"></textarea><span class="floating-label">Closing</span></label>
+                    <label class="floating-field"><textarea required placeholder=" " @bind="editSignature"></textarea><span class="floating-label">Signature</span></label>
+                </div>
+                @if (selectedTemplate.EventType == MailEventTypes.PostSubmissionReport)
+                {
+                    <div class="mail-manual-capture">
+                        <RemiPicklist Id="post-submission-month"
+                                      Label="Reporting month"
+                                      Items="@postSubmissionMonths"
+                                      Value="@postSubmissionMonth"
+                                      ValueChanged="@(value => postSubmissionMonth = value)"
+                                      ItemLabel="ReportingMonthLabel"
+                                      Searchable="true"
+                                      Required="true" />
+                        <p class="caption">Remi uses the latest retained image evidence for every submitted framework in this month. Missing submissions or screenshots prevent capture.</p>
+                    </div>
+                }
+                <div class="action-row">
+                    <button class="button primary" disabled="@(saving || !CanSave)" @onclick="SaveAsync">@(saving ? "Saving..." : "Save")</button>
+                    @if (selectedTemplate.EventType == MailEventTypes.MonthlyActiveContracts)
+                    {
+                        <button class="button secondary" disabled="@(working || !selectedTemplate.Enabled || !selectedTemplate.Recipients.Any(recipient => recipient.Type == MailRecipientType.To))" @onclick="CaptureCurrentMonthlyInventoryAsync">Capture current monthly message</button>
+                    }
+                    else if (selectedTemplate.EventType == MailEventTypes.PostSubmissionReport)
+                    {
+                        <button class="button secondary" disabled="@(working || string.IsNullOrWhiteSpace(postSubmissionMonth) || !selectedTemplate.Enabled || !selectedTemplate.Recipients.Any(recipient => recipient.Type == MailRecipientType.To))" @onclick="CapturePostSubmissionReportAsync">Capture post-submission message</button>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="notice @(succeeded ? "success" : "error")" role="status">@message</p>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+<section class="panel maintenance-panel">
+    <h2>Captured messages</h2>
+    <p>Each row is the exact message Remi composed. Download the `.eml` to inspect it in Outlook or another mail client. Captured files are part of Remi's data backup.</p>
+    @if (messages.Count == 0)
+    {
+        <div class="contract-empty-inline"><strong>No messages captured</strong><span>Configure an event above. Nothing has been sent.</span></div>
+    }
+    else
+    {
+        <div class="table-wrap maintenance-table"><table><thead><tr><th>Captured</th><th>Event</th><th>Subject</th><th>Recipients</th><th>Mode</th><th></th></tr></thead><tbody>
+        @foreach (var item in messages)
+        {
+            <tr><td>@item.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</td><td>@EventName(item.EventType)</td><td><strong>@item.Subject</strong>@if (!string.IsNullOrWhiteSpace(item.SourcePeriod)) { <span class="cell-secondary">Period @item.SourcePeriod</span> }</td><td>@RecipientSummary(item)</td><td><span class="mail-capture-state">Captured</span></td><td><a class="button secondary" href="@($"/mail/{item.Id:D}/download")">Download .eml</a></td></tr>
+        }
+        </tbody></table></div>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<MailTemplateDefinition> templates = [];
+    private IReadOnlyList<MailMessageSummary> messages = [];
+    private MailTemplateDefinition? selectedTemplate;
+    private string? selectedEventType;
+    private bool editEnabled;
+    private string editSubject = string.Empty, editGreeting = string.Empty, editIntroduction = string.Empty, editRequestText = string.Empty, editClosing = string.Empty, editSignature = string.Empty;
+    private string editTo = string.Empty, editCc = string.Empty, editBcc = string.Empty;
+    private IReadOnlyList<string> postSubmissionMonths = [];
+    private string postSubmissionMonth = string.Empty;
+    private bool saving, working, succeeded;
+    private string? message;
+    private bool CanSave => !string.IsNullOrWhiteSpace(editSubject)
+        && !string.IsNullOrWhiteSpace(editGreeting)
+        && (!editEnabled || TryRecipients(out var recipients, out _) && recipients.Any(recipient => recipient.Type == MailRecipientType.To));
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        var templatesTask = MailStore.GetTemplatesAsync();
+        var messagesTask = MailStore.GetMessagesAsync();
+        var returnsTask = Workspace.GetMonthlyReturnRegisterAsync();
+        await Task.WhenAll(templatesTask, messagesTask, returnsTask);
+        templates = await templatesTask;
+        messages = await messagesTask;
+        postSubmissionMonths = (await returnsTask).ReportingMonths;
+        if (!postSubmissionMonths.Contains(postSubmissionMonth, StringComparer.Ordinal))
+        {
+            var previousMonth = DateOnly.FromDateTime(TimeProvider.GetLocalNow().DateTime).AddMonths(-1).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+            postSubmissionMonth = postSubmissionMonths.Contains(previousMonth, StringComparer.Ordinal)
+                ? previousMonth
+                : postSubmissionMonths.FirstOrDefault() ?? string.Empty;
+        }
+        var selection = templates.SingleOrDefault(template => template.EventType == selectedEventType) ?? templates.FirstOrDefault();
+        if (selection is not null) SelectTemplate(selection);
+    }
+
+    private void SelectTemplate(MailTemplateDefinition template)
+    {
+        selectedTemplate = template;
+        selectedEventType = template.EventType;
+        editEnabled = template.Enabled;
+        editSubject = template.SubjectTemplate;
+        editGreeting = template.Greeting;
+        editIntroduction = template.Introduction;
+        editRequestText = template.RequestText;
+        editClosing = template.Closing;
+        editSignature = template.Signature;
+        editTo = RecipientInput(template, MailRecipientType.To);
+        editCc = RecipientInput(template, MailRecipientType.Cc);
+        editBcc = RecipientInput(template, MailRecipientType.Bcc);
+        message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (selectedTemplate is null)
+        {
+            succeeded = false;
+            message = "Choose a mail event first.";
+            return;
+        }
+        if (!TryRecipients(out var recipients, out var recipientError))
+        {
+            succeeded = false;
+            message = recipientError ?? "Check the recipient addresses.";
+            return;
+        }
+        if (editEnabled && !recipients.Any(recipient => recipient.Type == MailRecipientType.To))
+        {
+            succeeded = false;
+            message = "Add at least one To recipient before enabling this event.";
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            await MailStore.SaveTemplateAsync(new MailTemplateUpdate(
+                selectedTemplate.EventType,
+                editEnabled,
+                editSubject,
+                editGreeting,
+                editIntroduction,
+                editRequestText,
+                editClosing,
+                editSignature,
+                recipients), TimeProvider.GetUtcNow());
+            var savedMessage = editEnabled
+                ? "The Capture event is enabled. Remi will retain messages but cannot send them."
+                : "The template has been saved and remains disabled.";
+            await ReloadAsync();
+            succeeded = true;
+            message = savedMessage;
+        }
+        finally { saving = false; }
+    }
+
+    private async Task CaptureCurrentMonthlyInventoryAsync()
+    {
+        working = true;
+        try
+        {
+            var now = TimeProvider.GetUtcNow();
+            var previousMonth = DateOnly.FromDateTime(now.LocalDateTime).AddMonths(-1).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+            var result = await MailEvents.CaptureMonthlyActiveContractsAsync(previousMonth, now);
+            succeeded = result.Succeeded;
+            message = result.Message;
+            messages = await MailStore.GetMessagesAsync();
+        }
+        finally { working = false; }
+    }
+
+    private async Task CapturePostSubmissionReportAsync()
+    {
+        working = true;
+        try
+        {
+            var result = await MailEvents.CapturePostSubmissionReportAsync(postSubmissionMonth);
+            succeeded = result.Succeeded;
+            message = result.Message;
+            messages = await MailStore.GetMessagesAsync();
+        }
+        finally { working = false; }
+    }
+
+    private bool TryRecipients(out IReadOnlyList<MailRecipient> recipients, out string? error)
+    {
+        var result = new List<MailRecipient>();
+        foreach (var (type, input) in new[] { (MailRecipientType.To, editTo), (MailRecipientType.Cc, editCc), (MailRecipientType.Bcc, editBcc) })
+        {
+            var values = input.Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var index = 0; index < values.Length; index++)
+            {
+                try
+                {
+                    var address = new MailAddress(values[index]);
+                    result.Add(new MailRecipient(Guid.NewGuid(), type, string.IsNullOrWhiteSpace(address.DisplayName) ? null : address.DisplayName, address.Address, index));
+                }
+                catch (FormatException)
+                {
+                    recipients = [];
+                    error = $"'{values[index]}' is not a valid email address.";
+                    return false;
+                }
+            }
+        }
+        recipients = result;
+        error = null;
+        return true;
+    }
+
+    private static string RecipientInput(MailTemplateDefinition template, MailRecipientType type) =>
+        string.Join("; ", template.Recipients.Where(recipient => recipient.Type == type).OrderBy(recipient => recipient.SortOrder).Select(recipient => string.IsNullOrWhiteSpace(recipient.DisplayName) ? recipient.EmailAddress : $"{recipient.DisplayName} <{recipient.EmailAddress}>"));
+    private static string TemplateStatus(MailTemplateDefinition template) => template.Enabled ? $"Enabled · {template.TriggerMode}" : "Disabled";
+    private static string TemplateExplanation(string eventType) => eventType switch
+    {
+        MailEventTypes.MonthlyActiveContracts => "Automatically captured on the 1st for the preceding reporting month. Unreported inventory is prefixed NEW.",
+        MailEventTypes.CustomerGoLive => "Captured when one or more contract parts receive their first actual go-live date.",
+        MailEventTypes.PostSubmissionReport => "Manually captured after GCA accepts the month's returns. The retained portal screenshots are embedded beneath their framework headings.",
+        MailEventTypes.ExpiringContracts => "Reserved for the three-month expiry watch. The detailed selection rules will be agreed before enabling it.",
+        MailEventTypes.SubmissionDeadlineReminder => "Reserved for the monthly submission deadline reminder. Its exact deadline schedule is not yet configured.",
+        _ => "Remi mail event.",
+    };
+    private string EventName(string eventType) => templates.SingleOrDefault(template => template.EventType == eventType)?.DisplayName ?? eventType;
+    private static string RecipientSummary(MailMessageSummary message) => string.Join(" · ", message.Recipients.GroupBy(recipient => recipient.Type).Select(group => $"{group.Key} {group.Count()}"));
+    private static string ReportingMonthLabel(string value) =>
+        DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed.ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"))
+            : value;
+}

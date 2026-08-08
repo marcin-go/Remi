@@ -5,7 +5,7 @@
     const progressTitle = progress.querySelector('[data-remi-restore-progress-title]');
     const progressDescription = progress.querySelector('[data-remi-restore-progress-description]');
     const progressWarning = progress.querySelector('[data-remi-restore-progress-warning]');
-    const progressEyebrow = progress.querySelector('[data-remi-restore-progress-eyebrow]');
+    const progressStatus = progress.querySelector('[data-remi-restore-progress-status]');
     const progressReturn = progress.querySelector('[data-remi-restore-progress-return]');
 
     const restoreResultUrl = form => {
@@ -20,7 +20,7 @@
 
     const showRestoreFailure = (form, message) => {
         progress.classList.add('restore-progress--failed');
-        if (progressEyebrow) progressEyebrow.textContent = 'Restore could not start';
+        if (progressStatus) progressStatus.textContent = 'Restore could not start';
         if (progressTitle) progressTitle.textContent = 'Remi could not start the restore.';
         if (progressDescription) progressDescription.textContent = message;
         if (progressWarning) progressWarning.textContent = 'Your current data has not been replaced.';

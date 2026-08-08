@@ -1,0 +1,171 @@
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="searchable-picklist remi-picklist @(Searchable ? "remi-picklist--searchable" : "remi-picklist--compact") @CssClass">
+    <label class="floating-field floating-field--static">
+        @if (Searchable)
+        {
+            <input @ref="control"
+                   role="combobox"
+                   aria-label="@Label"
+                   aria-autocomplete="list"
+                   aria-controls="@Id"
+                   aria-expanded="@OpenState"
+                   aria-required="@RequiredState"
+                   aria-invalid="@InvalidState"
+                   aria-describedby="@DescribedBy"
+                   autocomplete="off"
+                   disabled="@Disabled"
+                   required="@Required"
+                   placeholder="@Placeholder"
+                   value="@query"
+                   @oninput="SearchAsync"
+                   @onfocus="Open"
+                   @onblur="Close"
+                   @onkeydown="HandleKeyDownAsync" />
+        }
+        else
+        {
+            <button @ref="control"
+                    type="button"
+                    class="remi-picklist-trigger"
+                    role="combobox"
+                    aria-label="@Label"
+                    aria-haspopup="listbox"
+                    aria-controls="@Id"
+                    aria-expanded="@OpenState"
+                    aria-required="@RequiredState"
+                    aria-invalid="@InvalidState"
+                    aria-describedby="@DescribedBy"
+                    disabled="@Disabled"
+                    @onclick="Toggle"
+                    @onblur="Close"
+                    @onkeydown="HandleKeyDownAsync">
+                <span>@CurrentText</span>
+                <span class="remi-picklist-chevron" aria-hidden="true"></span>
+            </button>
+        }
+        <span class="floating-label">@Label</span>
+    </label>
+
+    @if (open)
+    {
+        <SearchablePicklistOptions TItem="string"
+                                   Id="@Id"
+                                   AriaLabel="@($"{Label} options")"
+                                   Items="@filteredItems"
+                                   ItemSelected="@SelectAsync"
+                                   Selected="@IsSelected"
+                                   ScrollSelectedIntoView="@(!filterActive)"
+                                   EmptyMessage="@EmptyMessage"
+                                   CssClass="remi-picklist-options">
+            <ItemTemplate Context="item"><strong>@ItemLabel(item)</strong></ItemTemplate>
+        </SearchablePicklistOptions>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<string> Items { get; set; } = [];
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public Func<string, string> ItemLabel { get; set; } = static item => item;
+    [Parameter] public string Placeholder { get; set; } = "Choose an option";
+    [Parameter] public string EmptyMessage { get; set; } = "No matching options.";
+    [Parameter] public string? DescribedBy { get; set; }
+    [Parameter] public string CssClass { get; set; } = string.Empty;
+    [Parameter] public bool Searchable { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Invalid { get; set; }
+
+    private ElementReference control;
+    private IReadOnlyList<string> filteredItems = [];
+    private string query = string.Empty;
+    private bool open;
+    private bool filterActive;
+
+    private string OpenState => open.ToString().ToLowerInvariant();
+    private string RequiredState => Required.ToString().ToLowerInvariant();
+    private string? InvalidState => Invalid ? "true" : null;
+    private string? SelectedItem => Items.FirstOrDefault(IsSelected);
+    private string CurrentText => SelectedItem is string selected ? ItemLabel(selected) : Placeholder;
+
+    protected override void OnParametersSet()
+    {
+        if (!open)
+        {
+            query = SelectedItem is string selected ? ItemLabel(selected) : string.Empty;
+            filterActive = false;
+        }
+
+        filteredItems = filterActive ? Filter(query) : Items;
+    }
+
+    public ValueTask FocusAsync() => control.FocusAsync();
+
+    private void Open()
+    {
+        if (Disabled) return;
+        open = true;
+        filterActive = false;
+        filteredItems = Items;
+    }
+
+    private void Toggle()
+    {
+        if (open) Close();
+        else Open();
+    }
+
+    private void Close()
+    {
+        open = false;
+        filterActive = false;
+        query = SelectedItem is string selected ? ItemLabel(selected) : string.Empty;
+    }
+
+    private async Task SearchAsync(ChangeEventArgs args)
+    {
+        query = args.Value?.ToString() ?? string.Empty;
+        filterActive = true;
+        open = true;
+        filteredItems = Filter(query);
+        if (!string.IsNullOrEmpty(Value)) await ValueChanged.InvokeAsync(string.Empty);
+    }
+
+    private IReadOnlyList<string> Filter(string value)
+    {
+        var search = value.Trim();
+        if (string.IsNullOrWhiteSpace(search)) return Items;
+
+        return Items
+            .Where(item => item.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || ItemLabel(item).Contains(search, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => ItemLabel(item).StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(ItemLabel, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            Close();
+        }
+        else if (Searchable && args.Key == "Enter" && filteredItems.Count == 1)
+        {
+            await SelectAsync(filteredItems[0]);
+        }
+    }
+
+    private async Task SelectAsync(string item)
+    {
+        query = ItemLabel(item);
+        filterActive = false;
+        open = false;
+        await ValueChanged.InvokeAsync(item);
+    }
+
+    private bool IsSelected(string item) => string.Equals(item, Value, StringComparison.Ordinal);
+}

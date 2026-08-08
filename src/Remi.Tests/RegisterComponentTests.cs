@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Remi.Application;
 using Remi.Domain;
 using Remi.Web;
+using ClipboardImageEvidenceComponent = Remi.Web.Components.ClipboardImageEvidence;
 using ContractRecordView = Remi.Web.Components.ContractRecordView;
 using ContractRegistrationPage = Remi.Web.Components.Pages.ContractRegistration;
 using Remi.Web.Components.Layout;
@@ -22,6 +23,16 @@ public sealed class RegisterComponentTests
     private static readonly Guid SampleContractId = Guid.Parse("405b5dd4-0b92-4576-99a9-d2cc7851a2b5");
     private static readonly Guid SampleVasContractId = Guid.Parse("9f2dc10e-9554-47d0-8870-8dbb6bb94e4a");
     private static readonly Guid SampleInvoiceId = Guid.Parse("d461989e-a1e8-4450-a371-31f7f1028df1");
+    private static readonly IReadOnlyList<CustomerUrnSuggestion> CustomerDirectoryEntries =
+    [
+        new("10000001", "Example Borough Council", "Civic Centre, Market Street, Exampleton, EX1 1AA"),
+        new("10000002", "Example City Council", "City Hall, High Street, Exampleton, EX2 2BB"),
+        new("10000003", "Example County Council", "County Hall, Station Road, Exampleton, EX3 3CC"),
+        new("10000004", "North Example Council", "Council House, North Road, Exampleton, EX4 4DD"),
+        new("10000005", "South Example Council", "Municipal Offices, South Road, Exampleton, EX5 5EE"),
+        new("10000006", "East Example Council", "Town Hall, East Road, Exampleton, EX6 6FF"),
+        new("10000007", "West Example Council", "Guildhall, West Road, Exampleton, EX7 7GG"),
+    ];
 
     [Fact]
     public void Header_carries_the_current_reporting_period_without_rendering_a_selector()
@@ -49,30 +60,28 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
-    public void Contract_register_shows_selection_controls_only_when_a_record_is_selected()
+    public void Registers_are_direct_navigation_lists_without_selection_controls()
     {
         using var context = CreateContext();
 
-        var cut = context.Render<ContractsRegister>();
-
-        cut.WaitForAssertion(() => Assert.Contains("Select contracts to review them together.", cut.Markup));
-        Assert.DoesNotContain("Selected contracts", cut.Markup);
-
-        cut.Find("input[aria-label='Select RM-001']").Change(true);
-
-        cut.WaitForAssertion(() =>
+        var contracts = context.Render<ContractsRegister>();
+        contracts.WaitForAssertion(() =>
         {
-            Assert.Contains("Selected contracts", cut.Markup);
-            Assert.Contains("1 selected", cut.Markup);
-            Assert.Contains("Review", cut.Markup);
+            Assert.Single(contracts.FindAll(".contract-register-table tbody tr"));
+            Assert.Empty(contracts.FindAll(".contract-register-table input[type='checkbox']"));
+            Assert.Empty(contracts.FindAll(".register-table-toolbar, .register-selection-bar, .register-selection-drawer"));
+            Assert.DoesNotContain(contracts.FindAll(".quick-filter"), button => button.TextContent.Trim() == "Selected");
+            Assert.Equal(4, contracts.FindAll(".register-filters .floating-field").Count);
         });
 
-        cut.Find("button.clear-selection").Click();
-
-        cut.WaitForAssertion(() =>
+        var invoices = context.Render<InvoicesRegister>();
+        invoices.WaitForAssertion(() =>
         {
-            Assert.Contains("Select contracts to review them together.", cut.Markup);
-            Assert.DoesNotContain("Selected contracts", cut.Markup);
+            Assert.Single(invoices.FindAll(".invoice-register-table tbody tr"));
+            Assert.Empty(invoices.FindAll(".invoice-register-table input[type='checkbox']"));
+            Assert.Empty(invoices.FindAll(".register-table-toolbar, .register-selection-bar, .register-selection-drawer"));
+            Assert.DoesNotContain(invoices.FindAll(".quick-filter"), button => button.TextContent.Trim() == "Selected");
+            Assert.Equal(4, invoices.FindAll(".register-filters .floating-field").Count);
         });
     }
 
@@ -140,6 +149,41 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Invoice_contract_picklist_opens_with_every_item_and_filters_as_the_user_types()
+    {
+        using var context = CreateContext(additionalContracts: 6);
+        var registration = context.Render<InvoiceRegistrationPage>();
+        var picker = registration.Find("input[role='combobox'][aria-label='Contract']");
+
+        picker.Focus();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("true", picker.GetAttribute("aria-expanded"));
+            Assert.Equal(7, registration.FindAll("#contract-suggestions [role='option']").Count);
+        });
+
+        picker.Input("EXTRA-004");
+
+        registration.WaitForAssertion(() =>
+        {
+            var matches = registration.FindAll("#contract-suggestions [role='option']");
+            Assert.Single(matches);
+            Assert.Contains("EXTRA-004", matches[0].TextContent);
+        });
+
+        picker.Input(string.Empty);
+        registration.WaitForAssertion(() => Assert.Equal(7, registration.FindAll("#contract-suggestions [role='option']").Count));
+
+        picker.Blur();
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("false", registration.Find("input[role='combobox'][aria-label='Contract']").GetAttribute("aria-expanded"));
+            Assert.Empty(registration.FindAll("#contract-suggestions"));
+        });
+    }
+
+    [Fact]
     public void G_cloud_invoice_form_cascades_the_service_group_from_the_selected_lot()
     {
         using var context = CreateContext();
@@ -176,9 +220,12 @@ public sealed class RegisterComponentTests
         using var context = CreateContext();
         var registration = context.Render<ContractRegistrationPage>();
 
-        var framework = registration.Find("select[aria-label='Framework']");
-        Assert.Equal(["", "GCloud14", "VerticalApplicationSolutions"], framework.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
-        framework.Change(FrameworkCode.GCloud14.ToString());
+        var framework = registration.Find("button[role='combobox'][aria-label='Framework']");
+        framework.Click();
+        Assert.Equal(
+            ["G-Cloud 14 (RM1557.14)", "Vertical Application Solutions (RM6259)"],
+            registration.FindAll("#framework-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
 
         registration.WaitForAssertion(() =>
         {
@@ -199,20 +246,188 @@ public sealed class RegisterComponentTests
             Assert.Equal(
                 ["Lot number", "Service Group", "Digital Marketplace Service ID"],
                 serviceSection.QuerySelectorAll(".floating-label").Select(label => label.TextContent.Trim()).ToList());
-            Assert.True(serviceSection.QuerySelector("select[aria-label='Service Group']")!.HasAttribute("disabled"));
-            Assert.Equal("digital-marketplace-service-suggestions", serviceSection.QuerySelector("input[list]")!.GetAttribute("list"));
-            Assert.Equal(
-                ["115981361947474"],
-                registration.FindAll("#digital-marketplace-service-suggestions option").Select(option => option.GetAttribute("value")).ToList());
+            Assert.True(serviceSection.QuerySelector("input[aria-label='Service Group']")!.HasAttribute("disabled"));
+            var servicePicker = serviceSection.QuerySelector("input[role='combobox'][aria-label='Digital Marketplace Service ID']")!;
+            Assert.Equal("marketplace-service-suggestions", servicePicker.GetAttribute("aria-controls"));
+            Assert.Null(servicePicker.GetAttribute("list"));
+            Assert.Empty(registration.FindAll("select"));
         });
 
-        registration.Find("select[aria-label='Lot number']").Change("2");
+        registration.Find("input[aria-label='Digital Marketplace Service ID']").Focus();
+        registration.WaitForAssertion(() =>
+        {
+            var option = registration.Find("#marketplace-service-suggestions [role='option']");
+            Assert.Contains("115981361947474", option.TextContent);
+            Assert.Contains("StatMap Cluster", option.TextContent);
+        });
+
+        registration.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        registration.FindAll("#lot-number-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "2").Click();
+
+        var serviceGroup = registration.Find("input[role='combobox'][aria-label='Service Group']");
+        Assert.False(serviceGroup.HasAttribute("disabled"));
+        serviceGroup.Focus();
+        registration.WaitForAssertion(() => Assert.Contains("Information and Communication Technology (ICT)", registration.Find("#service-group-picklist-options").TextContent));
+    }
+
+    [Fact]
+    public void Contract_registration_uses_one_compact_context_and_validates_when_save_is_requested()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+
+        Assert.Empty(registration.FindAll(".invoice-intake-header .invoice-command"));
+        Assert.Empty(registration.FindAll(".invoice-contract-section h2"));
+        Assert.Empty(registration.FindAll(".clipboard-image-panel > header"));
+        Assert.Equal("Supporting documents", registration.Find(".clipboard-document-dropzone strong").TextContent.Trim());
+        Assert.Contains("choose a file or photo", registration.Find(".clipboard-document-dropzone").TextContent);
+
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
 
         registration.WaitForAssertion(() =>
         {
-            var serviceGroup = registration.Find("select[aria-label='Service Group']");
-            Assert.False(serviceGroup.HasAttribute("disabled"));
-            Assert.Contains("Information and Communication Technology (ICT)", serviceGroup.QuerySelectorAll("option").Select(option => option.TextContent.Trim()));
+            Assert.Empty(registration.FindAll(".contract-framework-summary"));
+            Assert.False(registration.Find("button.invoice-command-save").HasAttribute("disabled"));
+        });
+
+        registration.Find("button.invoice-command-save").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Contains("Complete the highlighted fields", registration.Find(".contract-registration-validation").TextContent);
+            Assert.Equal(8, registration.FindAll("[aria-invalid='true']").Count);
+            Assert.Equal(8, registration.FindAll(".field-validation-message").Count);
+            Assert.Equal("Enter the supplier reference number.", registration.Find("#supplier-reference-error").TextContent.Trim());
+        });
+    }
+
+    [Fact]
+    public void Contract_registration_replaces_long_native_lists_with_searchable_Remi_picklists()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
+
+        var reportingMonth = registration.Find("input[role='combobox'][aria-label='Reporting month']");
+        reportingMonth.Focus();
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal(61, registration.FindAll("#reporting-month-picklist-options [role='option']").Count);
+            Assert.Equal("true", registration.Find("#reporting-month-picklist-options").GetAttribute("data-scroll-selected"));
+            Assert.Single(registration.FindAll("#reporting-month-picklist-options [aria-selected='true']"));
+            Assert.Empty(registration.FindAll("#lot-number-picklist-options"));
+        });
+
+        reportingMonth.Input("February 2025");
+        registration.WaitForAssertion(() =>
+        {
+            var option = registration.Find("#reporting-month-picklist-options [role='option']");
+            Assert.Equal("February 2025", option.TextContent.Trim());
+        });
+        registration.Find("#reporting-month-picklist-options [role='option']").Click();
+        registration.WaitForAssertion(() => Assert.Equal("February 2025", registration.Find("input[aria-label='Reporting month']").GetAttribute("value")));
+
+        registration.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        registration.FindAll("#lot-number-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "2").Click();
+
+        var serviceGroup = registration.Find("input[role='combobox'][aria-label='Service Group']");
+        serviceGroup.Input("Information and Communication Technology");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("#service-group-picklist-options [role='option']")));
+        registration.Find("#service-group-picklist-options [role='option']").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("Information and Communication Technology (ICT)", registration.Find("input[aria-label='Service Group']").GetAttribute("value"));
+            Assert.Empty(registration.FindAll("select"));
+        });
+    }
+
+    [Fact]
+    public void Contract_registration_links_both_customer_fields_to_the_full_Gca_directory_and_shows_the_selected_address()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
+
+        var customerName = registration.Find("input[role='combobox'][aria-label='Customer organisation name']");
+        customerName.Focus();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("true", customerName.GetAttribute("aria-expanded"));
+            Assert.Equal(7, registration.FindAll("#customer-name-suggestions [role='option']").Count);
+            Assert.Empty(registration.FindAll("#lot-number-picklist-options"));
+        });
+
+        customerName.Blur();
+        registration.WaitForAssertion(() => Assert.Empty(registration.FindAll("#customer-name-suggestions")));
+        customerName.Focus();
+
+        customerName.Input("Example City");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("#customer-name-suggestions [role='option']")));
+        registration.Find("#customer-name-suggestions [role='option']").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("Example City Council", registration.Find("input[aria-label='Customer organisation name']").GetAttribute("value"));
+            Assert.Equal("10000002", registration.Find("input[aria-label='Customer Unique Reference Number (URN)']").GetAttribute("value"));
+            Assert.Contains("City Hall, High Street, Exampleton, EX2 2BB", registration.Find(".customer-address-verification").TextContent);
+        });
+
+        var customerUrn = registration.Find("input[role='combobox'][aria-label='Customer Unique Reference Number (URN)']");
+        customerUrn.Input("10000001");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("#customer-urn-suggestions [role='option']")));
+        registration.Find("#customer-urn-suggestions [role='option']").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal("Example Borough Council", registration.Find("input[aria-label='Customer organisation name']").GetAttribute("value"));
+            Assert.Contains("Civic Centre, Market Street, Exampleton, EX1 1AA", registration.Find(".customer-address-verification").TextContent);
+        });
+    }
+
+    [Fact]
+    public void Marketplace_service_picklist_opens_with_every_service_and_filters_by_id_or_name()
+    {
+        using var context = CreateContext(additionalMarketplaceServices: 6);
+        var registration = context.Render<ContractRegistrationPage>();
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
+        var picker = registration.Find("input[role='combobox'][aria-label='Digital Marketplace Service ID']");
+
+        picker.Focus();
+        registration.WaitForAssertion(() => Assert.Equal(7, registration.FindAll("#marketplace-service-suggestions [role='option']").Count));
+
+        picker.Input("Picklist service 004");
+        registration.WaitForAssertion(() =>
+        {
+            var option = registration.Find("#marketplace-service-suggestions [role='option']");
+            Assert.Contains("SERVICE-004", option.TextContent);
+        });
+
+        picker.Blur();
+        registration.WaitForAssertion(() => Assert.Empty(registration.FindAll("#marketplace-service-suggestions")));
+    }
+
+    [Fact]
+    public async Task Contract_registration_document_cards_use_an_accessible_icon_remove_action()
+    {
+        using var context = CreateContext();
+        var registration = context.Render<ContractRegistrationPage>();
+        var evidence = registration.FindComponent<ClipboardImageEvidenceComponent>();
+
+        await evidence.InvokeAsync(() => evidence.Instance.DocumentAdded("contract-file", "signed-contract.pdf", "application/pdf", 128, null));
+
+        registration.WaitForAssertion(() =>
+        {
+            var remove = registration.Find(".clipboard-document-item .clipboard-document-remove");
+            Assert.Equal("×", remove.TextContent.Trim());
+            Assert.Equal("Remove signed-contract.pdf", remove.GetAttribute("aria-label"));
+            Assert.Equal("Remove document", remove.GetAttribute("title"));
         });
     }
 
@@ -222,7 +437,8 @@ public sealed class RegisterComponentTests
         using var context = CreateContext();
         var registration = context.Render<ContractRegistrationPage>();
 
-        registration.Find("select[aria-label='Framework']").Change(FrameworkCode.VerticalApplicationSolutions.ToString());
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("Vertical Application Solutions")).Click();
 
         registration.WaitForAssertion(() =>
         {
@@ -238,10 +454,13 @@ public sealed class RegisterComponentTests
             Assert.Contains("Total Contract Value", labels);
             Assert.DoesNotContain("Service Group", labels);
             Assert.DoesNotContain("Digital Marketplace Service ID", labels);
-            Assert.Equal(
-                ["", "Direct Award", "Further Competition"],
-                registration.Find("select[aria-label='Order Channel']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+            Assert.Empty(registration.FindAll("select"));
         });
+
+        registration.Find("button[role='combobox'][aria-label='Order Channel']").Click();
+        Assert.Equal(
+            ["Direct Award", "Further Competition"],
+            registration.FindAll("#order-channel-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
     [Fact]
@@ -357,7 +576,7 @@ public sealed class RegisterComponentTests
         {
             var dashboardHeader = cut.Find(".dashboard-header");
             Assert.Null(dashboardHeader.QuerySelector(".eyebrow"));
-            Assert.Equal("Prepare →", dashboardHeader.QuerySelector("a.remi-action--primary")?.TextContent.Trim());
+            Assert.Equal("Prepare", dashboardHeader.QuerySelector("a.remi-action--primary")?.TextContent.Trim());
 
             var readinessHeader = cut.Find(".dashboard-readiness .dashboard-section-heading");
             Assert.Equal("Return readiness", readinessHeader.QuerySelector("h2")?.TextContent.Trim());
@@ -368,14 +587,14 @@ public sealed class RegisterComponentTests
 
             var activityHeader = cut.Find(".dashboard-activity .dashboard-section-heading");
             Assert.Equal("Recent activity", activityHeader.QuerySelector("h2")?.TextContent.Trim());
-            Assert.Equal("View →", activityHeader.QuerySelector("a.remi-action--section")?.TextContent.Trim());
+            Assert.Equal("View", activityHeader.QuerySelector("a.remi-action--section")?.TextContent.Trim());
 
             var tableHeaders = cut.FindAll(".dashboard-table th").Select(header => header.TextContent.Trim()).ToList();
             Assert.Equal(["Framework", "Contracts", "Invoices", "Readiness", "Action"], tableHeaders);
             Assert.All(cut.FindAll(".dashboard-row-action"), action =>
                 Assert.Matches("^/reports/\\d+/2026-07\\?period=2026-07$", action.GetAttribute("href")));
             Assert.All(cut.FindAll(".dashboard-table td.table-action-cell"), cell =>
-                Assert.Contains("→", cell.TextContent));
+                Assert.DoesNotContain("→", cell.TextContent));
         });
     }
 
@@ -412,7 +631,8 @@ public sealed class RegisterComponentTests
                 "Example customer · G-Cloud 14",
                 heading.QuerySelector(".contract-hero-context")!.TextContent.Trim());
             Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim());
-            Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
+            Assert.Equal(4, cut.FindAll(".record-display-grid").Count);
+            Assert.Contains("Operational delivery", cut.Markup);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
             var serviceSection = cut.FindAll(".contract-detail-section").Single(section => section.QuerySelector("h3")?.TextContent.Contains("Service classification") == true);
             Assert.Equal(
@@ -432,8 +652,40 @@ public sealed class RegisterComponentTests
             Assert.False(actions.QuerySelector("button.primary")!.HasAttribute("disabled"));
             Assert.Empty(cut.FindAll(".record-display-grid"));
             Assert.Equal(11, cut.FindAll(".contract-edit-panel .floating-field").Count);
-            Assert.Equal("digital-marketplace-service-suggestions", cut.Find(".contract-edit-panel input[list]").GetAttribute("list"));
-            Assert.Equal("115981361947474", cut.Find("#digital-marketplace-service-suggestions option").GetAttribute("value"));
+            var servicePicker = cut.Find(".contract-edit-panel input[role='combobox'][aria-label='Digital Marketplace Service ID']");
+            Assert.Equal("edit-marketplace-service-suggestions", servicePicker.GetAttribute("aria-controls"));
+            Assert.Null(servicePicker.GetAttribute("list"));
+        });
+
+        cut.Find(".contract-edit-panel input[aria-label='Digital Marketplace Service ID']").Focus();
+        cut.WaitForAssertion(() => Assert.Contains("115981361947474", cut.Find("#edit-marketplace-service-suggestions [role='option']").TextContent));
+    }
+
+    [Fact]
+    public void Contract_editing_uses_the_same_linked_Gca_customer_picker_as_registration()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+        cut.WaitForAssertion(() => Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim()));
+        cut.Find(".contract-hero-actions button.secondary").Click();
+
+        var customerName = cut.Find(".contract-edit-panel input[role='combobox'][aria-label='Customer organisation name']");
+        customerName.Focus();
+        cut.WaitForAssertion(() => Assert.Equal(7, cut.FindAll("#edit-customer-name-suggestions [role='option']").Count));
+
+        customerName.Blur();
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("#edit-customer-name-suggestions")));
+        customerName.Focus();
+
+        customerName.Input("Example County");
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("#edit-customer-name-suggestions [role='option']")));
+        cut.Find("#edit-customer-name-suggestions [role='option']").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Example County Council", cut.Find(".contract-edit-panel input[aria-label='Customer organisation name']").GetAttribute("value"));
+            Assert.Equal("10000003", cut.Find(".contract-edit-panel input[aria-label='Customer Unique Reference Number (URN)']").GetAttribute("value"));
+            Assert.Contains("County Hall, Station Road, Exampleton, EX3 3CC", cut.Find(".contract-edit-panel .customer-address-verification").TextContent);
         });
     }
 
@@ -493,15 +745,24 @@ public sealed class RegisterComponentTests
         {
             Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
+            Assert.Empty(cut.FindAll(".invoice-record .contract-breadcrumbs"));
+            Assert.Empty(cut.FindAll(".invoice-record .contract-hero-actions button"));
+            Assert.Equal("Back", cut.Find(".invoice-record .contract-hero-actions a").TextContent.Trim());
+            Assert.Equal("Edit", cut.Find(".invoice-overview-actions button.secondary").TextContent.Trim());
+            Assert.DoesNotContain("View →", cut.Markup);
+            Assert.DoesNotContain("Back ←", cut.Markup);
         });
 
-        cut.Find(".contract-hero-actions button.secondary").Click();
+        cut.Find(".invoice-overview-actions button.secondary").Click();
 
         cut.WaitForAssertion(() =>
         {
             Assert.Empty(cut.FindAll(".record-display-grid"));
             Assert.Equal(19, cut.FindAll(".contract-edit-panel .floating-field").Count);
-            Assert.Equal(["Save", "Cancel"], cut.Find(".contract-hero-actions").QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
+            Assert.Equal(["Cancel", "Save"], cut.Find(".contract-edit-panel .invoice-overview-actions").QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
+            Assert.Single(cut.FindAll(".invoice-edit-evidence-layout .clipboard-document-dropzone input[accept*='image']"));
+            Assert.Equal("LABEL", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TagName);
+            Assert.Contains("press Ctrl+V to paste an image", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TextContent);
         });
     }
 
@@ -514,12 +775,12 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() => Assert.Single(cut.FindAll(".invoice-register-table tbody tr")));
         var row = cut.Find(".invoice-register-table tbody tr");
 
-        Assert.Equal("Invoice designation ↓", cut.FindAll(".invoice-register-table th")[1].TextContent.Trim());
+        Assert.Equal("Invoice designation ↓", cut.FindAll(".invoice-register-table th")[0].TextContent.Trim());
         Assert.Null(row.GetAttribute("tabindex"));
         Assert.Single(row.QuerySelectorAll("a.register-reference"));
         Assert.Empty(row.QuerySelectorAll(".table-action-cell"));
         Assert.Empty(row.QuerySelectorAll(".remi-action"));
-        Assert.Equal("Check ↕", cut.FindAll(".invoice-register-table th")[6].TextContent.Trim());
+        Assert.Equal("Check ↕", cut.FindAll(".invoice-register-table th")[5].TextContent.Trim());
         Assert.DoesNotContain("checks passed", cut.Markup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("checks passed", row.TextContent, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RM6259", row.TextContent);
@@ -546,6 +807,29 @@ public sealed class RegisterComponentTests
             Assert.Contains("Generated files", workspace.Markup);
             Assert.DoesNotContain("Monthly MI workbook", workspace.Markup);
             Assert.Empty(workspace.FindAll("input[type='file']"));
+        });
+    }
+
+    [Fact]
+    public void Payment_schedule_editing_replaces_the_read_only_table_with_a_compact_grid()
+    {
+        using var context = CreateContext(includePaymentSchedule: true);
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() =>
+        {
+            var scheduleSection = cut.FindAll(".contract-detail-section").Single(section => section.QuerySelector("h3")?.TextContent.Trim() == "Payment schedule");
+            scheduleSection.QuerySelector(".contract-section-actions button")!.Click();
+        });
+
+        cut.WaitForAssertion(() =>
+        {
+            var scheduleSection = cut.FindAll(".contract-detail-section").Single(section => section.QuerySelector("h3")?.TextContent.Trim() == "Payment schedule");
+            Assert.Empty(scheduleSection.QuerySelectorAll(".table-wrap"));
+            Assert.Equal(["Year", "Description", "Expected date", "Value, ex VAT", "Optional"], scheduleSection.QuerySelectorAll(".payment-schedule-heading span").Take(5).Select(item => item.TextContent.Trim()));
+            Assert.Equal(2, scheduleSection.QuerySelectorAll(".payment-position-row").Length);
+            Assert.Equal(2, scheduleSection.QuerySelectorAll(".payment-position-remove").Length);
+            Assert.Equal(["Add", "Save", "Cancel"], scheduleSection.QuerySelectorAll(".contract-section-actions button").Select(button => button.TextContent.Trim()));
         });
     }
 
@@ -626,7 +910,11 @@ public sealed class RegisterComponentTests
         });
     }
 
-    private static BunitContext CreateContext(FrameworkCode? additionalFramework = null)
+    private static BunitContext CreateContext(
+        FrameworkCode? additionalFramework = null,
+        bool includePaymentSchedule = false,
+        int additionalContracts = 0,
+        int additionalMarketplaceServices = 0)
     {
         var database = new RemiDatabase
         {
@@ -679,6 +967,33 @@ public sealed class RegisterComponentTests
                     DateTimeOffset.UtcNow),
             ],
         };
+        for (var index = 1; index <= additionalContracts; index++)
+        {
+            database.Contracts.Add(new ContractRecord(
+                Guid.NewGuid(),
+                FrameworkCode.GCloud14,
+                $"EXTRA-{index:000}",
+                $"Picklist customer {index:000}",
+                $"URN-EXTRA-{index:000}",
+                new DateOnly(2026, 1, 1),
+                new DateOnly(2026, 12, 31),
+                "2",
+                "Information and Communication Technology (ICT)",
+                null,
+                null,
+                null,
+                $"SERVICE-{index:000}",
+                1000 + index,
+                "2026-07",
+                $"extra-{index:000}.xlsx",
+                DateTimeOffset.UtcNow));
+        }
+        for (var index = 1; index <= additionalMarketplaceServices; index++)
+        {
+            database.DigitalMarketplaceServices.Add(new DigitalMarketplaceService(
+                $"SERVICE-{index:000}",
+                $"Picklist service {index:000}"));
+        }
         if (additionalFramework == FrameworkCode.VerticalApplicationSolutions)
         {
             database.Contracts.Add(new ContractRecord(
@@ -700,12 +1015,49 @@ public sealed class RegisterComponentTests
                 "test.xlsx",
                 DateTimeOffset.UtcNow));
         }
+        if (includePaymentSchedule)
+        {
+            database.ChargeScheduleItems.AddRange(
+            [
+                new ChargeScheduleItem(Guid.NewGuid(), SampleContractId, null, 1, "Annual licence and maintenance", new DateOnly(2026, 1, 1), 32910, false, DateTimeOffset.UtcNow),
+                new ChargeScheduleItem(Guid.NewGuid(), SampleContractId, null, 2, "Annual licence and maintenance", new DateOnly(2027, 1, 1), 30683.40m, true, DateTimeOffset.UtcNow),
+            ]);
+        }
         var reportingPeriod = new ReportingPeriodContext(TimeProvider.System);
         reportingPeriod.Synchronise(["2026-07"], "2026-07");
         var context = new BunitContext();
         context.Services.AddSingleton(reportingPeriod);
-        context.Services.AddSingleton(new ReportingWorkspace(new InMemoryStore(database), null!, null!, null!, null!, TimeProvider.System));
+        context.Services.AddSingleton(new ReportingWorkspace(
+            new InMemoryStore(database),
+            null!,
+            null!,
+            null!,
+            new InMemoryCustomerUrnDirectory(CustomerDirectoryEntries),
+            TimeProvider.System));
         return context;
+    }
+
+    private sealed class InMemoryCustomerUrnDirectory(IReadOnlyList<CustomerUrnSuggestion> entries) : ICustomerUrnDirectory
+    {
+        public Task<CustomerUrnDirectoryStatus?> GetStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<CustomerUrnDirectoryStatus?>(null);
+
+        public Task<IReadOnlyList<CustomerUrnSuggestion>> GetAllAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(entries);
+
+        public Task<IReadOnlyList<CustomerUrnSuggestion>> SearchAsync(
+            string query,
+            int maximumResults = 8,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CustomerUrnSuggestion>>(entries
+                .Where(item => item.OrganisationName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || item.Urn.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || (item.Address?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+                .Take(maximumResults)
+                .ToList());
+
+        public Task<CustomerUrnDirectoryRefresh> RefreshAsync(Guid evidenceId, CancellationToken cancellationToken = default) =>
+            Task.FromException<CustomerUrnDirectoryRefresh>(new NotSupportedException());
     }
 
     private sealed class InMemoryStore(RemiDatabase database) : IRemiStore

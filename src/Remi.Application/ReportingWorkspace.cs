@@ -138,6 +138,10 @@ public sealed class ReportingWorkspace(
         CancellationToken cancellationToken = default) =>
         customerUrnDirectory.GetStatusAsync(cancellationToken);
 
+    public Task<IReadOnlyList<CustomerUrnSuggestion>> GetCustomerUrnDirectoryEntriesAsync(
+        CancellationToken cancellationToken = default) =>
+        customerUrnDirectory.GetAllAsync(cancellationToken);
+
     public Task<IReadOnlyList<CustomerUrnSuggestion>> SearchCustomerUrnsAsync(
         string query,
         CancellationToken cancellationToken = default) =>
@@ -198,6 +202,11 @@ public sealed class ReportingWorkspace(
                 .ThenByDescending(item => item.ValueExVat)
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            var serviceParts = database.ContractServiceParts
+                .Where(item => item.ContractId == contract.Id)
+                .OrderBy(item => item.SortOrder)
+                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var changes = database.ContractChanges
                 .Where(item => item.ContractId == contract.Id)
                 .OrderBy(item => item.AgreementDate)
@@ -208,7 +217,7 @@ public sealed class ReportingWorkspace(
                     (item.EntityType == "ChargeSchedule" && database.ChargeScheduleItems.Any(schedule => schedule.Id == item.EntityId && schedule.ContractId == contract.Id)) ||
                     (item.EntityType == "ContractChange" && changes.Any(change => change.Id == item.EntityId)))
                 .ToList();
-            return new ContractDetailsModel(contract, invoices, chargeSchedule, changes, EvidenceForContract(database, contract), findings);
+            return new ContractDetailsModel(contract, invoices, chargeSchedule, serviceParts, changes, EvidenceForContract(database, contract), findings);
         }, cancellationToken);
 
     public Task<InvoiceDetailsModel?> GetInvoiceDetailsAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
@@ -473,7 +482,7 @@ public sealed class ReportingWorkspace(
                     continue;
                 }
 
-                database.Contracts.Add(new ContractRecord(
+                var importedContract = new ContractRecord(
                     Guid.NewGuid(),
                     framework,
                     contract.SupplierReference,
@@ -490,8 +499,10 @@ public sealed class ReportingWorkspace(
                     contract.TotalContractValueExVat,
                     reportingMonth,
                     imported.WorkbookName,
-                    now));
-                RecordAudit(database, now, "ContractImported", "Contract", database.Contracts[^1].Id, $"Imported contract {contract.SupplierReference} from {workbookName}.", null);
+                    now);
+                database.Contracts.Add(importedContract);
+                EnsureDefaultContractServicePart(database, importedContract, now);
+                RecordAudit(database, now, "ContractImported", "Contract", importedContract.Id, $"Imported contract {contract.SupplierReference} from {workbookName}.", null);
                 newContracts++;
             }
 
@@ -754,6 +765,7 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The contract was not added. Resolve the highlighted fields first.", errors);
             }
 
+            EnsureDefaultContractServicePart(database, record, now);
             RecordAudit(database, now, "ContractCreated", "Contract", record.Id, $"Created contract {record.SupplierReference} for {record.CustomerName}.", null, actor);
             if (entry.PaymentPlan is { } paymentPlan)
             {
@@ -821,6 +833,7 @@ public sealed class ReportingWorkspace(
                         $"MI Reporting Ledger.xlsx ({entry.SheetName}!{entry.CellAddress})",
                         now);
                     database.Contracts.Add(contract);
+                    EnsureDefaultContractServicePart(database, contract, now);
                     created++;
                     RecordAudit(database, now, "ContractMigratedFromLedger", "Contract", contract.Id, $"Created contract {contract.SupplierReference} from MI Reporting Ledger.xlsx ({entry.SheetName}!{entry.CellAddress}).", null, actor);
                 }
@@ -1218,11 +1231,16 @@ public sealed class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
+            if (entry.ContractServicePartId is Guid partId && !database.ContractServiceParts.Any(part => part.Id == partId && part.ContractId == entry.ContractId))
+            {
+                return new ReturnActionResult(false, "The selected contract part no longer exists.", []);
+            }
 
             var now = timeProvider.GetUtcNow();
             var item = new ChargeScheduleItem(
                 Guid.NewGuid(),
                 entry.ContractId,
+                entry.ContractServicePartId,
                 entry.ContractYear,
                 entry.Description.Trim(),
                 entry.ExpectedInvoiceDate,
@@ -1254,6 +1272,10 @@ public sealed class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "The selected payment position no longer exists.", []);
             }
+            if (entry.ContractServicePartId is Guid partId && !database.ContractServiceParts.Any(part => part.Id == partId && part.ContractId == entry.ContractId))
+            {
+                return new ReturnActionResult(false, "The selected contract part no longer exists.", []);
+            }
 
             var updated = existing with
             {
@@ -1262,6 +1284,7 @@ public sealed class ReportingWorkspace(
                 ExpectedInvoiceDate = entry.ExpectedInvoiceDate,
                 ValueExVat = entry.ValueExVat,
                 IsOptionalExtension = entry.IsOptionalExtension,
+                ContractServicePartId = entry.ContractServicePartId,
             };
             var index = database.ChargeScheduleItems.IndexOf(existing);
             database.ChargeScheduleItems[index] = updated;
@@ -1274,6 +1297,130 @@ public sealed class ReportingWorkspace(
 
             RecordAudit(database, timeProvider.GetUtcNow(), "ChargeScheduleUpdated", "ChargeSchedule", scheduleItemId, $"Updated contract-year {updated.ContractYear} charge: {updated.Description}.", null, actor);
             return new ReturnActionResult(true, "The payment position has been updated.", []);
+        }, cancellationToken);
+
+    public Task<ReturnActionResult> DeleteChargeScheduleItemAsync(
+        Guid scheduleItemId,
+        Guid contractId,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var existing = database.ChargeScheduleItems.SingleOrDefault(item => item.Id == scheduleItemId);
+            if (existing is null || existing.ContractId != contractId)
+            {
+                return new ReturnActionResult(false, "The selected payment position no longer exists.", []);
+            }
+
+            database.ChargeScheduleItems.Remove(existing);
+            RecordAudit(database, timeProvider.GetUtcNow(), "ChargeScheduleDeleted", "ChargeSchedule", scheduleItemId, $"Removed contract-year {existing.ContractYear} charge: {existing.Description}.", null, actor);
+            return new ReturnActionResult(true, "The payment position has been removed.", []);
+        }, cancellationToken);
+
+    public Task<ContractOperationsUpdateResult> UpdateContractOperationsAsync(
+        Guid contractId,
+        IReadOnlyList<ContractServicePartEntry> entries,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        store.UpdateAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (contract is null)
+            {
+                return new ContractOperationsUpdateResult(false, "The selected contract no longer exists.", [], []);
+            }
+
+            if (entries.Count is < 1 or > 20)
+            {
+                return new ContractOperationsUpdateResult(false, "Keep between one and twenty operational parts for a contract.", [], []);
+            }
+
+            var normalisedEntries = entries
+                .OrderBy(entry => entry.SortOrder)
+                .Select((entry, index) => entry with
+                {
+                    Name = entry.Name.Trim(),
+                    SortOrder = index,
+                })
+                .ToList();
+            if (normalisedEntries.Any(entry => string.IsNullOrWhiteSpace(entry.Name) || entry.Name.Length > 120))
+            {
+                return new ContractOperationsUpdateResult(false, "Each operational part needs a name of no more than 120 characters.", [], []);
+            }
+            if (normalisedEntries.Select(entry => entry.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != normalisedEntries.Count)
+            {
+                return new ContractOperationsUpdateResult(false, "Operational part names must be unique within the contract.", [], []);
+            }
+            if (normalisedEntries.Where(entry => entry.Id is not null).Select(entry => entry.Id).Distinct().Count() != normalisedEntries.Count(entry => entry.Id is not null))
+            {
+                return new ContractOperationsUpdateResult(false, "The same operational part cannot be included twice.", [], []);
+            }
+
+            var existing = database.ContractServiceParts
+                .Where(part => part.ContractId == contractId)
+                .OrderBy(part => part.SortOrder)
+                .ToList();
+            var existingById = existing.ToDictionary(part => part.Id);
+            if (normalisedEntries.Any(entry => entry.Id is Guid id && !existingById.ContainsKey(id)))
+            {
+                return new ContractOperationsUpdateResult(false, "One of the operational parts no longer belongs to this contract.", existing, []);
+            }
+
+            var retainedIds = normalisedEntries
+                .Where(entry => entry.Id is not null)
+                .Select(entry => entry.Id!.Value)
+                .ToHashSet();
+            var removed = existing.Where(part => !retainedIds.Contains(part.Id)).ToList();
+            if (removed.Any(part => database.ChargeScheduleItems.Any(item => item.ContractServicePartId == part.Id)))
+            {
+                return new ContractOperationsUpdateResult(false, "A part linked to a charge cannot be removed. Reassign that charge first.", existing, []);
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var updated = normalisedEntries.Select(entry =>
+            {
+                if (entry.Id is Guid id)
+                {
+                    var original = existingById[id];
+                    return original with
+                    {
+                        Name = entry.Name,
+                        GoLiveDate = entry.GoLiveDate,
+                        SortOrder = entry.SortOrder,
+                    };
+                }
+
+                return new ContractServicePart(
+                    Guid.NewGuid(),
+                    contractId,
+                    entry.Name,
+                    entry.GoLiveDate,
+                    entry.SortOrder,
+                    now);
+            }).ToList();
+            var newlyLiveIds = updated
+                .Where(part => part.GoLiveDate is not null &&
+                    (!existingById.TryGetValue(part.Id, out var prior) || prior.GoLiveDate is null))
+                .Select(part => part.Id)
+                .ToList();
+
+            database.ContractServiceParts.RemoveAll(part => part.ContractId == contractId);
+            database.ContractServiceParts.AddRange(updated);
+            var liveCount = updated.Count(part => part.GoLiveDate is not null);
+            var summary = liveCount switch
+            {
+                0 => $"Recorded {updated.Count} operational part(s); none is live yet.",
+                _ when liveCount == updated.Count => $"Recorded {updated.Count} operational part(s); all are live.",
+                _ => $"Recorded {updated.Count} operational part(s); {liveCount} are live.",
+            };
+            RecordAudit(database, now, "ContractOperationsUpdated", "Contract", contractId, summary, null, actor);
+            foreach (var partId in newlyLiveIds)
+            {
+                var part = updated.Single(item => item.Id == partId);
+                RecordAudit(database, now, "ContractPartWentLive", "Contract", contractId, $"{part.Name} went live on {part.GoLiveDate:dd MMM yyyy}.", null, actor);
+            }
+
+            return new ContractOperationsUpdateResult(true, "The operational delivery record has been updated.", updated, newlyLiveIds);
         }, cancellationToken);
 
     public async Task<IReadOnlyList<ReportingEvidence>> GetReportingEvidenceAsync(
@@ -1583,6 +1730,7 @@ public sealed class ReportingWorkspace(
                 UpdatedAtUtc = now,
             };
             database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = replacement;
+
             RecordAudit(
                 database,
                 now,
@@ -1657,6 +1805,25 @@ public sealed class ReportingWorkspace(
                 UpdatedAtUtc = now,
             };
             database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = replacement;
+
+            if (status == ReturnStatus.Submitted)
+            {
+                var alreadyReported = database.ContractReportingOccurrences
+                    .Select(occurrence => occurrence.ContractId)
+                    .ToHashSet();
+                foreach (var contract in database.Contracts.Where(contract =>
+                    contract.Framework == framework &&
+                    contract.ReportMonth == reportingMonth &&
+                    !alreadyReported.Contains(contract.Id)))
+                {
+                    database.ContractReportingOccurrences.Add(new ContractReportingOccurrence(
+                        Guid.NewGuid(),
+                        contract.Id,
+                        replacement.Id,
+                        reportingMonth,
+                        now));
+                }
+            }
 
             var action = status switch
             {
@@ -2219,6 +2386,7 @@ public sealed class ReportingWorkspace(
             var created = new ChargeScheduleItem(
                 Guid.NewGuid(),
                 contract.Id,
+                null,
                 position.ContractYear,
                 description,
                 null,
@@ -2234,6 +2402,28 @@ public sealed class ReportingWorkspace(
         return new PaymentScheduleUpdate(added, relabelled);
     }
 
+    private static ContractServicePart EnsureDefaultContractServicePart(
+        RemiDatabase database,
+        ContractRecord contract,
+        DateTimeOffset now)
+    {
+        var existing = database.ContractServiceParts
+            .Where(part => part.ContractId == contract.Id)
+            .OrderBy(part => part.SortOrder)
+            .FirstOrDefault();
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var name = NullIfWhiteSpace(contract.ServiceDescription)
+            ?? NullIfWhiteSpace(contract.ServiceGroup)
+            ?? "Whole contract";
+        var created = new ContractServicePart(Guid.NewGuid(), contract.Id, name, null, 0, now);
+        database.ContractServiceParts.Add(created);
+        return created;
+    }
+
     private static void AddManualPaymentScheduleItems(
         RemiDatabase database,
         ContractRecord contract,
@@ -2246,6 +2436,7 @@ public sealed class ReportingWorkspace(
             database.ChargeScheduleItems.Add(new ChargeScheduleItem(
                 Guid.NewGuid(),
                 contract.Id,
+                null,
                 position.ContractYear,
                 $"Year {position.ContractYear} · {term} · {position.Description.Trim()}",
                 null,

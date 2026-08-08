@@ -7,10 +7,11 @@ namespace Remi.Infrastructure;
 
 /// <summary>
 /// Stores the Remi register in SQLite. Every registered record is held in a first-class table;
-/// Remi deliberately does not carry a legacy JSON store or in-place schema upgrade path.
+/// operational schema changes are applied through additive, numbered migrations.
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
+    internal const int CurrentSchemaVersion = 3;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -75,7 +76,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             await DropRemiTablesAsync(connection, cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
             await SeedDigitalMarketplaceServicesAsync(connection, cancellationToken);
-            await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
+            await ApplySchemaMigrationsAsync(connection, existingDatabase: false, cancellationToken);
             initialized = true;
         }
         finally
@@ -104,13 +105,14 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             Directory.CreateDirectory(directory);
 
             await using var connection = await OpenConnectionAsync(cancellationToken);
+            var existingDatabase = await TableExistsAsync(connection, "contracts", cancellationToken);
             var digitalMarketplaceServicesExist = await TableExistsAsync(connection, "digital_marketplace_services", cancellationToken);
             await CreateSchemaAsync(connection, cancellationToken);
             if (!digitalMarketplaceServicesExist)
             {
                 await SeedDigitalMarketplaceServicesAsync(connection, cancellationToken);
             }
-            await EnsureChargeScheduleOptionalExtensionColumnAsync(connection, cancellationToken);
+            await ApplySchemaMigrationsAsync(connection, existingDatabase, cancellationToken);
             initialized = true;
         }
         finally
@@ -229,6 +231,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             CREATE TABLE IF NOT EXISTS charge_schedule_items (
                 id TEXT PRIMARY KEY,
                 contract_id TEXT NOT NULL,
+                contract_service_part_id TEXT NULL,
                 contract_year INTEGER NOT NULL,
                 description TEXT NOT NULL,
                 expected_invoice_date TEXT NULL,
@@ -312,6 +315,15 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
     {
         await ExecuteAsync(connection, null, """
             PRAGMA foreign_keys = OFF;
+            DROP TABLE IF EXISTS mail_events;
+            DROP TABLE IF EXISTS mail_contents;
+            DROP TABLE IF EXISTS mail_recipients;
+            DROP TABLE IF EXISTS mail_messages;
+            DROP TABLE IF EXISTS mail_template_recipients;
+            DROP TABLE IF EXISTS mail_templates;
+            DROP TABLE IF EXISTS mail_scheduler_state;
+            DROP TABLE IF EXISTS contract_reporting_occurrences;
+            DROP TABLE IF EXISTS contract_service_parts;
             DROP TABLE IF EXISTS audit_events;
             DROP TABLE IF EXISTS framework_configurations;
             DROP TABLE IF EXISTS digital_marketplace_services;
@@ -326,6 +338,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DROP TABLE IF EXISTS contracts;
             DROP TABLE IF EXISTS workspace_state;
             DROP TABLE IF EXISTS schema_metadata;
+            DROP TABLE IF EXISTS remi_schema_migrations;
             """, cancellationToken);
     }
 
@@ -338,6 +351,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             InvoiceContractChangeLinks = await LoadInvoiceContractChangeLinksAsync(connection, cancellationToken),
             InvoicePlanItems = await LoadInvoicePlanItemsAsync(connection, cancellationToken),
             ChargeScheduleItems = await LoadChargeScheduleItemsAsync(connection, cancellationToken),
+            ContractServiceParts = await LoadContractServicePartsAsync(connection, cancellationToken),
+            ContractReportingOccurrences = await LoadContractReportingOccurrencesAsync(connection, cancellationToken),
             MonthlyReturns = await LoadMonthlyReturnsAsync(connection, cancellationToken),
             Evidence = await LoadEvidenceAsync(connection, cancellationToken),
             MiTemplates = await LoadTemplatesAsync(connection, cancellationToken),
@@ -523,7 +538,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<ChargeScheduleItem>> LoadChargeScheduleItemsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc FROM charge_schedule_items ORDER BY contract_id, contract_year, expected_invoice_date, id;");
+        await using var command = CreateCommand(connection, "SELECT id, contract_id, contract_service_part_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc FROM charge_schedule_items ORDER BY contract_id, contract_year, expected_invoice_date, id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var items = new List<ChargeScheduleItem>();
         while (await reader.ReadAsync(cancellationToken))
@@ -531,15 +546,53 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             items.Add(new ChargeScheduleItem(
                 Guid.Parse(reader.GetString(0)),
                 Guid.Parse(reader.GetString(1)),
-                reader.GetInt32(2),
-                reader.GetString(3),
-                NullableDate(reader, 4),
-                Number(reader.GetString(5)),
-                reader.GetInt32(6) != 0,
-                Timestamp(reader.GetString(7))));
+                reader.IsDBNull(2) ? null : Guid.Parse(reader.GetString(2)),
+                reader.GetInt32(3),
+                reader.GetString(4),
+                NullableDate(reader, 5),
+                Number(reader.GetString(6)),
+                reader.GetInt32(7) != 0,
+                Timestamp(reader.GetString(8))));
         }
 
         return items;
+    }
+
+    private static async Task<List<ContractServicePart>> LoadContractServicePartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT id, contract_id, name, go_live_date, sort_order, created_at_utc FROM contract_service_parts ORDER BY contract_id, sort_order, id;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var parts = new List<ContractServicePart>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            parts.Add(new ContractServicePart(
+                Guid.Parse(reader.GetString(0)),
+                Guid.Parse(reader.GetString(1)),
+                reader.GetString(2),
+                NullableDate(reader, 3),
+                reader.GetInt32(4),
+                Timestamp(reader.GetString(5))));
+        }
+
+        return parts;
+    }
+
+    private static async Task<List<ContractReportingOccurrence>> LoadContractReportingOccurrencesAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT id, contract_id, monthly_return_id, reporting_month, reported_at_utc FROM contract_reporting_occurrences ORDER BY reported_at_utc, id;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var occurrences = new List<ContractReportingOccurrence>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            occurrences.Add(new ContractReportingOccurrence(
+                Guid.Parse(reader.GetString(0)),
+                Guid.Parse(reader.GetString(1)),
+                Guid.Parse(reader.GetString(2)),
+                reader.GetString(3),
+                Timestamp(reader.GetString(4))));
+        }
+
+        return occurrences;
     }
 
     private static async Task<List<MonthlyReturn>> LoadMonthlyReturnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -659,6 +712,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
     private async Task SaveDatabaseAsync(SqliteConnection connection, SqliteTransaction transaction, RemiDatabase database, CancellationToken cancellationToken)
     {
         await ExecuteAsync(connection, transaction, """
+            DELETE FROM contract_reporting_occurrences;
+            DELETE FROM contract_service_parts;
             DELETE FROM audit_events;
             DELETE FROM framework_configurations;
             DELETE FROM digital_marketplace_services;
@@ -701,6 +756,16 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         foreach (var item in database.ChargeScheduleItems)
         {
             await InsertChargeScheduleItemAsync(connection, transaction, item, cancellationToken);
+        }
+
+        foreach (var part in database.ContractServiceParts)
+        {
+            await InsertContractServicePartAsync(connection, transaction, part, cancellationToken);
+        }
+
+        foreach (var occurrence in database.ContractReportingOccurrences)
+        {
+            await InsertContractReportingOccurrenceAsync(connection, transaction, occurrence, cancellationToken);
         }
 
         foreach (var monthlyReturn in database.MonthlyReturns)
@@ -823,15 +888,39 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertChargeScheduleItemAsync(SqliteConnection connection, SqliteTransaction transaction, ChargeScheduleItem item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO charge_schedule_items (id, contract_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc) VALUES ($id, $contractId, $contractYear, $description, $expectedInvoiceDate, $value, $isOptionalExtension, $createdAtUtc);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO charge_schedule_items (id, contract_id, contract_service_part_id, contract_year, description, expected_invoice_date, value_ex_vat, is_optional_extension, created_at_utc) VALUES ($id, $contractId, $contractServicePartId, $contractYear, $description, $expectedInvoiceDate, $value, $isOptionalExtension, $createdAtUtc);");
         AddParameter(command, "$id", item.Id.ToString("D"));
         AddParameter(command, "$contractId", item.ContractId.ToString("D"));
+        AddParameter(command, "$contractServicePartId", item.ContractServicePartId?.ToString("D"));
         AddParameter(command, "$contractYear", item.ContractYear);
         AddParameter(command, "$description", item.Description);
         AddParameter(command, "$expectedInvoiceDate", Date(item.ExpectedInvoiceDate));
         AddParameter(command, "$value", Number(item.ValueExVat));
         AddParameter(command, "$isOptionalExtension", item.IsOptionalExtension ? 1 : 0);
         AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertContractServicePartAsync(SqliteConnection connection, SqliteTransaction transaction, ContractServicePart item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO contract_service_parts (id, contract_id, name, go_live_date, sort_order, created_at_utc) VALUES ($id, $contractId, $name, $goLiveDate, $sortOrder, $createdAtUtc);");
+        AddParameter(command, "$id", item.Id.ToString("D"));
+        AddParameter(command, "$contractId", item.ContractId.ToString("D"));
+        AddParameter(command, "$name", item.Name);
+        AddParameter(command, "$goLiveDate", Date(item.GoLiveDate));
+        AddParameter(command, "$sortOrder", item.SortOrder);
+        AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertContractReportingOccurrenceAsync(SqliteConnection connection, SqliteTransaction transaction, ContractReportingOccurrence item, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO contract_reporting_occurrences (id, contract_id, monthly_return_id, reporting_month, reported_at_utc) VALUES ($id, $contractId, $monthlyReturnId, $reportingMonth, $reportedAtUtc);");
+        AddParameter(command, "$id", item.Id.ToString("D"));
+        AddParameter(command, "$contractId", item.ContractId.ToString("D"));
+        AddParameter(command, "$monthlyReturnId", item.MonthlyReturnId.ToString("D"));
+        AddParameter(command, "$reportingMonth", item.ReportingMonth);
+        AddParameter(command, "$reportedAtUtc", Timestamp(item.ReportedAtUtc));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -938,31 +1027,289 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         return command;
     }
 
-    /// <summary>
-    /// Adds the optional-extension marker introduced for payment-position presentation. This is a
-    /// narrow, backwards-compatible extension of Remi's current SQLite register rather than an
-    /// upgrade path for legacy prototypes.
-    /// </summary>
-    private static async Task EnsureChargeScheduleOptionalExtensionColumnAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private async Task ApplySchemaMigrationsAsync(
+        SqliteConnection connection,
+        bool existingDatabase,
+        CancellationToken cancellationToken)
     {
-        var exists = false;
+        await ExecuteAsync(connection, null, """
+            CREATE TABLE IF NOT EXISTS remi_schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at_utc TEXT NOT NULL
+            );
+            """, cancellationToken);
+
+        var applied = new HashSet<int>();
+        await using (var command = CreateCommand(connection, "SELECT version FROM remi_schema_migrations ORDER BY version;"))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            await using var command = CreateCommand(connection, "PRAGMA table_info(charge_schedule_items);");
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                if (string.Equals(reader.GetString(1), "is_optional_extension", StringComparison.OrdinalIgnoreCase))
-                {
-                    exists = true;
-                    break;
-                }
+                applied.Add(reader.GetInt32(0));
             }
         }
 
-        if (!exists)
+        if (!applied.Contains(1))
         {
-            await ExecuteAsync(connection, null, "ALTER TABLE charge_schedule_items ADD COLUMN is_optional_extension INTEGER NOT NULL DEFAULT 0;", cancellationToken);
+            await RecordMigrationAsync(connection, null, 1, "Baseline register schema", cancellationToken);
+            applied.Add(1);
         }
+
+        if (!applied.Contains(2))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 2, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            if (!await ColumnExistsAsync(connection, transaction, "charge_schedule_items", "is_optional_extension", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "ALTER TABLE charge_schedule_items ADD COLUMN is_optional_extension INTEGER NOT NULL DEFAULT 0;", cancellationToken);
+            }
+            if (!await ColumnExistsAsync(connection, transaction, "charge_schedule_items", "contract_service_part_id", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "ALTER TABLE charge_schedule_items ADD COLUMN contract_service_part_id TEXT NULL;", cancellationToken);
+            }
+
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE IF NOT EXISTS contract_service_parts (
+                    id TEXT PRIMARY KEY,
+                    contract_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    go_live_date TEXT NULL,
+                    sort_order INTEGER NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_contract_service_parts_contract
+                    ON contract_service_parts (contract_id, sort_order);
+
+                CREATE TABLE IF NOT EXISTS contract_reporting_occurrences (
+                    id TEXT PRIMARY KEY,
+                    contract_id TEXT NOT NULL UNIQUE,
+                    monthly_return_id TEXT NOT NULL,
+                    reporting_month TEXT NOT NULL,
+                    reported_at_utc TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_contract_reporting_occurrences_return
+                    ON contract_reporting_occurrences (monthly_return_id);
+
+                CREATE TABLE IF NOT EXISTS mail_templates (
+                    event_type TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    trigger_mode INTEGER NOT NULL,
+                    subject_template TEXT NOT NULL,
+                    greeting TEXT NOT NULL,
+                    introduction TEXT NOT NULL,
+                    request_text TEXT NOT NULL,
+                    closing TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    schedule_day INTEGER NULL,
+                    schedule_time_local TEXT NULL,
+                    time_zone_id TEXT NULL,
+                    updated_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS mail_template_recipients (
+                    id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    recipient_type INTEGER NOT NULL,
+                    display_name TEXT NULL,
+                    email_address TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_mail_template_recipients_template
+                    ON mail_template_recipients (event_type, recipient_type, sort_order);
+
+                CREATE TABLE IF NOT EXISTS mail_messages (
+                    id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    delivery_key TEXT NOT NULL UNIQUE,
+                    processing_state INTEGER NOT NULL,
+                    delivery_mode INTEGER NOT NULL,
+                    scheduled_for_utc TEXT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    captured_at_utc TEXT NULL,
+                    subject TEXT NOT NULL,
+                    related_entity_type TEXT NULL,
+                    related_entity_id TEXT NULL,
+                    source_period TEXT NULL,
+                    failure_summary TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_mail_messages_created
+                    ON mail_messages (created_at_utc DESC);
+
+                CREATE INDEX IF NOT EXISTS ix_mail_messages_event_period
+                    ON mail_messages (event_type, source_period);
+
+                CREATE TABLE IF NOT EXISTS mail_recipients (
+                    id TEXT PRIMARY KEY,
+                    mail_message_id TEXT NOT NULL,
+                    recipient_type INTEGER NOT NULL,
+                    display_name TEXT NULL,
+                    email_address TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_mail_recipients_message
+                    ON mail_recipients (mail_message_id, recipient_type);
+
+                CREATE TABLE IF NOT EXISTS mail_contents (
+                    id TEXT PRIMARY KEY,
+                    mail_message_id TEXT NOT NULL,
+                    attempt_number INTEGER NOT NULL,
+                    storage_key TEXT NOT NULL UNIQUE,
+                    size_bytes INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    UNIQUE (mail_message_id, attempt_number)
+                );
+
+                CREATE TABLE IF NOT EXISTS mail_events (
+                    id TEXT PRIMARY KEY,
+                    mail_message_id TEXT NOT NULL,
+                    event_type INTEGER NOT NULL,
+                    occurred_at_utc TEXT NOT NULL,
+                    summary TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_mail_events_message
+                    ON mail_events (mail_message_id, occurred_at_utc);
+
+                CREATE TABLE IF NOT EXISTS mail_scheduler_state (
+                    event_type TEXT PRIMARY KEY,
+                    last_evaluated_period TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL
+                );
+                """, cancellationToken);
+
+            await ExecuteAsync(connection, transaction, """
+                INSERT INTO contract_service_parts (id, contract_id, name, go_live_date, sort_order, created_at_utc)
+                SELECT lower(hex(randomblob(16))), contracts.id,
+                       COALESCE(NULLIF(trim(contracts.service_description), ''), 'Whole contract'),
+                       NULL, 0, contracts.created_at_utc
+                FROM contracts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM contract_service_parts parts WHERE parts.contract_id = contracts.id
+                );
+
+                INSERT INTO contract_reporting_occurrences (id, contract_id, monthly_return_id, reporting_month, reported_at_utc)
+                SELECT lower(hex(randomblob(16))), contracts.id, monthly_returns.id, contracts.report_month,
+                       COALESCE(monthly_returns.submitted_at_utc, monthly_returns.updated_at_utc)
+                FROM contracts
+                INNER JOIN monthly_returns
+                    ON monthly_returns.framework = contracts.framework
+                   AND monthly_returns.report_month = contracts.report_month
+                   AND monthly_returns.status = 1
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM contract_reporting_occurrences occurrences
+                    WHERE occurrences.contract_id = contracts.id
+                );
+                """, cancellationToken);
+
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                2,
+                "Operational contract parts and Capture mail foundation",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(2);
+        }
+
+        if (!applied.Contains(3))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 3, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                UPDATE mail_templates
+                SET subject_template = 'Framework MI submission accepted - {{reporting_month}}',
+                    greeting = 'Hi,',
+                    introduction = 'I hope this message finds you well.' || char(10) || char(10) ||
+                        'I''m pleased to inform you that the G-Cloud and VAS monitoring information has been accepted by GCA.',
+                    request_text = 'This month we reported the following values.',
+                    closing = 'This concludes our reporting obligations for this month.',
+                    signature = 'Take care' || char(10) || 'Marcin',
+                    updated_at_utc = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE event_type = 'post-submission-report'
+                  AND introduction = 'The framework MI return has been submitted.'
+                  AND request_text = 'Submission evidence will be included when this event is enabled.';
+                """, cancellationToken);
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                3,
+                "Post-submission evidence mail renderer defaults",
+                cancellationToken);
+            transaction.Commit();
+        }
+    }
+
+    private async Task CreateAutomaticMigrationBackupAsync(
+        SqliteConnection source,
+        int targetVersion,
+        CancellationToken cancellationToken)
+    {
+        var dataDirectory = Path.GetDirectoryName(databasePath)
+            ?? throw new InvalidOperationException("The Remi data path has no parent directory.");
+        var backupDirectory = Path.Combine(dataDirectory, "migration-backups");
+        Directory.CreateDirectory(backupDirectory);
+        var backupPath = Path.Combine(
+            backupDirectory,
+            $"remi-data-before-schema-v{targetVersion}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.db");
+        await using var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = backupPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
+        }.ToString());
+        await destination.OpenAsync(cancellationToken);
+        source.BackupDatabase(destination);
+    }
+
+    private static async Task RecordMigrationAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        int version,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "INSERT INTO remi_schema_migrations (version, name, applied_at_utc) VALUES ($version, $name, $appliedAtUtc);");
+        command.Transaction = transaction;
+        AddParameter(command, "$version", version);
+        AddParameter(command, "$name", name);
+        AddParameter(command, "$appliedAtUtc", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string table,
+        string column,
+        CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, $"PRAGMA table_info(\"{table.Replace("\"", "\"\"", StringComparison.Ordinal)}\");");
+        command.Transaction = transaction;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<bool> TableExistsAsync(SqliteConnection connection, string name, CancellationToken cancellationToken)

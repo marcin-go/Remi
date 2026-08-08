@@ -1,5 +1,6 @@
 @page "/contracts/new"
 @using Remi.Domain
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
@@ -8,11 +9,9 @@
 
 <PageTitle>Remi · Register contract</PageTitle>
 
-<ClipboardImageEvidence @ref="clipboardEvidence" OnDocumentsChanged="SetClipboardImageCount">
 <section class="invoice-intake-page contract-intake-page">
     <header class="invoice-intake-header">
         <div><h1>Register contract</h1><p>Choose a framework and enter the signed contract details.</p></div>
-        <button type="button" class="invoice-command" @onclick="ConfirmCancelAsync">Back <span aria-hidden="true">←</span></button>
     </header>
 
     @if (submission is not null)
@@ -20,134 +19,216 @@
         <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
     }
 
-    <section class="invoice-intake-surface">
-        <section class="invoice-contract-section">
-            <h2>Reporting context</h2>
-            <div class="invoice-details-grid">
-                <label class="floating-field floating-field--static">
-                    <select aria-label="Framework" value="@selectedFramework?.ToString()" @onchange="SelectFramework">
-                        <option value="">Select a framework</option>
-                        @foreach (var definition in availableFrameworks)
-                        {
-                            <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
-                        }
-                    </select>
-                    <span class="floating-label">Framework</span>
-                </label>
-                @if (selectedFramework is not null)
-                {
-                    <label class="floating-field floating-field--static">
-                        <select required @bind="reportingMonth">
-                            @foreach (var month in ReportingMonthOptions)
-                            {
-                                <option value="@month">@DisplayReportingMonth(month)</option>
-                            }
-                        </select>
-                        <span class="floating-label">Reporting month</span>
-                    </label>
-                }
-            </div>
-        </section>
-
-        @if (selectedFramework is FrameworkCode framework)
-        {
-            <section class="invoice-contract-summary contract-framework-summary">
-                <div>
-                    <strong>@Frameworks.Get(framework).DisplayName</strong>
-                    <span>@Frameworks.Get(framework).AgreementNumber</span>
+    <ClipboardImageEvidence @ref="clipboardEvidence"
+                            OnDocumentsChanged="SetClipboardImageCount"
+                            Heading="Supporting documents"
+                            DropZoneTitle="Supporting documents"
+                            EmptyMessage="Add the signed contract, pricing or related files."
+                            LayoutClass="contract-registration-evidence"
+                            ShowHeader="false">
+        <section class="invoice-intake-surface">
+            <section class="invoice-contract-section contract-reporting-context">
+                <div class="invoice-details-grid">
+                    <RemiPicklist @key="FrameworkPickerKey"
+                                  Id="framework-picklist-options"
+                                  Label="Framework"
+                                  Items="@FrameworkOptions"
+                                  Value="@FrameworkValue"
+                                  ValueChanged="@SelectFramework"
+                                  ItemLabel="@DisplayFramework"
+                                  Placeholder="Select a framework"
+                                  Required="true" />
+                    @if (selectedFramework is not null)
+                    {
+                        <div class="registration-field">
+                            <RemiPicklist @key="ReportingMonthPickerKey"
+                                          @ref="reportingMonthField"
+                                          Id="reporting-month-picklist-options"
+                                          Label="Reporting month"
+                                          Items="@ReportingMonthOptions"
+                                          Value="@reportingMonth"
+                                          ValueChanged="@SelectReportingMonth"
+                                          ItemLabel="@DisplayReportingMonth"
+                                          Placeholder="Search month or year"
+                                          EmptyMessage="No matching reporting months."
+                                          Searchable="true"
+                                          Required="true"
+                                          Invalid="@ShowError(ReportingMonthInvalid)"
+                                          DescribedBy="@(ShowError(ReportingMonthInvalid) ? "reporting-month-error" : null)" />
+                            @if (ShowError(ReportingMonthInvalid)) { <span id="reporting-month-error" class="field-validation-message">Choose a valid reporting month.</span> }
+                        </div>
+                    }
                 </div>
             </section>
 
-            <section class="invoice-details-section">
-                <header><h2>Customer and reference</h2></header>
-                <div class="invoice-details-grid">
-                    <label class="floating-field"><input required @bind="supplierReference" @bind:event="oninput" placeholder=" " /><span class="floating-label">@FieldNames.SupplierReferenceNumber</span></label>
-                    <div class="urn-customer-field">
-                        <label class="floating-field"><input required @bind="customerName" @bind:event="oninput" @bind:after="SearchCustomerUrnsAsync" autocomplete="off" aria-autocomplete="list" aria-controls="customer-urn-suggestions" placeholder=" " /><span class="floating-label">@FieldNames.CustomerOrganisationName</span></label>
-                        @if (urnSuggestions.Count != 0)
+            @if (selectedFramework is not null)
+            {
+                @if (validationAttempted && !CanCreate)
+                {
+                    <p class="contract-registration-validation" role="alert">Complete the highlighted fields to save this contract.</p>
+                }
+
+                <section class="invoice-details-section">
+                    <header><h2>Customer and reference</h2></header>
+                    <div class="invoice-details-grid">
+                        <div class="registration-field">
+                            <label class="floating-field"><input required @ref="supplierReferenceField" @bind="supplierReference" @bind:event="oninput" placeholder=" " autocapitalize="characters" autocorrect="off" spellcheck="false" aria-invalid="@(ShowError(SupplierReferenceInvalid) ? "true" : null)" aria-describedby="@(ShowError(SupplierReferenceInvalid) ? "supplier-reference-error" : null)" /><span class="floating-label">@FieldNames.SupplierReferenceNumber</span></label>
+                            @if (ShowError(SupplierReferenceInvalid)) { <span id="supplier-reference-error" class="field-validation-message">Enter the supplier reference number.</span> }
+                        </div>
+                        <div class="searchable-picklist customer-directory-picker registration-field">
+                            <label class="floating-field"><input id="customer-name-search" required @ref="customerNameField" role="combobox" aria-label="@FieldNames.CustomerOrganisationName" aria-autocomplete="list" aria-controls="customer-name-suggestions" aria-expanded="@(ActiveCustomerPicker == CustomerNamePicker ? "true" : "false")" autocomplete="off" placeholder=" " value="@customerName" @oninput="SearchCustomerNames" @onfocus="@(() => OpenCustomerPicker(CustomerNamePicker))" @onblur="CloseCustomerPicker" @onkeydown="HandleCustomerPickerKeyDown" aria-invalid="@(ShowError(CustomerNameInvalid) ? "true" : null)" aria-describedby="@(ShowError(CustomerNameInvalid) ? "customer-name-error" : null)" /><span class="floating-label">@FieldNames.CustomerOrganisationName</span></label>
+                            @if (ShowError(CustomerNameInvalid)) { <span id="customer-name-error" class="field-validation-message">Enter the customer organisation name.</span> }
+                            @if (ActiveCustomerPicker == CustomerNamePicker)
+                            {
+                                <SearchablePicklistOptions TItem="CustomerUrnSuggestion"
+                                                           Id="customer-name-suggestions"
+                                                           AriaLabel="Customer organisation suggestions"
+                                                           Items="@FilteredCustomerSuggestions"
+                                                           ItemSelected="@UseCustomerUrnSuggestion"
+                                                           Selected="@IsSelectedCustomer"
+                                                           EmptyMessage="No GCA customer directory entries are available. Refresh the list in Settings."
+                                                           CssClass="customer-urn-suggestions">
+                                    <ItemTemplate Context="suggestion">
+                                        <strong>@suggestion.OrganisationName</strong>
+                                        <span>URN @suggestion.Urn@if (!string.IsNullOrWhiteSpace(suggestion.Address)) { <text> · @suggestion.Address</text> }</span>
+                                    </ItemTemplate>
+                                </SearchablePicklistOptions>
+                            }
+                        </div>
+                        <div class="searchable-picklist customer-directory-picker registration-field">
+                            <label class="floating-field"><input id="customer-urn-search" required @ref="customerUrnField" role="combobox" aria-label="@FieldNames.CustomerUniqueReferenceNumber" aria-autocomplete="list" aria-controls="customer-urn-suggestions" aria-expanded="@(ActiveCustomerPicker == CustomerUrnPicker ? "true" : "false")" autocomplete="off" inputmode="numeric" placeholder=" " value="@customerUrn" @oninput="SearchCustomerUrns" @onfocus="@(() => OpenCustomerPicker(CustomerUrnPicker))" @onblur="CloseCustomerPicker" @onkeydown="HandleCustomerPickerKeyDown" aria-invalid="@(ShowError(CustomerUrnInvalid) ? "true" : null)" aria-describedby="@(ShowError(CustomerUrnInvalid) ? "customer-urn-error" : null)" /><span class="floating-label">@FieldNames.CustomerUniqueReferenceNumber</span></label>
+                            @if (ShowError(CustomerUrnInvalid)) { <span id="customer-urn-error" class="field-validation-message">Enter the customer URN.</span> }
+                            @if (ActiveCustomerPicker == CustomerUrnPicker)
+                            {
+                                <SearchablePicklistOptions TItem="CustomerUrnSuggestion"
+                                                           Id="customer-urn-suggestions"
+                                                           AriaLabel="Customer URN suggestions"
+                                                           Items="@FilteredCustomerSuggestions"
+                                                           ItemSelected="@UseCustomerUrnSuggestion"
+                                                           Selected="@IsSelectedCustomer"
+                                                           EmptyMessage="No GCA customer directory entries are available. Refresh the list in Settings."
+                                                           CssClass="customer-urn-suggestions">
+                                    <ItemTemplate Context="suggestion">
+                                        <strong>@suggestion.OrganisationName</strong>
+                                        <span>URN @suggestion.Urn@if (!string.IsNullOrWhiteSpace(suggestion.Address)) { <text> · @suggestion.Address</text> }</span>
+                                    </ItemTemplate>
+                                </SearchablePicklistOptions>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(selectedCustomer?.Address))
                         {
-                            <div id="customer-urn-suggestions" class="urn-suggestions" role="listbox" aria-label="Customer URN suggestions">
-                                @foreach (var suggestion in urnSuggestions)
-                                {
-                                    <button type="button" role="option" @onclick="@(() => UseCustomerUrnSuggestion(suggestion))"><strong>@suggestion.OrganisationName</strong><span>URN @suggestion.Urn</span></button>
-                                }
+                            <div class="customer-address-verification" aria-live="polite">
+                                <span>Address in GCA URN list</span>
+                                <strong>@selectedCustomer.Address</strong>
                             </div>
                         }
                     </div>
-                    <label class="floating-field"><input required @bind="customerUrn" @bind:event="oninput" placeholder=" " /><span class="floating-label">@FieldNames.CustomerUniqueReferenceNumber</span></label>
-                </div>
-            </section>
+                </section>
 
-            <section class="invoice-details-section contract-framework-details">
-                <header><h2>Service classification</h2></header>
-                <div class="invoice-details-grid">
-                    <label class="floating-field floating-field--static">
-                        <select required aria-label="@FieldNames.LotNumber" @bind="lotNumber" @bind:after="OnLotChanged">
-                            <option value="">Select a lot</option>
-                            @foreach (var lot in IntakeForm.Lots)
-                            {
-                                <option value="@lot">@lot</option>
-                            }
-                        </select>
-                        <span class="floating-label">@FieldNames.LotNumber</span>
-                    </label>
-                    @if (IsGCloud)
-                    {
-                        <label class="floating-field floating-field--static">
-                            <select required aria-label="@FieldNames.ServiceGroup" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
-                                <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>
-                                @foreach (var group in ServiceGroupOptions)
-                                {
-                                    <option value="@group">@group</option>
-                                }
-                            </select>
-                            <span class="floating-label">@FieldNames.ServiceGroup</span>
-                        </label>
-                        <label class="floating-field"><input required list="@(HasMarketplaceServiceSuggestions ? "digital-marketplace-service-suggestions" : null)" placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">@FieldNames.DigitalMarketplaceServiceId</span></label>
-                    }
-                    else
-                    {
-                        <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">@FieldNames.ProductServiceDescription</span></label>
-                        <label class="floating-field floating-field--static">
-                            <select required aria-label="@FieldNames.OrderChannel" @bind="orderChannel">
-                                <option value="">Select an order channel</option>
-                                @foreach (var channel in ContractReportFields.VasOrderChannels)
-                                {
-                                    <option value="@channel">@channel</option>
-                                }
-                            </select>
-                            <span class="floating-label">@FieldNames.OrderChannel</span>
-                        </label>
-                    }
-                </div>
-                @if (HasMarketplaceServiceSuggestions)
-                {
-                    <datalist id="digital-marketplace-service-suggestions">
-                        @foreach (var service in marketplaceServices)
+                <section class="invoice-details-section contract-framework-details">
+                    <header><h2>Service classification</h2></header>
+                    <div class="invoice-details-grid">
+                        <div class="registration-field">
+                            <RemiPicklist @key="LotNumberPickerKey"
+                                          @ref="lotNumberField"
+                                          Id="lot-number-picklist-options"
+                                          Label="@FieldNames.LotNumber"
+                                          Items="@IntakeForm.Lots"
+                                          Value="@lotNumber"
+                                          ValueChanged="@SelectLot"
+                                          Placeholder="Select a lot"
+                                          Required="true"
+                                          Invalid="@ShowError(LotNumberInvalid)"
+                                          DescribedBy="@(ShowError(LotNumberInvalid) ? "lot-number-error" : null)" />
+                            @if (ShowError(LotNumberInvalid)) { <span id="lot-number-error" class="field-validation-message">Choose a lot.</span> }
+                        </div>
+                        @if (IsGCloud)
                         {
-                            <option value="@service.ServiceId">@service.Name</option>
+                            <div class="registration-field">
+                                <RemiPicklist @key="ServiceGroupPickerKey"
+                                              @ref="serviceGroupField"
+                                              Id="service-group-picklist-options"
+                                              Label="@FieldNames.ServiceGroup"
+                                              Items="@ServiceGroupOptions"
+                                              Value="@serviceGroup"
+                                              ValueChanged="@SelectServiceGroup"
+                                              Placeholder="@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Search service groups")"
+                                              EmptyMessage="No matching service groups."
+                                              Searchable="true"
+                                              Required="true"
+                                              Disabled="@(ServiceGroupOptions.Count == 0)"
+                                              Invalid="@ShowError(ServiceGroupInvalid && !LotNumberInvalid)"
+                                              DescribedBy="@(ShowError(ServiceGroupInvalid && !LotNumberInvalid) ? "service-group-error" : null)" />
+                                @if (ShowError(ServiceGroupInvalid && !LotNumberInvalid)) { <span id="service-group-error" class="field-validation-message">Choose a service group.</span> }
+                            </div>
+                            <div class="searchable-picklist marketplace-service-picker registration-field">
+                                <label class="floating-field"><input required @ref="digitalMarketplaceServiceIdField" role="combobox" aria-label="@FieldNames.DigitalMarketplaceServiceId" aria-autocomplete="list" aria-controls="marketplace-service-suggestions" aria-expanded="@marketplaceSuggestionsOpen.ToString().ToLowerInvariant()" autocomplete="off" placeholder=" " value="@digitalMarketplaceServiceId" @oninput="SearchMarketplaceServices" @onfocus="OpenMarketplaceServices" @onblur="CloseMarketplaceServices" @onkeydown="HandleMarketplaceKeyDown" aria-invalid="@(ShowError(DigitalMarketplaceServiceIdInvalid) ? "true" : null)" aria-describedby="@(ShowError(DigitalMarketplaceServiceIdInvalid) ? "digital-marketplace-service-id-error" : null)" /><span class="floating-label">@FieldNames.DigitalMarketplaceServiceId</span></label>
+                                @if (ShowError(DigitalMarketplaceServiceIdInvalid)) { <span id="digital-marketplace-service-id-error" class="field-validation-message">Enter the Digital Marketplace service ID.</span> }
+                                @if (marketplaceSuggestionsOpen && HasMarketplaceServiceSuggestions)
+                                {
+                                    <SearchablePicklistOptions TItem="DigitalMarketplaceService"
+                                                               Id="marketplace-service-suggestions"
+                                                               AriaLabel="Digital Marketplace service suggestions"
+                                                               Items="@FilteredMarketplaceServices"
+                                                               ItemSelected="@UseMarketplaceService"
+                                                               Selected="@(service => service.ServiceId == digitalMarketplaceServiceId)"
+                                                               EmptyMessage="No matching Digital Marketplace services."
+                                                               CssClass="marketplace-service-suggestions">
+                                        <ItemTemplate Context="service"><strong>@service.ServiceId</strong><span>@service.Name</span></ItemTemplate>
+                                    </SearchablePicklistOptions>
+                                }
+                            </div>
                         }
-                    </datalist>
-                }
-            </section>
+                        else
+                        {
+                            <div class="registration-field">
+                                <label class="floating-field"><input required @ref="serviceDescriptionField" placeholder=" " @bind="serviceDescription" @bind:event="oninput" aria-invalid="@(ShowError(ServiceDescriptionInvalid) ? "true" : null)" aria-describedby="@(ShowError(ServiceDescriptionInvalid) ? "service-description-error" : null)" /><span class="floating-label">@FieldNames.ProductServiceDescription</span></label>
+                                @if (ShowError(ServiceDescriptionInvalid)) { <span id="service-description-error" class="field-validation-message">Enter the product or service description.</span> }
+                            </div>
+                            <div class="registration-field">
+                                <RemiPicklist @key="OrderChannelPickerKey"
+                                              @ref="orderChannelField"
+                                              Id="order-channel-picklist-options"
+                                              Label="@FieldNames.OrderChannel"
+                                              Items="@ContractReportFields.VasOrderChannels"
+                                              Value="@orderChannel"
+                                              ValueChanged="@SelectOrderChannel"
+                                              Placeholder="Select an order channel"
+                                              Required="true"
+                                              Invalid="@ShowError(OrderChannelInvalid)"
+                                              DescribedBy="@(ShowError(OrderChannelInvalid) ? "order-channel-error" : null)" />
+                                @if (ShowError(OrderChannelInvalid)) { <span id="order-channel-error" class="field-validation-message">Choose an order channel.</span> }
+                            </div>
+                        }
+                    </div>
+                </section>
 
-            <section class="invoice-details-section">
-                <header><h2>Contract dates and value</h2></header>
-                <div class="invoice-details-grid">
-                    <label class="floating-field floating-field--static"><input required type="date" @bind="startDate" /><span class="floating-label">@FieldNames.ContractStartDate</span></label>
-                    <label class="floating-field floating-field--static"><input required type="date" @bind="endDate" /><span class="floating-label">@FieldNames.ContractEndDate</span></label>
-                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" min="0.01" step="0.01" @bind="contractValue" /><span class="floating-label">@FieldNames.TotalContractValue</span></label>
-                </div>
-            </section>
+                <section class="invoice-details-section">
+                    <header><h2>Contract dates and value</h2></header>
+                    <div class="invoice-details-grid">
+                        <div class="registration-field">
+                            <label class="floating-field floating-field--static"><input required @ref="startDateField" type="date" @bind="startDate" aria-invalid="@(ShowError(StartDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(StartDateInvalid) ? "start-date-error" : null)" /><span class="floating-label">@FieldNames.ContractStartDate</span></label>
+                            @if (ShowError(StartDateInvalid)) { <span id="start-date-error" class="field-validation-message">Choose the contract start date.</span> }
+                        </div>
+                        <div class="registration-field">
+                            <label class="floating-field floating-field--static"><input required @ref="endDateField" type="date" @bind="endDate" aria-invalid="@(ShowError(EndDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(EndDateInvalid) ? "end-date-error" : null)" /><span class="floating-label">@FieldNames.ContractEndDate</span></label>
+                            @if (ShowError(EndDateInvalid)) { <span id="end-date-error" class="field-validation-message">Choose the contract end date.</span> }
+                        </div>
+                        <div class="registration-field">
+                            <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required @ref="contractValueField" type="number" inputmode="decimal" min="0.01" step="0.01" @bind="contractValue" aria-invalid="@(ShowError(ContractValueInvalid) ? "true" : null)" aria-describedby="@(ShowError(ContractValueInvalid) ? "contract-value-error" : null)" /><span class="floating-label">@FieldNames.TotalContractValue</span></label>
+                            @if (ShowError(ContractValueInvalid)) { <span id="contract-value-error" class="field-validation-message">Enter a contract value greater than zero.</span> }
+                        </div>
+                    </div>
+                </section>
 
-            <footer class="invoice-intake-actions">
-                <button type="button" class="invoice-command invoice-command-muted" @onclick="ConfirmCancelAsync">Cancel</button>
-                <button type="button" class="invoice-command invoice-command-save" disabled="@(!CanCreate || working)" @onclick="CreateContractAsync">@(working ? "Saving…" : "Save contract")</button>
-            </footer>
-        }
-    </section>
+                <footer class="invoice-intake-actions">
+                    <button type="button" class="invoice-command invoice-command-muted" @onclick="ConfirmCancelAsync">Cancel</button>
+                    <button type="button" class="invoice-command invoice-command-save" disabled="@working" @onclick="ValidateAndCreateContractAsync">@(working ? "Saving…" : "Save contract")</button>
+                </footer>
+            }
+        </section>
+    </ClipboardImageEvidence>
 </section>
-</ClipboardImageEvidence>
 
 @code {
     private FrameworkCode? selectedFramework;
@@ -166,10 +247,35 @@
     private string orderChannel = string.Empty;
     private ReturnActionResult? submission;
     private bool working;
-    private IReadOnlyList<CustomerUrnSuggestion> urnSuggestions = [];
+    private bool validationAttempted;
+    private const string CustomerNamePicker = "name";
+    private const string CustomerUrnPicker = "urn";
+    private const string FrameworkPickerKey = "contract-framework-picker";
+    private const string ReportingMonthPickerKey = "contract-reporting-month-picker";
+    private const string LotNumberPickerKey = "contract-lot-number-picker";
+    private const string ServiceGroupPickerKey = "contract-service-group-picker";
+    private const string OrderChannelPickerKey = "contract-order-channel-picker";
+    private string? ActiveCustomerPicker;
+    private IReadOnlyList<CustomerUrnSuggestion> customerDirectoryEntries = [];
+    private IReadOnlyList<CustomerUrnSuggestion> FilteredCustomerSuggestions = [];
+    private CustomerUrnSuggestion? selectedCustomer;
     private IReadOnlyList<DigitalMarketplaceService> marketplaceServices = [];
+    private IReadOnlyList<DigitalMarketplaceService> FilteredMarketplaceServices = [];
+    private bool marketplaceSuggestionsOpen;
     private ClipboardImageEvidence? clipboardEvidence;
     private int clipboardImageCount;
+    private RemiPicklist? reportingMonthField;
+    private ElementReference supplierReferenceField;
+    private ElementReference customerNameField;
+    private ElementReference customerUrnField;
+    private RemiPicklist? lotNumberField;
+    private RemiPicklist? serviceGroupField;
+    private ElementReference digitalMarketplaceServiceIdField;
+    private ElementReference serviceDescriptionField;
+    private RemiPicklist? orderChannelField;
+    private ElementReference startDateField;
+    private ElementReference endDateField;
+    private ElementReference contractValueField;
 
     private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
     private bool HasMarketplaceServiceSuggestions => selectedFramework == FrameworkCode.GCloud14 && marketplaceServices.Count != 0;
@@ -178,7 +284,21 @@
     private IReadOnlyList<string> ServiceGroupOptions => IntakeForm.ServiceGroupsFor(lotNumber);
     private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
         Frameworks.All.Where(item => item.AllowsNewContracts && ContractReportFields.IsAvailable(item.Code)).ToList();
+    private IReadOnlyList<string> FrameworkOptions => availableFrameworks.Select(item => item.Code.ToString()).ToList();
+    private string FrameworkValue => selectedFramework?.ToString() ?? string.Empty;
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
+    private bool ReportingMonthInvalid => !IsValidReportingMonth;
+    private bool SupplierReferenceInvalid => string.IsNullOrWhiteSpace(supplierReference);
+    private bool CustomerNameInvalid => string.IsNullOrWhiteSpace(customerName);
+    private bool CustomerUrnInvalid => string.IsNullOrWhiteSpace(customerUrn);
+    private bool LotNumberInvalid => !IntakeForm.Lots.Contains(lotNumber, StringComparer.Ordinal);
+    private bool ServiceGroupInvalid => IsGCloud && !ServiceGroupOptions.Contains(serviceGroup, StringComparer.Ordinal);
+    private bool DigitalMarketplaceServiceIdInvalid => IsGCloud && string.IsNullOrWhiteSpace(digitalMarketplaceServiceId);
+    private bool ServiceDescriptionInvalid => !IsGCloud && string.IsNullOrWhiteSpace(serviceDescription);
+    private bool OrderChannelInvalid => !IsGCloud && !ContractReportFields.VasOrderChannels.Contains(orderChannel, StringComparer.Ordinal);
+    private bool StartDateInvalid => startDate is null;
+    private bool EndDateInvalid => endDate is null;
+    private bool ContractValueInvalid => contractValue <= 0;
     private bool CanCreate => selectedFramework is FrameworkCode framework
         && Frameworks.AllowsNewContracts(framework)
         && ContractReportFields.IsAvailable(framework)
@@ -210,12 +330,19 @@
     protected override async Task OnInitializedAsync()
     {
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
-        marketplaceServices = await Workspace.GetDigitalMarketplaceServicesAsync();
+        var marketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync();
+        var customerDirectoryTask = Workspace.GetCustomerUrnDirectoryEntriesAsync();
+        await Task.WhenAll(marketplaceTask, customerDirectoryTask);
+        marketplaceServices = await marketplaceTask;
+        customerDirectoryEntries = await customerDirectoryTask;
+        FilteredMarketplaceServices = marketplaceServices;
+        FilteredCustomerSuggestions = customerDirectoryEntries;
     }
 
-    private void SelectFramework(ChangeEventArgs args)
+    private void SelectFramework(string value)
     {
-        if (!Enum.TryParse<FrameworkCode>(args.Value?.ToString(), out var framework) || !Frameworks.AllowsNewContracts(framework))
+        validationAttempted = false;
+        if (!Enum.TryParse<FrameworkCode>(value, out var framework) || !Frameworks.AllowsNewContracts(framework))
         {
             selectedFramework = null;
             return;
@@ -223,8 +350,21 @@
 
         selectedFramework = framework;
         lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
+        marketplaceSuggestionsOpen = false;
         submission = null;
     }
+
+    private void SelectReportingMonth(string value) => reportingMonth = value;
+
+    private void SelectLot(string value)
+    {
+        lotNumber = value;
+        OnLotChanged();
+    }
+
+    private void SelectServiceGroup(string value) => serviceGroup = value;
+
+    private void SelectOrderChannel(string value) => orderChannel = value;
 
     private void OnLotChanged()
     {
@@ -234,22 +374,163 @@
         }
     }
 
-    private async Task SearchCustomerUrnsAsync()
+    private void OpenCustomerPicker(string picker)
     {
-        if (customerName.Trim().Length < 3)
-        {
-            urnSuggestions = [];
-            return;
-        }
+        ActiveCustomerPicker = picker;
+        marketplaceSuggestionsOpen = false;
+        FilteredCustomerSuggestions = customerDirectoryEntries;
+    }
 
-        urnSuggestions = await Workspace.SearchCustomerUrnsAsync(customerName);
+    private void CloseCustomerPicker() => ActiveCustomerPicker = null;
+
+    private void SearchCustomerNames(ChangeEventArgs args)
+    {
+        customerName = args.Value?.ToString() ?? string.Empty;
+        ActiveCustomerPicker = CustomerNamePicker;
+        if (!string.Equals(selectedCustomer?.OrganisationName, customerName, StringComparison.Ordinal))
+        {
+            selectedCustomer = null;
+        }
+        FilterCustomerSuggestions(customerName, preferUrn: false);
+    }
+
+    private void SearchCustomerUrns(ChangeEventArgs args)
+    {
+        customerUrn = args.Value?.ToString() ?? string.Empty;
+        ActiveCustomerPicker = CustomerUrnPicker;
+        if (!string.Equals(selectedCustomer?.Urn, customerUrn, StringComparison.Ordinal))
+        {
+            selectedCustomer = null;
+        }
+        FilterCustomerSuggestions(customerUrn, preferUrn: true);
+    }
+
+    private void FilterCustomerSuggestions(string query, bool preferUrn)
+    {
+        var search = query.Trim();
+        var matches = string.IsNullOrWhiteSpace(search)
+            ? customerDirectoryEntries
+            : customerDirectoryEntries
+                .Where(item => item.OrganisationName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || item.Urn.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || (item.Address?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+
+        FilteredCustomerSuggestions = matches
+            .OrderBy(item => preferUrn
+                ? (item.Urn.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                : (item.OrganisationName.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1))
+            .ThenBy(item => item.OrganisationName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Urn, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void HandleCustomerPickerKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            ActiveCustomerPicker = null;
+        }
+        else if (args.Key == "Enter" && FilteredCustomerSuggestions.Count == 1)
+        {
+            UseCustomerUrnSuggestion(FilteredCustomerSuggestions[0]);
+        }
+    }
+
+    private bool IsSelectedCustomer(CustomerUrnSuggestion suggestion) =>
+        string.Equals(selectedCustomer?.Urn, suggestion.Urn, StringComparison.Ordinal)
+        && string.Equals(selectedCustomer?.OrganisationName, suggestion.OrganisationName, StringComparison.Ordinal);
+
+    private void SearchMarketplaceServices(ChangeEventArgs args)
+    {
+        digitalMarketplaceServiceId = args.Value?.ToString() ?? string.Empty;
+        ActiveCustomerPicker = null;
+        marketplaceSuggestionsOpen = HasMarketplaceServiceSuggestions;
+        FilterMarketplaceServices();
+    }
+
+    private void OpenMarketplaceServices()
+    {
+        ActiveCustomerPicker = null;
+        marketplaceSuggestionsOpen = HasMarketplaceServiceSuggestions;
+        FilteredMarketplaceServices = marketplaceServices;
+    }
+
+    private void CloseMarketplaceServices() => marketplaceSuggestionsOpen = false;
+
+    private void FilterMarketplaceServices()
+    {
+        var search = digitalMarketplaceServiceId.Trim();
+        FilteredMarketplaceServices = marketplaceServices
+            .Where(service => string.IsNullOrWhiteSpace(search)
+                || service.ServiceId.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || service.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(service => service.ServiceId.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(service => service.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void HandleMarketplaceKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            marketplaceSuggestionsOpen = false;
+        }
+        else if (args.Key == "Enter" && FilteredMarketplaceServices.Count == 1)
+        {
+            UseMarketplaceService(FilteredMarketplaceServices[0]);
+        }
+    }
+
+    private void UseMarketplaceService(DigitalMarketplaceService service)
+    {
+        digitalMarketplaceServiceId = service.ServiceId;
+        marketplaceSuggestionsOpen = false;
     }
 
     private void UseCustomerUrnSuggestion(CustomerUrnSuggestion suggestion)
     {
         customerName = suggestion.OrganisationName;
         customerUrn = suggestion.Urn;
-        urnSuggestions = [];
+        selectedCustomer = suggestion;
+        ActiveCustomerPicker = null;
+    }
+
+    private bool ShowError(bool invalid) => validationAttempted && invalid;
+
+    private async Task ValidateAndCreateContractAsync()
+    {
+        validationAttempted = true;
+        if (!CanCreate)
+        {
+            await InvokeAsync(StateHasChanged);
+            await Task.Yield();
+            await FocusFirstInvalidAsync();
+            return;
+        }
+
+        await CreateContractAsync();
+    }
+
+    private async Task FocusFirstInvalidAsync()
+    {
+        try
+        {
+            if (ReportingMonthInvalid) await reportingMonthField!.FocusAsync();
+            else if (SupplierReferenceInvalid) await supplierReferenceField.FocusAsync();
+            else if (CustomerNameInvalid) await customerNameField.FocusAsync();
+            else if (CustomerUrnInvalid) await customerUrnField.FocusAsync();
+            else if (LotNumberInvalid) await lotNumberField!.FocusAsync();
+            else if (ServiceGroupInvalid) await serviceGroupField!.FocusAsync();
+            else if (DigitalMarketplaceServiceIdInvalid) await digitalMarketplaceServiceIdField.FocusAsync();
+            else if (ServiceDescriptionInvalid) await serviceDescriptionField.FocusAsync();
+            else if (OrderChannelInvalid) await orderChannelField!.FocusAsync();
+            else if (StartDateInvalid) await startDateField.FocusAsync();
+            else if (EndDateInvalid) await endDateField.FocusAsync();
+            else await contractValueField.FocusAsync();
+        }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
     }
 
     private async Task CreateContractAsync()
@@ -273,8 +554,13 @@
 
     private void ResetForm()
     {
+        validationAttempted = false;
         supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
-        urnSuggestions = [];
+        selectedCustomer = null;
+        ActiveCustomerPicker = null;
+        marketplaceSuggestionsOpen = false;
+        FilteredCustomerSuggestions = customerDirectoryEntries;
+        FilteredMarketplaceServices = marketplaceServices;
         startDate = endDate = null;
         contractValue = 0;
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
@@ -288,6 +574,12 @@
     }
 
     private void SetClipboardImageCount(int count) => clipboardImageCount = count;
+
+    private string DisplayFramework(string value)
+    {
+        var definition = availableFrameworks.FirstOrDefault(item => item.Code.ToString() == value);
+        return definition is null ? value : $"{definition.DisplayName} ({definition.AgreementNumber})";
+    }
 
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;
 }

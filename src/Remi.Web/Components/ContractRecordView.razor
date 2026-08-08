@@ -2,18 +2,19 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject IServiceProvider Services
 @implements IDisposable
 
 @if (details is null)
 {
-    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a></section>
+    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back</a></section>
 }
 else
 {
     <section class="contract-record">
         <header class="dashboard-header register-page-header-compact contract-hero">
             <div>
-                <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status"><i aria-hidden="true"></i>Recorded</span></div>
+                <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status @OperationalStatusCss"><i aria-hidden="true"></i>@OperationalStatus</span></div>
                 <p class="contract-hero-context">@details.Contract.CustomerName <span aria-hidden="true">·</span> @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
@@ -29,7 +30,7 @@ else
                     {
                         <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">Download</a>
                     }
-                    <a class="button secondary" href="@PeriodRoute("contracts")">Back ←</a>
+                    <a class="button secondary" href="@PeriodRoute("contracts")">Back</a>
                 }
             </div>
         </header>
@@ -55,13 +56,13 @@ else
                 <div class="contract-tab-panel" role="tabpanel">
                     @if (details.Findings.Count != 0)
                     {
-                        <section class="contract-findings"><p class="eyebrow">Needs attention</p><ul class="findings inline-findings">@foreach (var finding in details.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li> }</ul></section>
+                        <section class="contract-findings"><h2>Needs attention</h2><ul class="findings inline-findings">@foreach (var finding in details.Findings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><strong>@finding.Code</strong><span>@finding.Message</span></li> }</ul></section>
                     }
                     @if (editingContract)
                     {
                         <ClipboardImageEvidence @ref="contractClipboardEvidence" OnDocumentsChanged="SetContractClipboardImageCount">
                         <section class="contract-edit-panel">
-                            <div class="panel-heading"><div><p class="eyebrow">Edit record</p><h2>Contract information</h2></div></div>
+                            <div class="panel-heading"><h2>Contract information</h2></div>
                             <section class="contract-edit-field-group">
                                 <h3>Reporting context</h3>
                                 <div class="invoice-details-grid record-edit-fields">
@@ -73,8 +74,42 @@ else
                                 <h3>Customer and reference</h3>
                                 <div class="invoice-details-grid record-edit-fields">
                                     <label class="floating-field"><input required placeholder=" " @bind="editSupplierReference" /><span class="floating-label">@EditFieldNames.SupplierReferenceNumber</span></label>
-                                    <label class="floating-field"><input required placeholder=" " @bind="editCustomerName" /><span class="floating-label">@EditFieldNames.CustomerOrganisationName</span></label>
-                                    <label class="floating-field"><input required placeholder=" " @bind="editCustomerUrn" /><span class="floating-label">@EditFieldNames.CustomerUniqueReferenceNumber</span></label>
+                                    <div class="searchable-picklist customer-directory-picker">
+                                        <label class="floating-field"><input required role="combobox" aria-label="@EditFieldNames.CustomerOrganisationName" aria-autocomplete="list" aria-controls="edit-customer-name-suggestions" aria-expanded="@(activeEditCustomerPicker == EditCustomerNamePicker ? "true" : "false")" autocomplete="off" placeholder=" " value="@editCustomerName" @oninput="SearchEditCustomerNames" @onfocus="@(() => OpenEditCustomerPicker(EditCustomerNamePicker))" @onblur="CloseEditCustomerPicker" @onkeydown="HandleEditCustomerPickerKeyDown" /><span class="floating-label">@EditFieldNames.CustomerOrganisationName</span></label>
+                                        @if (activeEditCustomerPicker == EditCustomerNamePicker)
+                                        {
+                                            <SearchablePicklistOptions TItem="CustomerUrnSuggestion"
+                                                                       Id="edit-customer-name-suggestions"
+                                                                       AriaLabel="Customer organisation suggestions"
+                                                                       Items="@FilteredEditCustomerSuggestions"
+                                                                       ItemSelected="@UseEditCustomerSuggestion"
+                                                                       Selected="@IsSelectedEditCustomer"
+                                                                       EmptyMessage="No GCA customer directory entries are available. Refresh the list in Settings."
+                                                                       CssClass="customer-urn-suggestions">
+                                                <ItemTemplate Context="suggestion"><strong>@suggestion.OrganisationName</strong><span>URN @suggestion.Urn@if (!string.IsNullOrWhiteSpace(suggestion.Address)) { <text> · @suggestion.Address</text> }</span></ItemTemplate>
+                                            </SearchablePicklistOptions>
+                                        }
+                                    </div>
+                                    <div class="searchable-picklist customer-directory-picker">
+                                        <label class="floating-field"><input required role="combobox" aria-label="@EditFieldNames.CustomerUniqueReferenceNumber" aria-autocomplete="list" aria-controls="edit-customer-urn-suggestions" aria-expanded="@(activeEditCustomerPicker == EditCustomerUrnPicker ? "true" : "false")" autocomplete="off" placeholder=" " value="@editCustomerUrn" @oninput="SearchEditCustomerUrns" @onfocus="@(() => OpenEditCustomerPicker(EditCustomerUrnPicker))" @onblur="CloseEditCustomerPicker" @onkeydown="HandleEditCustomerPickerKeyDown" /><span class="floating-label">@EditFieldNames.CustomerUniqueReferenceNumber</span></label>
+                                        @if (activeEditCustomerPicker == EditCustomerUrnPicker)
+                                        {
+                                            <SearchablePicklistOptions TItem="CustomerUrnSuggestion"
+                                                                       Id="edit-customer-urn-suggestions"
+                                                                       AriaLabel="Customer URN suggestions"
+                                                                       Items="@FilteredEditCustomerSuggestions"
+                                                                       ItemSelected="@UseEditCustomerSuggestion"
+                                                                       Selected="@IsSelectedEditCustomer"
+                                                                       EmptyMessage="No GCA customer directory entries are available. Refresh the list in Settings."
+                                                                       CssClass="customer-urn-suggestions">
+                                                <ItemTemplate Context="suggestion"><strong>@suggestion.OrganisationName</strong><span>URN @suggestion.Urn@if (!string.IsNullOrWhiteSpace(suggestion.Address)) { <text> · @suggestion.Address</text> }</span></ItemTemplate>
+                                            </SearchablePicklistOptions>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editSelectedCustomer?.Address))
+                                    {
+                                        <div class="customer-address-verification" aria-live="polite"><span>Address in GCA URN list</span><strong>@editSelectedCustomer.Address</strong></div>
+                                    }
                                 </div>
                             </section>
                             <section class="contract-edit-field-group">
@@ -96,7 +131,22 @@ else
                                             </select>
                                             <span class="floating-label">@EditFieldNames.ServiceGroup</span>
                                         </label>
-                                        <label class="floating-field"><input required list="@(HasMarketplaceServiceSuggestions ? "digital-marketplace-service-suggestions" : null)" placeholder=" " @bind="editMarketplaceServiceId" /><span class="floating-label">@EditFieldNames.DigitalMarketplaceServiceId</span></label>
+                                        <div class="searchable-picklist marketplace-service-picker">
+                                            <label class="floating-field"><input required role="combobox" aria-label="@EditFieldNames.DigitalMarketplaceServiceId" aria-autocomplete="list" aria-controls="edit-marketplace-service-suggestions" aria-expanded="@editMarketplaceSuggestionsOpen.ToString().ToLowerInvariant()" autocomplete="off" placeholder=" " value="@editMarketplaceServiceId" @oninput="SearchEditMarketplaceServices" @onfocus="OpenEditMarketplaceServices" @onblur="CloseEditMarketplaceServices" @onkeydown="HandleEditMarketplaceKeyDown" /><span class="floating-label">@EditFieldNames.DigitalMarketplaceServiceId</span></label>
+                                            @if (editMarketplaceSuggestionsOpen && HasMarketplaceServiceSuggestions)
+                                            {
+                                                <SearchablePicklistOptions TItem="DigitalMarketplaceService"
+                                                                           Id="edit-marketplace-service-suggestions"
+                                                                           AriaLabel="Digital Marketplace service suggestions"
+                                                                           Items="@FilteredEditMarketplaceServices"
+                                                                           ItemSelected="@UseEditMarketplaceService"
+                                                                           Selected="@(service => service.ServiceId == editMarketplaceServiceId)"
+                                                                           EmptyMessage="No matching Digital Marketplace services."
+                                                                           CssClass="marketplace-service-suggestions">
+                                                    <ItemTemplate Context="service"><strong>@service.ServiceId</strong><span>@service.Name</span></ItemTemplate>
+                                                </SearchablePicklistOptions>
+                                            }
+                                        </div>
                                     }
                                     else
                                     {
@@ -110,15 +160,6 @@ else
                                         </label>
                                     }
                                 </div>
-                                @if (HasMarketplaceServiceSuggestions)
-                                {
-                                    <datalist id="digital-marketplace-service-suggestions">
-                                        @foreach (var service in marketplaceServices)
-                                        {
-                                            <option value="@service.ServiceId">@service.Name</option>
-                                        }
-                                    </datalist>
-                                }
                             </section>
                             <section class="contract-edit-field-group">
                                 <h3>Contract dates and value</h3>
@@ -136,9 +177,9 @@ else
                     {
                     <div class="contract-overview-layout">
                         <article class="contract-content-card">
-                            <header class="contract-card-head"><div><p class="eyebrow">Registered information</p><h2>Contract overview</h2><p>The signed-contract information used for monthly reporting.</p></div></header>
+                            <header class="contract-card-head"><div><h2>Contract overview</h2><p>The signed-contract information used for monthly reporting.</p></div></header>
                             <section class="contract-detail-section">
-                                <h3>▧ Customer and reference</h3>
+                                <h3>Customer and reference</h3>
                                 <dl class="record-display-grid">
                                     <div><dt>@DisplayFieldNames.SupplierReferenceNumber</dt><dd>@details.Contract.SupplierReference</dd></div>
                                     <div><dt>@DisplayFieldNames.CustomerOrganisationName</dt><dd>@details.Contract.CustomerName</dd></div>
@@ -146,7 +187,7 @@ else
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
-                                <h3>≡ Service classification</h3>
+                                <h3>Service classification</h3>
                                 <dl class="record-display-grid">
                                     <div><dt>@DisplayFieldNames.LotNumber</dt><dd class="@NotRecordedClass(details.Contract.LotNumber)">@Display(details.Contract.LotNumber)</dd></div>
                                     @if (details.Contract.Framework == FrameworkCode.VerticalApplicationSolutions)
@@ -162,36 +203,113 @@ else
                                 </dl>
                             </section>
                             <section class="contract-detail-section">
-                                <h3>▣ Contract dates and value</h3>
+                                <h3>Contract dates and value</h3>
                                 <dl class="record-display-grid">
                                     <div><dt>@DisplayFieldNames.ContractStartDate</dt><dd>@Display(details.Contract.StartDate)</dd></div>
                                     <div><dt>@DisplayFieldNames.ContractEndDate</dt><dd>@Display(details.Contract.EndDate)</dd></div>
                                     <div><dt>@DisplayFieldNames.TotalContractValue</dt><dd>@Currency(details.Contract.TotalContractValueExVat)</dd></div>
                                 </dl>
                             </section>
+                            <section class="contract-detail-section contract-operations-section">
+                                <h3>Operational delivery</h3>
+                                <div class="contract-section-actions">
+                                    @if (editingOperations)
+                                    {
+                                        @if (operationsStaged) { <button class="button secondary" disabled="@(editableOperations.Count >= 20)" @onclick="AddOperationalPart">Add part</button> }
+                                        <button class="button primary" disabled="@(!CanSaveOperations || operationsWorking)" @onclick="SaveOperationsAsync">@(operationsWorking ? "Saving..." : "Save")</button>
+                                        <button class="button secondary" @onclick="ToggleOperationsEditor">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="button secondary" @onclick="ToggleOperationsEditor">Edit</button>
+                                    }
+                                </div>
+                                @if (editingOperations)
+                                {
+                                    <label class="contract-change-flipper operations-stage-toggle"><input type="checkbox" @bind="operationsStaged" /><span class="contract-change-flipper-control" aria-hidden="true"></span><span>This contract goes live in stages</span></label>
+                                    @if (!operationsStaged)
+                                    {
+                                        <div class="operations-simple-editor">
+                                            <label class="floating-field floating-field--static"><input type="date" @bind="SimpleGoLiveDate" /><span class="floating-label">Actual go-live date</span></label>
+                                            <p>Leave this blank until the complete contract is operational.</p>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="operations-part-editor">
+                                            @for (var partIndex = 0; partIndex < editableOperations.Count; partIndex++)
+                                            {
+                                                var part = editableOperations[partIndex];
+                                                var ordinal = partIndex + 1;
+                                                <div class="operations-part-row" @key="part">
+                                                    <label class="floating-field"><input required placeholder=" " aria-label="Part name @ordinal" @bind="part.Name" /><span class="floating-label">System or billing group</span></label>
+                                                    <label class="floating-field floating-field--static"><input type="date" aria-label="Go-live date for part @ordinal" @bind="part.GoLiveDate" /><span class="floating-label">Actual go-live date</span></label>
+                                                    <button type="button" class="payment-position-remove" disabled="@(editableOperations.Count == 1)" title="Remove contract part" aria-label="Remove contract part @ordinal" @onclick="@(() => RemoveOperationalPart(part))">&times;</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (operationsSubmission is not null) { <p class="notice @(operationsSubmission.Succeeded ? "success" : "error")" role="status">@operationsSubmission.Message</p> }
+                                }
+                                else if (details.ServiceParts.Count <= 1)
+                                {
+                                    var part = details.ServiceParts.FirstOrDefault();
+                                    <dl class="record-display-grid operations-summary-grid"><div><dt>Status</dt><dd>@OperationalStatus</dd></div><div><dt>Actual go-live date</dt><dd class="@(part?.GoLiveDate is null ? "not-recorded" : null)">@Display(part?.GoLiveDate)</dd></div></dl>
+                                }
+                                else
+                                {
+                                    <div class="operations-status-line"><span class="contract-status @OperationalStatusCss"><i aria-hidden="true"></i>@OperationalStatus</span><small>@LivePartCount of @details.ServiceParts.Count parts live</small></div>
+                                    <div class="table-wrap"><table><thead><tr><th>System or billing group</th><th>Actual go-live date</th></tr></thead><tbody>@foreach (var part in details.ServiceParts.OrderBy(part => part.SortOrder)) { <tr><td>@part.Name</td><td class="@(part.GoLiveDate is null ? "not-recorded" : null)">@Display(part.GoLiveDate)</td></tr> }</tbody></table></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(operationsMailMessage)) { <p class="notice success" role="status">@operationsMailMessage</p> }
+                            </section>
                             <section class="contract-detail-section">
-                                <h3>▤ Annual payment positions</h3>
-                                <div class="contract-section-actions"><button class="button secondary" @onclick="ToggleScheduleEditor">@(editingSchedule ? "Cancel" : "Edit")</button></div>
+                                <h3>Payment schedule</h3>
+                                <div class="contract-section-actions">
+                                    @if (editingSchedule)
+                                    {
+                                        <button class="button secondary" @onclick="AddSchedulePosition">Add</button>
+                                        <button class="button primary" disabled="@(!CanSaveSchedule || scheduleWorking)" @onclick="SaveScheduleAsync">@(scheduleWorking ? "Saving…" : "Save")</button>
+                                        <button class="button secondary" @onclick="ToggleScheduleEditor">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="button secondary" @onclick="ToggleScheduleEditor">Edit</button>
+                                    }
+                                </div>
                                 @if (editingSchedule)
                                 {
                                     <div class="payment-position-editor">
-                                        @foreach (var position in editableSchedule)
-                                        {
-                                            <div class="payment-position-row">
-                                                <label>Year<input type="number" min="1" @bind="position.ContractYear" /></label><label>Description<input @bind="position.Description" /></label><label>Expected date<input type="date" @bind="position.ExpectedInvoiceDate" /></label><label>Value, ex VAT<input type="number" step="0.01" @bind="position.ValueExVat" /></label><label class="payment-optional"><input type="checkbox" @bind="position.IsOptionalExtension" /> Optional year</label>
-                                            </div>
-                                        }
-                                        <div class="action-row"><button class="button secondary" @onclick="AddSchedulePosition">Add</button><button class="button primary" disabled="@(!CanSaveSchedule || scheduleWorking)" @onclick="SaveScheduleAsync">@(scheduleWorking ? "Saving…" : "Save")</button></div>
+                                        <div class="payment-schedule-grid">
+                                            <div class="payment-schedule-heading @(HasStagedOperations ? "has-contract-part" : null)" aria-hidden="true"><span>Year</span><span>Description</span>@if (HasStagedOperations) { <span>Contract part</span> }<span>Expected date</span><span>Value, ex VAT</span><span>Optional</span><span></span></div>
+                                            @for (var positionIndex = 0; positionIndex < editableSchedule.Count; positionIndex++)
+                                            {
+                                                var position = editableSchedule[positionIndex];
+                                                var ordinal = positionIndex + 1;
+                                                <div class="payment-position-row @(HasStagedOperations ? "has-contract-part" : null)" @key="position">
+                                                    <input class="payment-schedule-input" type="number" min="1" aria-label="Year, payment position @ordinal" @bind="position.ContractYear" />
+                                                    <input class="payment-schedule-input" aria-label="Description, payment position @ordinal" @bind="position.Description" />
+                                                    @if (HasStagedOperations)
+                                                    {
+                                                        <RemiPicklist Id="@($"payment-part-{ordinal}")" Label="Contract part" Items="@ContractPartPickerItems" Value="@position.ContractServicePartValue" ValueChanged="@(value => position.ContractServicePartValue = value)" ItemLabel="ContractPartPickerLabel" CssClass="payment-part-picklist" />
+                                                    }
+                                                    <input class="payment-schedule-input" type="date" aria-label="Expected date, payment position @ordinal" @bind="position.ExpectedInvoiceDate" />
+                                                    <div class="payment-schedule-money"><span aria-hidden="true">£</span><input class="payment-schedule-input" type="text" inputmode="decimal" aria-label="Value excluding VAT, payment position @ordinal" @bind="position.ValueExVatInput" /></div>
+                                                    <label class="payment-optional"><input type="checkbox" aria-label="Optional year, payment position @ordinal" @bind="position.IsOptionalExtension" /></label>
+                                                    <button type="button" class="payment-position-remove" title="Remove payment position" aria-label="Remove payment position @ordinal" @onclick="@(() => RemoveSchedulePosition(position))">×</button>
+                                                </div>
+                                            }
+                                        </div>
                                         @if (scheduleSubmission is not null) { <p class="notice @(scheduleSubmission.Succeeded ? "success" : "error")" role="status">@scheduleSubmission.Message</p> }
                                     </div>
                                 }
-                                @if (details.ChargeSchedule.Count == 0)
+                                else if (details.ChargeSchedule.Count == 0)
                                 {
                                     <div class="contract-empty-inline"><strong>No charge schedule recorded</strong><span>This contract has no annual payment positions in the source register.</span></div>
                                 }
                                 else
                                 {
-                                    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Description</th><th>Expected date</th><th>Value, ex VAT</th></tr></thead><tbody>@foreach (var yearGroup in details.ChargeSchedule.GroupBy(item => item.ContractYear).OrderBy(group => group.Key)) { @foreach (var item in yearGroup) { <tr class="@(item.IsOptionalExtension ? "optional-payment-position" : null)"><td>@item.ContractYear</td><td>@item.Description</td><td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td></tr> } @if (yearGroup.Count() > 1) { <tr class="contract-payment-total @(yearGroup.Any(item => item.IsOptionalExtension) ? "optional-payment-position" : null)"><td colspan="3">Year @yearGroup.Key total</td><td>@Currency(yearGroup.Sum(item => item.ValueExVat))</td></tr> } }</tbody></table></div>
+                                    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Description</th>@if (HasStagedOperations) { <th>Contract part</th> }<th>Expected date</th><th>Value, ex VAT</th></tr></thead><tbody>@foreach (var yearGroup in details.ChargeSchedule.GroupBy(item => item.ContractYear).OrderBy(group => group.Key)) { @foreach (var item in yearGroup) { <tr class="@(item.IsOptionalExtension ? "optional-payment-position" : null)"><td>@item.ContractYear</td><td>@item.Description</td>@if (HasStagedOperations) { <td>@ContractPartName(item.ContractServicePartId)</td> }<td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td></tr> } @if (yearGroup.Count() > 1) { <tr class="contract-payment-total @(yearGroup.Any(item => item.IsOptionalExtension) ? "optional-payment-position" : null)"><td colspan="@(HasStagedOperations ? 4 : 3)">Year @yearGroup.Key total</td><td>@Currency(yearGroup.Sum(item => item.ValueExVat))</td></tr> } }</tbody></table></div>
                                 }
                             </section>
                         </article>
@@ -208,7 +326,7 @@ else
             {
                 <div class="contract-tab-panel" role="tabpanel">
                     <article class="contract-content-card">
-                        <header class="contract-card-head"><div><p class="eyebrow">Agreed changes</p><h2>Extensions and variations</h2><p>Options are not reported until an agreement is recorded. Each agreement reports once, in its agreement month.</p></div><button class="button primary" @onclick="ToggleChangeForm">@(showChangeForm ? "Close" : "Register")</button></header>
+                        <header class="contract-card-head"><div><h2>Extensions and variations</h2><p>Options are not reported until an agreement is recorded. Each agreement reports once, in its agreement month.</p></div><button class="button primary" @onclick="ToggleChangeForm">@(showChangeForm ? "Close" : "Register")</button></header>
                         @if (showChangeForm)
                         {
                             <ClipboardImageEvidence @ref="changeClipboardEvidence" OnDocumentsChanged="SetChangeClipboardDocumentCount">
@@ -246,7 +364,7 @@ else
             {
                 <div class="contract-tab-panel" role="tabpanel">
                     <article class="contract-content-card">
-                        <header class="contract-card-head"><div><p class="eyebrow">Reported invoices</p><h2>Activity against this contract</h2><p>Invoices are prefilled from this contract and the latest reported values, then reviewed before saving.</p></div><button class="button primary" @onclick="ShowInvoiceFormAsync">@(showInvoiceForm ? "Close" : "Register")</button></header>
+                        <header class="contract-card-head"><div><h2>Activity against this contract</h2><p>Invoices are prefilled from this contract and the latest reported values, then reviewed before saving.</p></div><button class="button primary" @onclick="ShowInvoiceFormAsync">@(showInvoiceForm ? "Close" : "Register")</button></header>
                         @if (showInvoiceForm)
                         {
                             <section class="contract-invoice-form">
@@ -305,11 +423,11 @@ else
             }
             else if (activeTab == "evidence")
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Documents</p><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
             }
             else
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><p class="eyebrow">Audit trail</p><h2>Record history</h2><p>Material contract and invoice actions recorded by Remi.</p></div></header><section class="contract-history-list">@if (history.Count == 0) { <div class="contract-empty-inline"><strong>No history events are available</strong><span>The contract was registered without a matching local audit event.</span></div> } @foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div></article> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Record history</h2><p>Material contract and invoice actions recorded by Remi.</p></div></header><section class="contract-history-list">@if (history.Count == 0) { <div class="contract-empty-inline"><strong>No history events are available</strong><span>The contract was registered without a matching local audit event.</span></div> } @foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div></article> }</section></article></div>
             }
         </section>
     </section>
@@ -319,7 +437,15 @@ else
     [Parameter] public Guid ContractId { get; set; }
     private ContractDetailsModel? details;
     private IReadOnlyList<AuditEventSummary> history = [];
+    private const string EditCustomerNamePicker = "name";
+    private const string EditCustomerUrnPicker = "urn";
+    private IReadOnlyList<CustomerUrnSuggestion> customerDirectoryEntries = [];
+    private IReadOnlyList<CustomerUrnSuggestion> FilteredEditCustomerSuggestions = [];
+    private CustomerUrnSuggestion? editSelectedCustomer;
+    private string? activeEditCustomerPicker;
     private IReadOnlyList<DigitalMarketplaceService> marketplaceServices = [];
+    private IReadOnlyList<DigitalMarketplaceService> FilteredEditMarketplaceServices = [];
+    private bool editMarketplaceSuggestionsOpen;
     private string activeTab = "overview";
     private bool showInvoiceForm;
     private string invoiceNumber = string.Empty;
@@ -340,6 +466,12 @@ else
     private bool scheduleWorking;
     private ReturnActionResult? scheduleSubmission;
     private List<EditableSchedulePosition> editableSchedule = [];
+    private bool editingOperations;
+    private bool operationsWorking;
+    private bool operationsStaged;
+    private ContractOperationsUpdateResult? operationsSubmission;
+    private string? operationsMailMessage;
+    private List<EditableContractPart> editableOperations = [];
     private bool showChangeForm;
     private bool changeWorking;
     private ReturnActionResult? changeSubmission;
@@ -440,7 +572,29 @@ else
             ? EditServiceGroupOptions.Contains(editServiceGroup, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(editMarketplaceServiceId)
             : !string.IsNullOrWhiteSpace(editServiceDescription) && ContractReportFields.VasOrderChannels.Contains(editOrderChannel, StringComparer.Ordinal));
     private string ContractClipboardEvidenceMessage => contractClipboardImageCount == 0 ? "Paste images here to add them to this contract's evidence." : $"{contractClipboardImageCount} image{(contractClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
-    private bool CanSaveSchedule => editableSchedule.Count != 0 && editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ValueExVat > 0);
+    private bool CanSaveSchedule => editableSchedule.Count == 0 || editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ParsedValueExVat is > 0);
+    private bool HasStagedOperations => details?.ServiceParts.Count > 1;
+    private int LivePartCount => details?.ServiceParts.Count(part => part.GoLiveDate is not null) ?? 0;
+    private string OperationalStatus => CurrentContractEndDate is DateOnly end && end < DateOnly.FromDateTime(DateTime.Today)
+        ? "Ended"
+        : LivePartCount == 0
+            ? "Not live"
+            : LivePartCount == details?.ServiceParts.Count
+                ? "Live"
+                : "Partially live";
+    private string OperationalStatusCss => OperationalStatus switch { "Live" => "is-live", "Partially live" => "is-partial", "Ended" => "is-ended", _ => "is-not-live" };
+    private bool CanSaveOperations => editableOperations.Count is >= 1 and <= 20
+        && (!operationsStaged || editableOperations.All(part => !string.IsNullOrWhiteSpace(part.Name) && part.Name.Trim().Length <= 120));
+    private DateOnly? SimpleGoLiveDate
+    {
+        get => editableOperations.FirstOrDefault()?.GoLiveDate;
+        set
+        {
+            EnsureSimpleOperationalPart();
+            editableOperations[0].GoLiveDate = value;
+        }
+    }
+    private IReadOnlyList<string> ContractPartPickerItems => [string.Empty, .. (details?.ServiceParts.OrderBy(part => part.SortOrder).Select(part => part.Id.ToString("D")) ?? [])];
 
     protected override void OnInitialized()
     {
@@ -492,10 +646,19 @@ else
     private void OnEditFrameworkChanged()
     {
         editLotNumber = editServiceGroup = editServiceDescription = editOrderChannel = editMarketplaceServiceId = string.Empty;
+        editMarketplaceSuggestionsOpen = false;
     }
 
-    protected override async Task OnInitializedAsync() =>
-        marketplaceServices = await Workspace.GetDigitalMarketplaceServicesAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var marketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync();
+        var customerDirectoryTask = Workspace.GetCustomerUrnDirectoryEntriesAsync();
+        await Task.WhenAll(marketplaceTask, customerDirectoryTask);
+        marketplaceServices = await marketplaceTask;
+        customerDirectoryEntries = await customerDirectoryTask;
+        FilteredEditMarketplaceServices = marketplaceServices;
+        FilteredEditCustomerSuggestions = customerDirectoryEntries;
+    }
 
     private void OnEditLotChanged()
     {
@@ -505,14 +668,206 @@ else
         }
     }
 
-    private void PopulateEditors() { PopulateContractEditor(); PopulateScheduleEditor(); }
+    private void OpenEditCustomerPicker(string picker)
+    {
+        activeEditCustomerPicker = picker;
+        editMarketplaceSuggestionsOpen = false;
+        FilteredEditCustomerSuggestions = customerDirectoryEntries;
+    }
+
+    private void CloseEditCustomerPicker() => activeEditCustomerPicker = null;
+
+    private void SearchEditCustomerNames(ChangeEventArgs args)
+    {
+        editCustomerName = args.Value?.ToString() ?? string.Empty;
+        activeEditCustomerPicker = EditCustomerNamePicker;
+        if (!string.Equals(editSelectedCustomer?.OrganisationName, editCustomerName, StringComparison.Ordinal))
+        {
+            editSelectedCustomer = null;
+        }
+        FilterEditCustomerSuggestions(editCustomerName, preferUrn: false);
+    }
+
+    private void SearchEditCustomerUrns(ChangeEventArgs args)
+    {
+        editCustomerUrn = args.Value?.ToString() ?? string.Empty;
+        activeEditCustomerPicker = EditCustomerUrnPicker;
+        if (!string.Equals(editSelectedCustomer?.Urn, editCustomerUrn, StringComparison.Ordinal))
+        {
+            editSelectedCustomer = null;
+        }
+        FilterEditCustomerSuggestions(editCustomerUrn, preferUrn: true);
+    }
+
+    private void FilterEditCustomerSuggestions(string query, bool preferUrn)
+    {
+        var search = query.Trim();
+        var matches = string.IsNullOrWhiteSpace(search)
+            ? customerDirectoryEntries
+            : customerDirectoryEntries
+                .Where(item => item.OrganisationName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || item.Urn.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || (item.Address?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+        FilteredEditCustomerSuggestions = matches
+            .OrderBy(item => preferUrn
+                ? (item.Urn.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                : (item.OrganisationName.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1))
+            .ThenBy(item => item.OrganisationName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Urn, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void HandleEditCustomerPickerKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            activeEditCustomerPicker = null;
+        }
+        else if (args.Key == "Enter" && FilteredEditCustomerSuggestions.Count == 1)
+        {
+            UseEditCustomerSuggestion(FilteredEditCustomerSuggestions[0]);
+        }
+    }
+
+    private bool IsSelectedEditCustomer(CustomerUrnSuggestion suggestion) =>
+        string.Equals(editSelectedCustomer?.Urn, suggestion.Urn, StringComparison.Ordinal)
+        && string.Equals(editSelectedCustomer?.OrganisationName, suggestion.OrganisationName, StringComparison.Ordinal);
+
+    private void UseEditCustomerSuggestion(CustomerUrnSuggestion suggestion)
+    {
+        editCustomerName = suggestion.OrganisationName;
+        editCustomerUrn = suggestion.Urn;
+        editSelectedCustomer = suggestion;
+        activeEditCustomerPicker = null;
+    }
+
+    private void SearchEditMarketplaceServices(ChangeEventArgs args)
+    {
+        editMarketplaceServiceId = args.Value?.ToString() ?? string.Empty;
+        activeEditCustomerPicker = null;
+        editMarketplaceSuggestionsOpen = HasMarketplaceServiceSuggestions;
+        FilterEditMarketplaceServices();
+    }
+
+    private void OpenEditMarketplaceServices()
+    {
+        activeEditCustomerPicker = null;
+        editMarketplaceSuggestionsOpen = HasMarketplaceServiceSuggestions;
+        FilteredEditMarketplaceServices = marketplaceServices;
+    }
+
+    private void CloseEditMarketplaceServices() => editMarketplaceSuggestionsOpen = false;
+
+    private void FilterEditMarketplaceServices()
+    {
+        var search = editMarketplaceServiceId.Trim();
+        FilteredEditMarketplaceServices = marketplaceServices
+            .Where(service => string.IsNullOrWhiteSpace(search)
+                || service.ServiceId.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || service.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(service => service.ServiceId.StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(service => service.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void HandleEditMarketplaceKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            editMarketplaceSuggestionsOpen = false;
+        }
+        else if (args.Key == "Enter" && FilteredEditMarketplaceServices.Count == 1)
+        {
+            UseEditMarketplaceService(FilteredEditMarketplaceServices[0]);
+        }
+    }
+
+    private void UseEditMarketplaceService(DigitalMarketplaceService service)
+    {
+        editMarketplaceServiceId = service.ServiceId;
+        editMarketplaceSuggestionsOpen = false;
+    }
+
+    private void PopulateEditors() { PopulateContractEditor(); PopulateOperationsEditor(); PopulateScheduleEditor(); }
     private void PopulateContractEditor()
     {
         if (details is null) return;
         var contract = details.Contract;
         editFramework = contract.Framework; editSupplierReference = contract.SupplierReference; editCustomerName = contract.CustomerName; editCustomerUrn = contract.CustomerUrn ?? string.Empty; editLotNumber = contract.LotNumber ?? string.Empty; editStartDate = contract.StartDate; editEndDate = contract.EndDate; editContractValue = contract.TotalContractValueExVat; editServiceGroup = contract.ServiceGroup ?? string.Empty; editServiceDescription = contract.ServiceDescription ?? string.Empty; editOrderChannel = contract.OrderChannel ?? string.Empty; editMarketplaceServiceId = contract.DigitalMarketplaceServiceId ?? string.Empty; editReportingMonth = contract.ReportMonth;
+        editSelectedCustomer = customerDirectoryEntries.SingleOrDefault(item =>
+            string.Equals(item.Urn, editCustomerUrn, StringComparison.Ordinal)
+            && string.Equals(item.OrganisationName, editCustomerName, StringComparison.OrdinalIgnoreCase));
+        activeEditCustomerPicker = null;
+        FilteredEditCustomerSuggestions = customerDirectoryEntries;
+        editMarketplaceSuggestionsOpen = false;
+        FilterEditMarketplaceServices();
     }
-    private void PopulateScheduleEditor() => editableSchedule = details?.ChargeSchedule.Select(item => new EditableSchedulePosition { Id = item.Id, ContractYear = item.ContractYear, Description = item.Description, ExpectedInvoiceDate = item.ExpectedInvoiceDate, ValueExVat = item.ValueExVat, IsOptionalExtension = item.IsOptionalExtension }).ToList() ?? [];
+    private void RemoveSchedulePosition(EditableSchedulePosition position) => editableSchedule.Remove(position);
+    private void PopulateScheduleEditor() => editableSchedule = details?.ChargeSchedule.Select(item => new EditableSchedulePosition { Id = item.Id, ContractYear = item.ContractYear, Description = item.Description, ExpectedInvoiceDate = item.ExpectedInvoiceDate, ValueExVatInput = item.ValueExVat.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("en-GB")), IsOptionalExtension = item.IsOptionalExtension, ContractServicePartValue = item.ContractServicePartId?.ToString("D") ?? string.Empty }).ToList() ?? [];
+
+    private void ToggleOperationsEditor()
+    {
+        editingOperations = !editingOperations;
+        operationsSubmission = null;
+        operationsMailMessage = null;
+        if (editingOperations) PopulateOperationsEditor();
+    }
+    private void PopulateOperationsEditor()
+    {
+        editableOperations = details?.ServiceParts
+            .OrderBy(part => part.SortOrder)
+            .Select(part => new EditableContractPart { Id = part.Id, Name = part.Name, GoLiveDate = part.GoLiveDate })
+            .ToList() ?? [];
+        EnsureSimpleOperationalPart();
+        operationsStaged = editableOperations.Count > 1;
+    }
+    private void EnsureSimpleOperationalPart()
+    {
+        if (editableOperations.Count == 0)
+        {
+            editableOperations.Add(new EditableContractPart { Name = DefaultOperationalPartName });
+        }
+    }
+    private string DefaultOperationalPartName => details is null
+        ? "Whole contract"
+        : string.IsNullOrWhiteSpace(details.Contract.ServiceDescription)
+            ? string.IsNullOrWhiteSpace(details.Contract.ServiceGroup) ? "Whole contract" : details.Contract.ServiceGroup
+            : details.Contract.ServiceDescription;
+    private void AddOperationalPart() => editableOperations.Add(new EditableContractPart { Name = $"Part {editableOperations.Count + 1}" });
+    private void RemoveOperationalPart(EditableContractPart part) { if (editableOperations.Count > 1) editableOperations.Remove(part); }
+
+    private async Task SaveOperationsAsync()
+    {
+        if (!CanSaveOperations) return;
+        operationsWorking = true;
+        operationsSubmission = null;
+        try
+        {
+            EnsureSimpleOperationalPart();
+            IReadOnlyList<EditableContractPart> source = operationsStaged ? editableOperations : [editableOperations[0]];
+            if (!operationsStaged) source[0].Name = DefaultOperationalPartName;
+            operationsSubmission = await Workspace.UpdateContractOperationsAsync(
+                ContractId,
+                source.Select((part, index) => new ContractServicePartEntry(part.Id, part.Name, part.GoLiveDate, index)).ToList());
+            if (operationsSubmission.Succeeded)
+            {
+                var mailEvents = Services.GetService<RemiMailEventService>();
+                var mailResult = mailEvents is null
+                    ? null
+                    : await mailEvents.CaptureCustomerGoLiveAsync(ContractId, operationsSubmission.NewlyLivePartIds);
+                if (mailResult is not null)
+                {
+                    operationsMailMessage = mailResult.Message;
+                }
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+                editingOperations = false;
+                PopulateEditors();
+            }
+        }
+        finally { operationsWorking = false; }
+    }
 
     private async Task SaveContractAsync()
     {
@@ -532,12 +887,21 @@ else
         scheduleWorking = true; scheduleSubmission = null;
         try
         {
+            var retainedPositionIds = editableSchedule.Where(position => position.Id is not null).Select(position => position.Id!.Value).ToHashSet();
+            var deletedPositionIds = details?.ChargeSchedule.Where(position => !retainedPositionIds.Contains(position.Id)).Select(position => position.Id).ToList() ?? [];
+            foreach (var positionId in deletedPositionIds)
+            {
+                scheduleSubmission = await Workspace.DeleteChargeScheduleItemAsync(positionId, ContractId);
+                if (!scheduleSubmission.Succeeded) return;
+            }
+
             foreach (var position in editableSchedule)
             {
-                var entry = new ChargeScheduleEntry(ContractId, position.ContractYear, position.Description, position.ExpectedInvoiceDate, position.ValueExVat, position.IsOptionalExtension);
+                var entry = new ChargeScheduleEntry(ContractId, position.ContractYear, position.Description, position.ExpectedInvoiceDate, position.ParsedValueExVat!.Value, position.IsOptionalExtension, position.ContractServicePartId);
                 scheduleSubmission = position.Id is null ? await Workspace.AddChargeScheduleItemAsync(entry) : await Workspace.UpdateChargeScheduleItemAsync(position.Id.Value, entry);
                 if (!scheduleSubmission.Succeeded) return;
             }
+            scheduleSubmission ??= new ReturnActionResult(true, "The payment schedule has not changed.", []);
             details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingSchedule = false; PopulateScheduleEditor();
         }
         finally { scheduleWorking = false; }
@@ -700,6 +1064,25 @@ else
     private static string DisplayPeriod(DateOnly? start, DateOnly? end) => start is null && end is null ? "Not recorded" : $"{Display(start)} – {Display(end)}";
     private static string ChangeDescription(ContractChangeRecord change) => $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy} · {change.IncrementalValueExVat:C2}";
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
-    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "ContractChangeRecorded" => "Contract change recorded", "ContractChangeUpdated" => "Contract change corrected", "ContractChangeConfirmed" => "Contract change confirmed", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", _ => action };
-    private sealed class EditableSchedulePosition { public Guid? Id { get; init; } public int ContractYear { get; set; } = 1; public string Description { get; set; } = "Annual licence and maintenance"; public DateOnly? ExpectedInvoiceDate { get; set; } public decimal ValueExVat { get; set; } public bool IsOptionalExtension { get; set; } }
+    private string ContractPartPickerLabel(string value) => string.IsNullOrEmpty(value) ? "Not assigned" : ContractPartName(Guid.TryParse(value, out var id) ? id : null);
+    private string ContractPartName(Guid? partId) => partId is null ? "Not assigned" : details?.ServiceParts.SingleOrDefault(part => part.Id == partId)?.Name ?? "Part unavailable";
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "ContractOperationsUpdated" => "Operational delivery updated", "ContractPartWentLive" => "Customer went live", "ContractChangeRecorded" => "Contract change recorded", "ContractChangeUpdated" => "Contract change corrected", "ContractChangeConfirmed" => "Contract change confirmed", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", "ChargeScheduleDeleted" => "Payment position removed", _ => action };
+    private sealed class EditableContractPart
+    {
+        public Guid? Id { get; init; }
+        public string Name { get; set; } = string.Empty;
+        public DateOnly? GoLiveDate { get; set; }
+    }
+    private sealed class EditableSchedulePosition
+    {
+        public Guid? Id { get; init; }
+        public int ContractYear { get; set; } = 1;
+        public string Description { get; set; } = "Annual licence and maintenance";
+        public DateOnly? ExpectedInvoiceDate { get; set; }
+        public string ValueExVatInput { get; set; } = "0.00";
+        public decimal? ParsedValueExVat => decimal.TryParse(ValueExVatInput, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.GetCultureInfo("en-GB"), out var value) ? value : null;
+        public bool IsOptionalExtension { get; set; }
+        public string ContractServicePartValue { get; set; } = string.Empty;
+        public Guid? ContractServicePartId => Guid.TryParse(ContractServicePartValue, out var id) ? id : null;
+    }
 }

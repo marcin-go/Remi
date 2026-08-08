@@ -3,12 +3,17 @@
 @inject IJSRuntime JsRuntime
 
 <div class="clipboard-evidence-layout @LayoutClass" @ref="host">
+    <AntiforgeryToken />
     <div class="clipboard-evidence-form">
         @ChildContent
     </div>
-    <aside class="clipboard-image-panel" aria-label="@Heading ready to save">
-        <header><strong>@Heading</strong><span>@(documents.Count == 0 ? EmptyStatus : $"{documents.Count} ready to save")</span></header>
-        <label class="clipboard-document-dropzone"><input type="file" multiple /><strong>@DropZoneTitle</strong><span>or choose from disk</span></label>
+    <aside class="clipboard-image-panel @(!ShowHeader ? "clipboard-image-panel--plain" : null)" aria-label="@Heading">
+        @if (ShowHeader)
+        {
+            <header><strong>@Heading</strong><span>@(documents.Count == 0 ? EmptyStatus : $"{documents.Count} ready to save")</span></header>
+        }
+        <label class="clipboard-document-dropzone"><input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" /><strong>@DropZoneTitle</strong><span class="clipboard-instruction-desktop">choose from disk, or press Ctrl+V to paste an image</span><span class="clipboard-instruction-mobile">choose a file or photo</span></label>
+        @if (intakeError is not null) { <p class="clipboard-document-error" role="alert">@intakeError</p> }
         @if (documents.Count != 0)
         {
             <div class="clipboard-image-list">
@@ -16,8 +21,8 @@
                 {
                     <article class="clipboard-document-item">
                         @if (document.PreviewDataUrl is not null) { <img src="@document.PreviewDataUrl" alt="@document.FileName" /> } else { <span class="clipboard-document-icon" aria-hidden="true">▧</span> }
-                        <div><label>Document title<input @bind="document.Title" @bind:event="oninput" /></label><small>@document.FileName</small></div>
-                        <button type="button" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName">Remove</button>
+                        <div><label class="floating-field floating-field--static"><input @bind="document.Title" @bind:event="oninput" placeholder="Document title" /><span class="floating-label">Document title</span></label><small>@document.FileName</small></div>
+                        <button type="button" class="clipboard-document-remove" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName" title="Remove document"><span aria-hidden="true">×</span></button>
                     </article>
                 }
             </div>
@@ -37,6 +42,7 @@
     [Parameter] public string DropZoneTitle { get; set; } = "Drop files here";
     [Parameter] public string EmptyMessage { get; set; } = "Paste screenshots, or add signed contracts, pricing and related files.";
     [Parameter] public string? LayoutClass { get; set; }
+    [Parameter] public bool ShowHeader { get; set; } = true;
 
     private ElementReference host;
     private IJSObjectReference? module;
@@ -47,21 +53,30 @@
         if (!firstRender) return;
         try
         {
-            module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./clipboard-image-evidence.js");
+            module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "/clipboard-image-evidence.js");
             reference = DotNetObjectReference.Create(this);
             await module.InvokeVoidAsync("attach", host, reference);
         }
         catch (Exception)
         {
-            // Static component tests do not provide a browser module runtime.
+            intakeError = "Documents could not be prepared. Reload the page and try again.";
+            await InvokeAsync(StateHasChanged);
         }
     }
 
     [JSInvokable]
     public async Task DocumentAdded(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
     {
+        intakeError = null;
         documents.Add(new PendingDocument(id, fileName, contentType, fileSizeBytes, previewDataUrl));
         await OnDocumentsChanged.InvokeAsync(documents.Count);
+    }
+
+    [JSInvokable]
+    public async Task DocumentIntakeFailed(string message)
+    {
+        intakeError = message;
+        await InvokeAsync(StateHasChanged);
     }
 
     public async Task<bool> ArchiveAsync(string entityType, Guid entityId)
@@ -92,6 +107,7 @@
     }
 
     private readonly List<PendingDocument> documents = [];
+    private string? intakeError;
     private sealed record DocumentTitle(string Id, string Title);
     private sealed class PendingDocument(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
     {

@@ -35,6 +35,10 @@ public sealed class GcaCustomerUrnDirectory(
     public async Task<CustomerUrnDirectoryStatus?> GetStatusAsync(CancellationToken cancellationToken = default) =>
         (await GetIndexAsync(cancellationToken))?.Status;
 
+    public async Task<IReadOnlyList<CustomerUrnSuggestion>> GetAllAsync(
+        CancellationToken cancellationToken = default) =>
+        (await GetIndexAsync(cancellationToken))?.Entries ?? [];
+
     public async Task<IReadOnlyList<CustomerUrnSuggestion>> SearchAsync(
         string query,
         int maximumResults = 8,
@@ -54,7 +58,8 @@ public sealed class GcaCustomerUrnDirectory(
         var search = query.Trim();
         return index.Entries
             .Where(item => item.OrganisationName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                item.Urn.Contains(search, StringComparison.OrdinalIgnoreCase))
+                item.Urn.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                (item.Address?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false))
             .OrderBy(item => StartsWith(item.OrganisationName, search) ? 0 : 1)
             .ThenBy(item => item.OrganisationName, StringComparer.OrdinalIgnoreCase)
             .Take(Math.Min(maximumResults, 20))
@@ -234,16 +239,33 @@ public sealed class GcaCustomerUrnDirectory(
             throw new InvalidDataException("The URN ODS file does not have URN and Organisation Name columns.");
         }
 
+        var addressColumns = new[] { "addressline1", "addressline2", "addressline3", "county", "country", "postcode" }
+            .Select(header => headers.FindIndex(candidate => candidate == header))
+            .Where(index => index >= 0)
+            .ToList();
+
         return rows
             .Skip(1)
             .Where(row => row.Count > Math.Max(urnColumn, organisationColumn))
             .Select(row => new CustomerUrnSuggestion(
                 row[urnColumn].Trim(),
-                row[organisationColumn].Trim()))
+                row[organisationColumn].Trim(),
+                FormatAddress(row, addressColumns)))
             .Where(item => item.Urn.Length == 8 && item.Urn.All(char.IsDigit) && !string.IsNullOrWhiteSpace(item.OrganisationName))
             .DistinctBy(item => $"{item.Urn}\u001f{item.OrganisationName}", StringComparer.OrdinalIgnoreCase)
             .OrderBy(item => item.OrganisationName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static string? FormatAddress(IReadOnlyList<string> row, IReadOnlyList<int> addressColumns)
+    {
+        var parts = addressColumns
+            .Where(index => index < row.Count)
+            .Select(index => row[index].Trim())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
     private static List<string> ReadRow(XElement row)

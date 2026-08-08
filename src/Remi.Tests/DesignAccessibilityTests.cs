@@ -42,7 +42,7 @@ public sealed class DesignAccessibilityTests
         Assert.Contains(":where(button, input, select, a, [role=\"button\"], [role=\"tab\"]):focus-visible { outline: none; }", css, StringComparison.Ordinal);
         Assert.DoesNotContain("outline: 3px solid", css, StringComparison.Ordinal);
         Assert.DoesNotContain("outline: 2px solid", css, StringComparison.Ordinal);
-        Assert.Contains(".checkbox-cell input { width: 1.5rem; height: 1.5rem;", css, StringComparison.Ordinal);
+        Assert.Contains(".floating-field { position: relative; display: block; height: 42px;", css, StringComparison.Ordinal);
         Assert.Contains(".quick-filter { min-height: 1.875rem;", css, StringComparison.Ordinal);
         Assert.Contains(".brand-subtitle { display: inline-flex; align-items: center; align-self: stretch;", css, StringComparison.Ordinal);
         Assert.Contains(".navigation { display: flex; align-items: stretch; gap: 0.1rem; min-width: 0; margin-left: auto; }", css, StringComparison.Ordinal);
@@ -76,13 +76,74 @@ public sealed class DesignAccessibilityTests
     {
         var css = File.ReadAllText(AppCssPath());
 
-        Assert.Contains(".eyebrow { margin-bottom: 0.42rem; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; letter-spacing: normal; text-transform: none; }", css, StringComparison.Ordinal);
+        Assert.DoesNotContain(".eyebrow {", css, StringComparison.Ordinal);
         Assert.Contains(".dashboard-period-current span, .dashboard-metrics dt { color: var(--color-text-muted); font-size: 0.6875rem; font-weight: 600; letter-spacing: normal; text-transform: none; }", css, StringComparison.Ordinal);
         Assert.Contains(".dashboard-metrics .has-review-exceptions dd { color: var(--color-warning); }", css, StringComparison.Ordinal);
         Assert.Contains(".dashboard-metrics .has-blocking-exceptions dd { color: var(--color-error); }", css, StringComparison.Ordinal);
         Assert.Contains(".dashboard-header { display: flex; align-items: start; justify-content: space-between; gap: 2rem; margin-bottom: 1.35rem; }", css, StringComparison.Ordinal);
         Assert.Contains(".return-register-heading h2 { margin: 0; color: #183c50; font-size: 1.25rem; }", css, StringComparison.Ordinal);
         Assert.Contains("th { position: sticky; top: 0; z-index: 1; color: #607482; background: #f7f9fa; font-size: 0.65625rem; font-weight: 700; letter-spacing: normal; text-transform: none; }", css, StringComparison.Ordinal);
+        Assert.Contains("/* Definitive Remi density rules: compact facts, persistent floating labels, no decorative title rows. */", css, StringComparison.Ordinal);
+        Assert.Contains(".register-filters .floating-field > input,", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Components_follow_the_non_negotiable_interface_blueprint_rules()
+    {
+        var componentRoot = FindFromRepository("src", "Remi.Web", "Components");
+        var razor = string.Join('\n', Directory.GetFiles(componentRoot, "*.razor", SearchOption.AllDirectories).Select(File.ReadAllText));
+        var contracts = File.ReadAllText(Path.Combine(componentRoot, "Pages", "Contracts.razor"));
+        var invoices = File.ReadAllText(Path.Combine(componentRoot, "Pages", "Invoices.razor"));
+
+        Assert.DoesNotContain("class=\"eyebrow\"", razor, StringComparison.Ordinal);
+        Assert.DoesNotContain("→", razor, StringComparison.Ordinal);
+        Assert.DoesNotContain("←", razor, StringComparison.Ordinal);
+        Assert.DoesNotContain("↗", razor, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("selectedContractIds", contracts, StringComparison.Ordinal);
+        Assert.DoesNotContain("selectedInvoiceIds", invoices, StringComparison.Ordinal);
+        Assert.DoesNotContain("Select visible", contracts, StringComparison.Ordinal);
+        Assert.DoesNotContain("Select visible", invoices, StringComparison.Ordinal);
+        Assert.Contains("register-search floating-field floating-field--static", contracts, StringComparison.Ordinal);
+        Assert.Contains("register-search floating-field floating-field--static", invoices, StringComparison.Ordinal);
+        Assert.DoesNotContain("<datalist", razor, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("<SearchablePicklistOptions", razor, StringComparison.Ordinal);
+
+        var picklist = File.ReadAllText(Path.Combine(componentRoot, "SearchablePicklistOptions.razor"));
+        Assert.Contains("Virtualize", picklist, StringComparison.Ordinal);
+        Assert.Contains("Math.Clamp(Items.Count, 1, 5)", picklist, StringComparison.Ordinal);
+        Assert.Contains("@onmousedown:preventDefault", picklist, StringComparison.Ordinal);
+
+        Assert.True(razor.Split("@onblur=", StringSplitOptions.None).Length - 1 >= 9);
+
+        var remiPicklist = File.ReadAllText(Path.Combine(componentRoot, "RemiPicklist.razor"));
+        Assert.Contains("role=\"combobox\"", remiPicklist, StringComparison.Ordinal);
+        Assert.Contains("ScrollSelectedIntoView=\"@(!filterActive)\"", remiPicklist, StringComparison.Ordinal);
+
+        var picklistDismiss = File.ReadAllText(FindFromRepository("src", "Remi.Web", "wwwroot", "picklist-dismiss.js"));
+        Assert.Contains("document.addEventListener(\"pointerdown\"", picklistDismiss, StringComparison.Ordinal);
+        Assert.Contains("combobox.getAttribute(\"aria-expanded\") !== \"true\"", picklistDismiss, StringComparison.Ordinal);
+        Assert.Contains("combobox.blur()", picklistDismiss, StringComparison.Ordinal);
+
+        var contractRegistration = File.ReadAllText(Path.Combine(componentRoot, "Pages", "ContractRegistration.razor"));
+        Assert.DoesNotContain("<select", contractRegistration, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(5, contractRegistration.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+
+        var css = File.ReadAllText(AppCssPath());
+        Assert.Contains("height: calc((var(--picklist-visible-rows) * 2.5rem) + 2px);", css, StringComparison.Ordinal);
+        Assert.Contains(".customer-address-verification", css, StringComparison.Ordinal);
+        Assert.Contains(".remi-picklist-trigger", css, StringComparison.Ordinal);
+        Assert.Contains("min-height: 46px;", css, StringComparison.Ordinal);
+        Assert.Contains(".clipboard-instruction-mobile { display: inline; }", css, StringComparison.Ordinal);
+
+        var blueprint = File.ReadAllText(FindFromRepository("docs", "design-blueprint.md"));
+        Assert.Contains("## Non-negotiable rules", blueprint, StringComparison.Ordinal);
+        Assert.Contains("Floating labels are the default form control", blueprint, StringComparison.Ordinal);
+        Assert.Contains("### Searchable picklists", blueprint, StringComparison.Ordinal);
+        Assert.Contains("### Compact selectors", blueprint, StringComparison.Ordinal);
+        Assert.Contains("never truncate the result set to five records", blueprint, StringComparison.Ordinal);
+        Assert.Contains("pressing anywhere outside the picker closes the list", blueprint, StringComparison.Ordinal);
+        Assert.Contains("Both the organisation-name and URN fields search the same locally stored directory", blueprint, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -103,17 +164,20 @@ public sealed class DesignAccessibilityTests
     }
 
     private static string AppCssPath()
+        => FindFromRepository("src", "Remi.Web", "wwwroot", "app.css");
+
+    private static string FindFromRepository(params string[] relativePath)
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
-            var candidate = Path.Combine(directory.FullName, "src", "Remi.Web", "wwwroot", "app.css");
-            if (File.Exists(candidate))
+            var candidate = Path.Combine([directory.FullName, .. relativePath]);
+            if (File.Exists(candidate) || Directory.Exists(candidate))
             {
                 return candidate;
             }
         }
 
-        throw new FileNotFoundException("Could not locate src/Remi.Web/wwwroot/app.css from the test output directory.");
+        throw new FileNotFoundException($"Could not locate {Path.Combine(relativePath)} from the test output directory.");
     }
 
     private static double Contrast(string first, string second)

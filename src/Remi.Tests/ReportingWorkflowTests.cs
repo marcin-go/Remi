@@ -284,6 +284,65 @@ public sealed class ReportingWorkflowTests
     }
 
     [Fact]
+    public async Task Contract_operations_support_staged_go_live_and_only_report_the_first_transition()
+    {
+        var contractId = Guid.NewGuid();
+        var originalPartId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.VerticalApplicationSolutions, "MOLE-VALLEY", "2024-10")],
+            ContractServiceParts =
+            [
+                new ContractServicePart(originalPartId, contractId, "Whole contract", null, 0, DateTimeOffset.UtcNow),
+            ],
+        };
+        var workspace = Workspace(database, new FixedTimeProvider(new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero)));
+
+        var staged = await workspace.UpdateContractOperationsAsync(contractId,
+        [
+            new ContractServicePartEntry(originalPartId, "Land Charges + Building Control", new DateOnly(2026, 2, 1), 0),
+            new ContractServicePartEntry(null, "Planning Management", null, 1),
+        ]);
+
+        Assert.True(staged.Succeeded);
+        Assert.Equal(2, staged.Parts.Count);
+        Assert.Equal([originalPartId], staged.NewlyLivePartIds);
+        Assert.Contains(database.AuditEvents, item => item.Action == "ContractPartWentLive" && item.Summary.Contains("Land Charges + Building Control", StringComparison.Ordinal));
+
+        var corrected = await workspace.UpdateContractOperationsAsync(contractId,
+            staged.Parts.Select(part => new ContractServicePartEntry(
+                part.Id,
+                part.Name,
+                part.Id == originalPartId ? new DateOnly(2026, 2, 2) : part.GoLiveDate,
+                part.SortOrder)).ToList());
+
+        Assert.True(corrected.Succeeded);
+        Assert.Empty(corrected.NewlyLivePartIds);
+    }
+
+    [Fact]
+    public async Task Submitting_a_return_records_the_contracts_first_reporting_occurrence_once()
+    {
+        var contractId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-07")],
+        };
+        var submittedAt = new DateTimeOffset(2026, 8, 8, 10, 0, 0, TimeSpan.Zero);
+        var workspace = Workspace(database, new FixedTimeProvider(submittedAt));
+
+        var first = await workspace.MarkSubmittedAsync(FrameworkCode.GCloud14, "2026-07", "TASK-1");
+        var second = await workspace.MarkSubmittedAsync(FrameworkCode.GCloud14, "2026-07", "TASK-2");
+
+        Assert.True(first.Succeeded);
+        Assert.True(second.Succeeded);
+        var occurrence = Assert.Single(database.ContractReportingOccurrences);
+        Assert.Equal(contractId, occurrence.ContractId);
+        Assert.Equal("2026-07", occurrence.ReportingMonth);
+        Assert.Equal(submittedAt, occurrence.ReportedAtUtc);
+    }
+
+    [Fact]
     public async Task Framework_start_dates_use_official_defaults_and_can_be_configured_locally()
     {
         var database = new RemiDatabase
@@ -343,8 +402,8 @@ public sealed class ReportingWorkflowTests
             Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
             ChargeScheduleItems =
             [
-                new ChargeScheduleItem(Guid.NewGuid(), contractId, 1, "Initial term", new DateOnly(2026, 1, 1), 1000, false, DateTimeOffset.UtcNow),
-                new ChargeScheduleItem(Guid.NewGuid(), contractId, 2, "Optional extension", new DateOnly(2027, 1, 1), 1000, true, DateTimeOffset.UtcNow),
+                new ChargeScheduleItem(Guid.NewGuid(), contractId, null, 1, "Initial term", new DateOnly(2026, 1, 1), 1000, false, DateTimeOffset.UtcNow),
+                new ChargeScheduleItem(Guid.NewGuid(), contractId, null, 2, "Optional extension", new DateOnly(2027, 1, 1), 1000, true, DateTimeOffset.UtcNow),
             ],
         };
         var workspace = Workspace(database);
@@ -369,6 +428,27 @@ public sealed class ReportingWorkflowTests
         Assert.Equal(1500, Assert.Single(dashboard.ContractProgress).ComparisonValueExVat);
         var extensionRow = Assert.Single(card.Contracts);
         Assert.Equal("500.00", Assert.Single(extensionRow.Fields, field => field.Label == "Total contract value").Value);
+    }
+
+    [Fact]
+    public async Task Deleting_payment_position_removes_it_and_records_an_audit_event()
+    {
+        var contractId = Guid.NewGuid();
+        var scheduleItemId = Guid.NewGuid();
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ChargeScheduleItems =
+            [
+                new ChargeScheduleItem(scheduleItemId, contractId, null, 1, "Initial term", new DateOnly(2026, 1, 1), 1000, false, DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var result = await Workspace(database).DeleteChargeScheduleItemAsync(scheduleItemId, contractId);
+
+        Assert.True(result.Succeeded);
+        Assert.DoesNotContain(database.ChargeScheduleItems, item => item.Id == scheduleItemId);
+        Assert.Contains(database.AuditEvents, item => item.Action == "ChargeScheduleDeleted" && item.EntityId == scheduleItemId);
     }
 
     [Fact]

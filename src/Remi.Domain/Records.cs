@@ -114,12 +114,37 @@ public sealed record InvoicePlanItem(
 public sealed record ChargeScheduleItem(
     Guid Id,
     Guid ContractId,
+    Guid? ContractServicePartId,
     int ContractYear,
     string Description,
     DateOnly? ExpectedInvoiceDate,
     decimal ValueExVat,
     bool IsOptionalExtension,
     DateTimeOffset CreatedAtUtc);
+
+/// <summary>
+/// A group of services within a contract that becomes operational and normally billable
+/// together. Ordinary contracts have one implicit whole-contract part; staged contracts have
+/// one row for each operational or billing group.
+/// </summary>
+public sealed record ContractServicePart(
+    Guid Id,
+    Guid ContractId,
+    string Name,
+    DateOnly? GoLiveDate,
+    int SortOrder,
+    DateTimeOffset CreatedAtUtc);
+
+/// <summary>
+/// Records the first submitted return in which a contract was reported. This is historical
+/// evidence rather than a mutable reported/unreported flag.
+/// </summary>
+public sealed record ContractReportingOccurrence(
+    Guid Id,
+    Guid ContractId,
+    Guid MonthlyReturnId,
+    string ReportingMonth,
+    DateTimeOffset ReportedAtUtc);
 
 public sealed record MonthlyReturn(
     Guid Id,
@@ -206,6 +231,10 @@ public sealed class RemiDatabase
     public List<InvoicePlanItem> InvoicePlanItems { get; init; } = [];
 
     public List<ChargeScheduleItem> ChargeScheduleItems { get; init; } = [];
+
+    public List<ContractServicePart> ContractServiceParts { get; init; } = [];
+
+    public List<ContractReportingOccurrence> ContractReportingOccurrences { get; init; } = [];
 
     public List<MonthlyReturn> MonthlyReturns { get; init; } = [];
 
