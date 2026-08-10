@@ -7,7 +7,7 @@
 
 @if (details is null)
 {
-    <section class="empty-state"><p>The requested contract was not found.</p><a class="button secondary" href="@PeriodRoute("contracts")">Back</a></section>
+    <section class="empty-state"><p>The requested contract was not found.</p></section>
 }
 else
 {
@@ -26,11 +26,6 @@ else
                 else
                 {
                     <button class="button secondary" @onclick="ToggleContractEditor">Edit</button>
-                    @if (SourceEvidence is not null)
-                    {
-                        <a class="button secondary" href="@($"/evidence/{SourceEvidence.Id}/download")">Download</a>
-                    }
-                    <a class="button secondary" href="@PeriodRoute("contracts")">Back</a>
                 }
             </div>
         </header>
@@ -222,6 +217,10 @@ else
                                     else
                                     {
                                         <button class="button secondary" @onclick="ToggleOperationsEditor">Edit</button>
+                                        @if (GoLiveCapturePartIds.Count != 0 && !operationsMailSucceeded)
+                                        {
+                                            <button class="button secondary" disabled="@operationsMailWorking" @onclick="CaptureCustomerGoLiveMessageAsync">@(operationsMailWorking ? "Capturing..." : "Capture customer go-live message")</button>
+                                        }
                                     }
                                 </div>
                                 @if (editingOperations)
@@ -261,7 +260,7 @@ else
                                     <div class="operations-status-line"><span class="contract-status @OperationalStatusCss"><i aria-hidden="true"></i>@OperationalStatus</span><small>@LivePartCount of @details.ServiceParts.Count parts live</small></div>
                                     <div class="table-wrap"><table><thead><tr><th>System or billing group</th><th>Actual go-live date</th></tr></thead><tbody>@foreach (var part in details.ServiceParts.OrderBy(part => part.SortOrder)) { <tr><td>@part.Name</td><td class="@(part.GoLiveDate is null ? "not-recorded" : null)">@Display(part.GoLiveDate)</td></tr> }</tbody></table></div>
                                 }
-                                @if (!string.IsNullOrWhiteSpace(operationsMailMessage)) { <p class="notice success" role="status">@operationsMailMessage</p> }
+                                @if (!string.IsNullOrWhiteSpace(operationsMailMessage)) { <p class="notice @(operationsMailSucceeded ? "success" : "error")" role="status">@operationsMailMessage</p> }
                             </section>
                             <section class="contract-detail-section">
                                 <h3>Payment schedule</h3>
@@ -316,7 +315,7 @@ else
                         <aside class="contract-side-card">
                             <section><h2>Record completeness</h2><ul class="contract-check-list"><li class="@(HasCoreDetails ? "complete" : "incomplete")"><i>@StatusMark(HasCoreDetails)</i><span>Core contract fields recorded</span></li><li class="@(HasCustomerUrn ? "complete" : "incomplete")"><i>@StatusMark(HasCustomerUrn)</i><span>@(HasCustomerUrn ? "Customer URN recorded" : "Customer URN not recorded")</span></li><li class="@(details.Evidence.Count != 0 ? "complete" : "incomplete")"><i>@StatusMark(details.Evidence.Count != 0)</i><span>@(details.Evidence.Count != 0 ? "Supporting evidence attached" : "Supporting evidence not attached")</span></li></ul></section>
                             <section><h2>Record information</h2><dl class="contract-meta-list"><div><dt>Recorded</dt><dd>@details.Contract.CreatedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</dd></div><div><dt>Reporting month</dt><dd>@details.Contract.ReportMonth</dd></div><div><dt>Evidence</dt><dd>@details.Evidence.Count file@(details.Evidence.Count == 1 ? string.Empty : "s")</dd></div><div><dt>Invoices</dt><dd>@details.Invoices.Count record@(details.Invoices.Count == 1 ? string.Empty : "s")</dd></div></dl></section>
-                            <section><h2>Register source</h2>@if (SourceEvidence is not null) { <a class="contract-source-file" href="@($"/evidence/{SourceEvidence.Id}/download")"><span>▧</span><strong>@SourceEvidence.FileName<small>Imported source workbook</small></strong><b aria-hidden="true">↓</b></a> } else { <p class="muted">@details.Contract.SourceWorkbook<br />Source file is not in the local archive.</p> }</section>
+                            <section><h2>Register source</h2>@if (SourceEvidence is not null) { <EvidenceGallery Documents="@SourceDocuments" /> } else { <p class="muted">@details.Contract.SourceWorkbook<br />Source file is not in the local archive.</p> }</section>
                         </aside>
                     </div>
                     }
@@ -423,7 +422,7 @@ else
             }
             else if (activeTab == "evidence")
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } @foreach (var evidence in details.Evidence) { <a class="contract-evidence-file" href="@($"/evidence/{evidence.Id}")" target="_blank"><span>▧</span><strong>@evidence.FileName<small>@evidence.OriginalRelativePath</small></strong><b>@(IsPdf(evidence) ? "View PDF" : "Download")</b></a> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } else { <EvidenceGallery Documents="@details.Evidence" /> }</section></article></div>
             }
             else
             {
@@ -468,10 +467,16 @@ else
     private List<EditableSchedulePosition> editableSchedule = [];
     private bool editingOperations;
     private bool operationsWorking;
+    private bool operationsMailWorking;
+    private bool operationsMailSucceeded;
     private bool operationsStaged;
     private ContractOperationsUpdateResult? operationsSubmission;
     private string? operationsMailMessage;
     private List<EditableContractPart> editableOperations = [];
+    private IReadOnlyList<Guid> GoLiveCapturePartIds => operationsSubmission is { Succeeded: true }
+        && operationsSubmission.NewlyLivePartIds.Count != 0
+            ? operationsSubmission.NewlyLivePartIds
+            : details?.ServiceParts.Where(part => part.GoLiveDate is not null).Select(part => part.Id).ToList() ?? [];
     private bool showChangeForm;
     private bool changeWorking;
     private ReturnActionResult? changeSubmission;
@@ -496,9 +501,10 @@ else
     private MiInvoiceIntakeForm EditIntakeForm => MiInvoiceIntakeForms.For(editFramework);
     private IReadOnlyList<string> EditServiceGroupOptions => EditIntakeForm.ServiceGroupsFor(editLotNumber);
     private bool IsEditGCloud => Frameworks.IsGCloud(editFramework);
-    private bool HasMarketplaceServiceSuggestions => editFramework == FrameworkCode.GCloud14 && marketplaceServices.Count != 0;
+    private bool HasMarketplaceServiceSuggestions => marketplaceServices.Any(service => service.Framework == editFramework);
     private IReadOnlyList<FrameworkDefinition> EditableFrameworks => Frameworks.All.Where(item => ContractReportFields.IsAvailable(item.Code)).ToList();
     private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
+    private IReadOnlyList<EvidenceLink> SourceDocuments => SourceEvidence is { } evidence ? [evidence] : [];
     private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
     private decimal AgreedChangeValue => details?.ContractChanges.Sum(change => change.IncrementalValueExVat) ?? 0;
     private decimal CurrentContractValue => details?.Contract.TotalContractValueExVat + AgreedChangeValue ?? 0;
@@ -651,12 +657,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var marketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync();
+        var gCloud13MarketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud13);
+        var gCloud14MarketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud14);
         var customerDirectoryTask = Workspace.GetCustomerUrnDirectoryEntriesAsync();
-        await Task.WhenAll(marketplaceTask, customerDirectoryTask);
-        marketplaceServices = await marketplaceTask;
+        await Task.WhenAll(gCloud13MarketplaceTask, gCloud14MarketplaceTask, customerDirectoryTask);
+        marketplaceServices = [.. await gCloud13MarketplaceTask, .. await gCloud14MarketplaceTask];
         customerDirectoryEntries = await customerDirectoryTask;
-        FilteredEditMarketplaceServices = marketplaceServices;
+        FilteredEditMarketplaceServices = marketplaceServices.Where(service => service.Framework == editFramework).ToList();
         FilteredEditCustomerSuggestions = customerDirectoryEntries;
     }
 
@@ -754,7 +761,7 @@ else
     {
         activeEditCustomerPicker = null;
         editMarketplaceSuggestionsOpen = HasMarketplaceServiceSuggestions;
-        FilteredEditMarketplaceServices = marketplaceServices;
+        FilteredEditMarketplaceServices = marketplaceServices.Where(service => service.Framework == editFramework).ToList();
     }
 
     private void CloseEditMarketplaceServices() => editMarketplaceSuggestionsOpen = false;
@@ -763,6 +770,7 @@ else
     {
         var search = editMarketplaceServiceId.Trim();
         FilteredEditMarketplaceServices = marketplaceServices
+            .Where(service => service.Framework == editFramework)
             .Where(service => string.IsNullOrWhiteSpace(search)
                 || service.ServiceId.Contains(search, StringComparison.OrdinalIgnoreCase)
                 || service.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
@@ -811,6 +819,7 @@ else
         editingOperations = !editingOperations;
         operationsSubmission = null;
         operationsMailMessage = null;
+        operationsMailSucceeded = false;
         if (editingOperations) PopulateOperationsEditor();
     }
     private void PopulateOperationsEditor()
@@ -852,14 +861,6 @@ else
                 source.Select((part, index) => new ContractServicePartEntry(part.Id, part.Name, part.GoLiveDate, index)).ToList());
             if (operationsSubmission.Succeeded)
             {
-                var mailEvents = Services.GetService<RemiMailEventService>();
-                var mailResult = mailEvents is null
-                    ? null
-                    : await mailEvents.CaptureCustomerGoLiveAsync(ContractId, operationsSubmission.NewlyLivePartIds);
-                if (mailResult is not null)
-                {
-                    operationsMailMessage = mailResult.Message;
-                }
                 details = await Workspace.GetContractDetailsAsync(ContractId);
                 history = await Workspace.GetContractAuditEventsAsync(ContractId);
                 editingOperations = false;
@@ -867,6 +868,29 @@ else
             }
         }
         finally { operationsWorking = false; }
+    }
+
+    private async Task CaptureCustomerGoLiveMessageAsync()
+    {
+        var livePartIds = GoLiveCapturePartIds;
+        if (livePartIds.Count == 0) return;
+        operationsMailWorking = true;
+        operationsMailMessage = null;
+        operationsMailSucceeded = false;
+        try
+        {
+            var mailEvents = Services.GetService<RemiMailEventService>();
+            if (mailEvents is null)
+            {
+                operationsMailMessage = "Mail capture is not available.";
+                return;
+            }
+
+            var result = await mailEvents.CaptureCustomerGoLiveAsync(ContractId, livePartIds);
+            operationsMailSucceeded = result.Succeeded;
+            operationsMailMessage = result.Message;
+        }
+        finally { operationsMailWorking = false; }
     }
 
     private async Task SaveContractAsync()
@@ -1050,7 +1074,6 @@ else
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed) ? parsed.ToString("MMMM yyyy") : month;
     private static string StatusMark(bool complete) => complete ? "✓" : "!";
     private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;
-    private static bool IsPdf(EvidenceLink evidence) => string.Equals(evidence.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
     private static string Display(string? value) => string.IsNullOrWhiteSpace(value) ? "Not recorded" : value;
     private static string Display(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
     private static int FullContractMonths(DateOnly start, DateOnly end)

@@ -29,9 +29,9 @@ else
 
                 <div class="register-filters invoice-filters">
                     <label class="register-search floating-field floating-field--static"><input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /><span class="floating-label">Search invoices</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="matchFilter" @bind:after="ResetPage"><option value="">All records</option><option value="matched">Matched</option><option value="unmatched">Needs a contract</option></select><span class="floating-label">Contract match</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select><span class="floating-label">Documents</span></label>
+                    <RemiPicklist Id="invoice-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" />
+                    <RemiPicklist Id="invoice-contract-filter-options" Label="Contract match" Items="@ContractMatchFilterItems" Value="@matchFilter" ValueChanged="SetMatchFilter" ItemLabel="ContractMatchFilterLabel" />
+                    <RemiPicklist Id="invoice-document-filter-options" Label="Documents" Items="@DocumentFilterItems" Value="@evidenceFilter" ValueChanged="SetEvidenceFilter" ItemLabel="DocumentFilterLabel" />
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
@@ -91,6 +91,9 @@ else
 
 @code {
     private const int PageSize = 10;
+    private static readonly IReadOnlyList<string> FrameworkFilterItems = [string.Empty, .. Frameworks.All.Select(item => item.Code.ToString())];
+    private static readonly IReadOnlyList<string> ContractMatchFilterItems = [string.Empty, "matched", "unmatched"];
+    private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private IReadOnlyList<InvoiceRegisterItem>? invoices;
     private string reportingMonth = string.Empty;
     private string searchTerm = string.Empty;
@@ -141,6 +144,14 @@ else
         && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "current" && invoice.ReportMonth == reportingMonth) || (quickFilter == "unmatched" && !invoice.HasMatchingContract) || (quickFilter == "missing" && invoice.EvidenceCount == 0));
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
+    private void SetFrameworkFilter(string value) { frameworkFilter = value; ResetPage(); }
+    private void SetMatchFilter(string value) { matchFilter = value; ResetPage(); }
+    private void SetEvidenceFilter(string value) { evidenceFilter = value; ResetPage(); }
+    private static string FrameworkFilterLabel(string value) => string.IsNullOrEmpty(value)
+        ? "All frameworks"
+        : Enum.TryParse<FrameworkCode>(value, out var framework) ? Frameworks.Get(framework).DisplayName : value;
+    private static string ContractMatchFilterLabel(string value) => value switch { "matched" => "Matched", "unmatched" => "Needs a contract", _ => "All records" };
+    private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
     private void SortBy(string column)
     {
         if (sortColumn == column) sortDescending = !sortDescending;

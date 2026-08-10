@@ -113,8 +113,19 @@
 @if (ActiveSection == DigitalMarketplaceSection)
 {
 <section class="panel maintenance-panel">
-    <h2>G-Cloud 14 Digital Marketplace services</h2>
-    <p>These StatMap Ltd products are suggested when entering a Digital Marketplace Service ID for a contract. You can maintain the list when the supplier catalogue changes; choosing a suggestion is optional.</p>
+    <h2>@DigitalMarketplaceFramework.DisplayName Digital Marketplace services</h2>
+    <p>Maintain product-to-service-ID mappings separately for each G-Cloud framework. Remi offers only the selected framework's mappings when reviewing a contract.</p>
+    <div class="form-grid">
+        <label class="floating-field floating-field--static">
+            <select aria-label="Digital Marketplace framework" disabled="@(working || editingDigitalMarketplaceServices)" @bind="digitalMarketplaceFramework" @bind:after="DigitalMarketplaceFrameworkChangedAsync">
+                @foreach (var framework in DigitalMarketplaceFrameworks)
+                {
+                    <option value="@framework.Code">@framework.DisplayName</option>
+                }
+            </select>
+            <span class="floating-label">Framework</span>
+        </label>
+    </div>
     <div class="action-row">
         @if (editingDigitalMarketplaceServices)
         {
@@ -130,6 +141,10 @@
         <table>
             <thead><tr><th>Product</th><th>Digital Marketplace Service ID</th>@if (editingDigitalMarketplaceServices) { <th><span class="visually-hidden">Actions</span></th> }</tr></thead>
             <tbody>
+                @if (digitalMarketplaceServices.Count == 0)
+                {
+                    <tr><td colspan="@(editingDigitalMarketplaceServices ? 3 : 2)" class="muted">No mappings are configured for @DigitalMarketplaceFramework.DisplayName.</td></tr>
+                }
                 @foreach (var service in digitalMarketplaceServices)
                 {
                     <tr>
@@ -157,7 +172,14 @@
     {
         <p class="notice @(digitalMarketplaceSaveSucceeded ? "success" : "error")" role="status">@digitalMarketplaceMessage</p>
     }
-    <p class="caption">Seeded from the <a href="https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap&amp;lot=cloud-software" target="_blank" rel="noreferrer">UK Government Digital Marketplace</a> G-Cloud 14 StatMap search (verified 6 August 2026).</p>
+    @if (digitalMarketplaceFramework == FrameworkCode.GCloud14)
+    {
+        <p class="caption">Seeded from the <a href="https://www.applytosupply.digitalmarketplace.service.gov.uk/g-cloud/search?q=StatMap&amp;lot=cloud-software" target="_blank" rel="noreferrer">UK Government Digital Marketplace</a> G-Cloud 14 StatMap search (verified 6 August 2026).</p>
+    }
+    else
+    {
+        <p class="caption">No default G-Cloud 13 mappings are supplied. Add the historical product and service-ID mappings manually.</p>
+    }
 </section>
 }
 
@@ -254,6 +276,11 @@
     private const string MailSection = "mail";
     private const string AuditSection = "audit";
     private const string DataTransferSection = "data-transfer";
+    private static readonly IReadOnlyList<FrameworkDefinition> DigitalMarketplaceFrameworks =
+    [
+        Frameworks.Get(FrameworkCode.GCloud13),
+        Frameworks.Get(FrameworkCode.GCloud14),
+    ];
 
     [Parameter, SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
@@ -267,6 +294,7 @@
     private CustomerUrnDirectoryStatus? urnDirectoryStatus;
     private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
     private List<EditableDigitalMarketplaceService> digitalMarketplaceServices = [];
+    private FrameworkCode digitalMarketplaceFramework = FrameworkCode.GCloud14;
     private readonly Dictionary<FrameworkCode, string> frameworkStartDateInputs = [];
     private string? urnMessage;
     private bool working;
@@ -286,11 +314,12 @@
     {
         FrameworksSection => FrameworksSection,
         DigitalMarketplaceSection => DigitalMarketplaceSection,
+        CustomerUrnsSection => CustomerUrnsSection,
         TemplatesSection => TemplatesSection,
         MailSection => MailSection,
         AuditSection => AuditSection,
         DataTransferSection => DataTransferSection,
-        _ => CustomerUrnsSection,
+        _ => FrameworksSection,
     };
 
     private bool RestoreCompleted => string.Equals(Restore, "complete", StringComparison.Ordinal);
@@ -340,7 +369,7 @@
     {
         var urnDirectoryTask = Workspace.GetCustomerUrnDirectoryStatusAsync();
         var frameworkConfigurationsTask = Workspace.GetFrameworkConfigurationsAsync();
-        var digitalMarketplaceServicesTask = Workspace.GetDigitalMarketplaceServicesAsync();
+        var digitalMarketplaceServicesTask = Workspace.GetDigitalMarketplaceServicesAsync(digitalMarketplaceFramework);
         await Task.WhenAll(urnDirectoryTask, frameworkConfigurationsTask, digitalMarketplaceServicesTask);
         urnDirectoryStatus = await urnDirectoryTask;
         frameworkConfigurations = await frameworkConfigurationsTask;
@@ -478,7 +507,8 @@
         try
         {
             var result = await Workspace.UpdateDigitalMarketplaceServicesAsync(
-                digitalMarketplaceServices.Select(service => new DigitalMarketplaceService(service.ServiceId, service.Name)));
+                digitalMarketplaceFramework,
+                digitalMarketplaceServices.Select(service => new DigitalMarketplaceService(service.ServiceId, service.Name, digitalMarketplaceFramework)));
             digitalMarketplaceSaveSucceeded = result.Succeeded;
             digitalMarketplaceMessage = result.Message;
             if (result.Succeeded)
@@ -499,8 +529,16 @@
         }
     }
 
+    private FrameworkDefinition DigitalMarketplaceFramework => Frameworks.Get(digitalMarketplaceFramework);
+
+    private async Task DigitalMarketplaceFrameworkChangedAsync()
+    {
+        digitalMarketplaceMessage = null;
+        await ReloadDigitalMarketplaceServicesAsync();
+    }
+
     private async Task ReloadDigitalMarketplaceServicesAsync() =>
-        digitalMarketplaceServices = (await Workspace.GetDigitalMarketplaceServicesAsync())
+        digitalMarketplaceServices = (await Workspace.GetDigitalMarketplaceServicesAsync(digitalMarketplaceFramework))
             .Select(service => new EditableDigitalMarketplaceService(service))
             .ToList();
 

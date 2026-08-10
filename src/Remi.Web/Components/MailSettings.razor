@@ -1,13 +1,16 @@
 @using System.Globalization
 @using System.Net.Mail
+@using Microsoft.JSInterop
 @using Remi.Application
+@implements IAsyncDisposable
 @inject IRemiMailStore MailStore
 @inject RemiMailEventService MailEvents
 @inject ReportingWorkspace Workspace
 @inject TimeProvider TimeProvider
+@inject IJSRuntime JsRuntime
 
 <section class="panel maintenance-panel mail-settings-panel">
-    <div class="mail-capture-banner"><strong>Capture mode</strong><span>Remi can compose and retain messages, but this release cannot send them or contact Mailgun.</span></div>
+    <div class="mail-capture-banner"><strong>Manual capture mode</strong><span>Every message requires an explicit Capture action. Remi can compose and retain messages, but this release cannot send them or contact Mailgun.</span></div>
     <div class="mail-settings-layout">
         <nav class="mail-template-nav" aria-label="Mail events">
             @foreach (var template in templates)
@@ -21,10 +24,6 @@
         {
             <div class="mail-template-editor">
                 <header><div><h2>@selectedTemplate.DisplayName</h2><p>@TemplateExplanation(selectedTemplate.EventType)</p></div><span class="mail-trigger-badge">@selectedTemplate.TriggerMode</span></header>
-                @if (selectedTemplate.TriggerMode == MailTriggerMode.Automatic && selectedTemplate.ScheduleDay is not null)
-                {
-                    <p class="mail-schedule-note">Scheduled for day @selectedTemplate.ScheduleDay at @selectedTemplate.ScheduleTimeLocal?.ToString("HH:mm") (@selectedTemplate.TimeZoneId). The monthly active-contract event is initialised without historical catch-up; its first eligible run is the next 1st of the month.</p>
-                }
                 <label class="contract-change-flipper"><input type="checkbox" @bind="editEnabled" /><span class="contract-change-flipper-control" aria-hidden="true"></span><span>Enable this event</span></label>
                 <div class="mail-recipient-grid">
                     <label class="floating-field"><input placeholder=" " @bind="editTo" /><span class="floating-label">To</span></label>
@@ -32,13 +31,34 @@
                     <label class="floating-field"><input placeholder=" " @bind="editBcc" /><span class="floating-label">Bcc</span></label>
                 </div>
                 <p class="caption">Separate several addresses with commas or semicolons. Display names such as <code>Jane Smith &lt;jane@example.com&gt;</code> are supported.</p>
-                <div class="mail-copy-fields">
+                <div class="mail-template-content">
                     <label class="floating-field"><input required placeholder=" " @bind="editSubject" /><span class="floating-label">Subject</span></label>
-                    <label class="floating-field"><textarea required placeholder=" " @bind="editGreeting"></textarea><span class="floating-label">Greeting</span></label>
-                    <label class="floating-field"><textarea required placeholder=" " @bind="editIntroduction"></textarea><span class="floating-label">Introduction</span></label>
-                    <label class="floating-field"><textarea required placeholder=" " @bind="editRequestText"></textarea><span class="floating-label">Request or explanation</span></label>
-                    <label class="floating-field"><textarea required placeholder=" " @bind="editClosing"></textarea><span class="floating-label">Closing</span></label>
-                    <label class="floating-field"><textarea required placeholder=" " @bind="editSignature"></textarea><span class="floating-label">Signature</span></label>
+                    <div class="mail-message-authoring">
+                        <label class="floating-field floating-field--static mail-message-field">
+                            <textarea @ref="messageEditor" required placeholder="Write the complete message in reading order." @bind="editBody" @bind:event="oninput"></textarea>
+                            <span class="floating-label">Message</span>
+                        </label>
+                        <aside class="mail-template-placements" aria-label="Available message placements">
+                            <strong>Insert into message</strong>
+                            <p>Place generated content exactly where it should appear.</p>
+                            <div class="mail-placement-list">
+                                @foreach (var placement in AvailablePlacements)
+                                {
+                                    var alreadyPlaced = placement.Block && editBody.Contains(PlacementToken(placement), StringComparison.Ordinal);
+                                    <button type="button" disabled="@alreadyPlaced" @onclick="@(() => InsertPlacementAsync(placement))">
+                                        <code>@PlacementToken(placement)</code>
+                                        <span>@placement.Label</span>
+                                        @if (alreadyPlaced) { <small>Placed</small> }
+                                        else if (placement.Required) { <small>Required</small> }
+                                    </button>
+                                }
+                            </div>
+                        </aside>
+                    </div>
+                    @if (!HasRequiredPlacement && RequiredPlacement is { } requiredPlacement)
+                    {
+                        <p class="mail-placement-warning" role="status">Keep <code>@PlacementToken(requiredPlacement)</code> in the message so Remi knows where to insert @requiredPlacement.Label.ToLowerInvariant().</p>
+                    }
                 </div>
                 @if (selectedTemplate.EventType == MailEventTypes.PostSubmissionReport)
                 {
@@ -98,14 +118,20 @@
     private MailTemplateDefinition? selectedTemplate;
     private string? selectedEventType;
     private bool editEnabled;
-    private string editSubject = string.Empty, editGreeting = string.Empty, editIntroduction = string.Empty, editRequestText = string.Empty, editClosing = string.Empty, editSignature = string.Empty;
+    private string editSubject = string.Empty, editBody = string.Empty;
     private string editTo = string.Empty, editCc = string.Empty, editBcc = string.Empty;
     private IReadOnlyList<string> postSubmissionMonths = [];
     private string postSubmissionMonth = string.Empty;
     private bool saving, working, succeeded;
     private string? message;
+    private ElementReference messageEditor;
+    private IJSObjectReference? editorModule;
+    private IReadOnlyList<MailTemplatePlacement> AvailablePlacements => PlacementsFor(selectedEventType);
+    private MailTemplatePlacement? RequiredPlacement => AvailablePlacements.SingleOrDefault(placement => placement.Required);
+    private bool HasRequiredPlacement => RequiredPlacement is null || editBody.Contains(PlacementToken(RequiredPlacement), StringComparison.Ordinal);
     private bool CanSave => !string.IsNullOrWhiteSpace(editSubject)
-        && !string.IsNullOrWhiteSpace(editGreeting)
+        && !string.IsNullOrWhiteSpace(editBody)
+        && HasRequiredPlacement
         && (!editEnabled || TryRecipients(out var recipients, out _) && recipients.Any(recipient => recipient.Type == MailRecipientType.To));
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
@@ -136,11 +162,7 @@
         selectedEventType = template.EventType;
         editEnabled = template.Enabled;
         editSubject = template.SubjectTemplate;
-        editGreeting = template.Greeting;
-        editIntroduction = template.Introduction;
-        editRequestText = template.RequestText;
-        editClosing = template.Closing;
-        editSignature = template.Signature;
+        editBody = template.BodyTemplate;
         editTo = RecipientInput(template, MailRecipientType.To);
         editCc = RecipientInput(template, MailRecipientType.Cc);
         editBcc = RecipientInput(template, MailRecipientType.Bcc);
@@ -167,6 +189,12 @@
             message = "Add at least one To recipient before enabling this event.";
             return;
         }
+        if (!HasRequiredPlacement && RequiredPlacement is { } requiredPlacement)
+        {
+            succeeded = false;
+            message = $"Keep {PlacementToken(requiredPlacement)} in the message before saving this event.";
+            return;
+        }
 
         saving = true;
         try
@@ -175,14 +203,10 @@
                 selectedTemplate.EventType,
                 editEnabled,
                 editSubject,
-                editGreeting,
-                editIntroduction,
-                editRequestText,
-                editClosing,
-                editSignature,
+                editBody,
                 recipients), TimeProvider.GetUtcNow());
             var savedMessage = editEnabled
-                ? "The Capture event is enabled. Remi will retain messages but cannot send them."
+                ? "The manual Capture event is enabled. Use its Capture action when you want Remi to retain a message; Remi cannot send it."
                 : "The template has been saved and remains disabled.";
             await ReloadAsync();
             succeeded = true;
@@ -219,6 +243,12 @@
         finally { working = false; }
     }
 
+    private async Task InsertPlacementAsync(MailTemplatePlacement placement)
+    {
+        editorModule ??= await JsRuntime.InvokeAsync<IJSObjectReference>("import", "/mail-template-editor.js");
+        await editorModule.InvokeVoidAsync("insertPlacement", messageEditor, PlacementToken(placement), placement.Block);
+    }
+
     private bool TryRecipients(out IReadOnlyList<MailRecipient> recipients, out string? error)
     {
         var result = new List<MailRecipient>();
@@ -250,17 +280,52 @@
     private static string TemplateStatus(MailTemplateDefinition template) => template.Enabled ? $"Enabled · {template.TriggerMode}" : "Disabled";
     private static string TemplateExplanation(string eventType) => eventType switch
     {
-        MailEventTypes.MonthlyActiveContracts => "Automatically captured on the 1st for the preceding reporting month. Unreported inventory is prefixed NEW.",
-        MailEventTypes.CustomerGoLive => "Captured when one or more contract parts receive their first actual go-live date.",
+        MailEventTypes.MonthlyActiveContracts => "Manually captured for the preceding reporting month. Unreported inventory is prefixed NEW.",
+        MailEventTypes.CustomerGoLive => "Manually captured from a contract after one or more parts receive an actual go-live date.",
         MailEventTypes.PostSubmissionReport => "Manually captured after GCA accepts the month's returns. The retained portal screenshots are embedded beneath their framework headings.",
-        MailEventTypes.ExpiringContracts => "Reserved for the three-month expiry watch. The detailed selection rules will be agreed before enabling it.",
-        MailEventTypes.SubmissionDeadlineReminder => "Reserved for the monthly submission deadline reminder. Its exact deadline schedule is not yet configured.",
+        MailEventTypes.ExpiringContracts => "Reserved for a manual three-month expiry watch. The detailed selection rules will be agreed before enabling it.",
+        MailEventTypes.SubmissionDeadlineReminder => "Reserved for a manual monthly submission-deadline reminder. Its exact deadline rules are not yet configured.",
         _ => "Remi mail event.",
     };
     private string EventName(string eventType) => templates.SingleOrDefault(template => template.EventType == eventType)?.DisplayName ?? eventType;
     private static string RecipientSummary(MailMessageSummary message) => string.Join(" · ", message.Recipients.GroupBy(recipient => recipient.Type).Select(group => $"{group.Key} {group.Count()}"));
+    private static string PlacementToken(MailTemplatePlacement placement) => $"{{{{{placement.Token}}}}}";
+    private static IReadOnlyList<MailTemplatePlacement> PlacementsFor(string? eventType) => eventType switch
+    {
+        MailEventTypes.MonthlyActiveContracts =>
+        [
+            new("active_contracts", "Active contract inventory", true, true),
+            new("reporting_month", "Reporting month", false, false),
+        ],
+        MailEventTypes.CustomerGoLive =>
+        [
+            new("operational_parts", "Operational systems and dates", true, true),
+            new("customer_name", "Customer name", false, false),
+            new("contract_reference", "Contract reference", false, false),
+            new("framework_name", "Framework name", false, false),
+        ],
+        MailEventTypes.PostSubmissionReport =>
+        [
+            new("submission_evidence", "Submission evidence", true, true),
+            new("reporting_month", "Reporting month", false, false),
+        ],
+        MailEventTypes.ExpiringContracts =>
+        [new("expiring_contracts", "Contracts approaching expiry", true, true)],
+        MailEventTypes.SubmissionDeadlineReminder =>
+        [new("reporting_month", "Reporting month", false, false)],
+        _ => [],
+    };
     private static string ReportingMonthLabel(string value) =>
         DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
             ? parsed.ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"))
             : value;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (editorModule is null) return;
+        try { await editorModule.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private sealed record MailTemplatePlacement(string Token, string Label, bool Required, bool Block);
 }

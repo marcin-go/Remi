@@ -158,6 +158,7 @@ public sealed record EvidenceLink(
     string FileName,
     string OriginalRelativePath,
     string ContentType,
+    long FileSizeBytes,
     string? ReportMonth,
     DateTimeOffset ArchivedAtUtc);
 
@@ -187,6 +188,8 @@ public sealed record HistoricalReturnPeriod(
     string ReportingMonth);
 
 public sealed record ReturnActionResult(bool Succeeded, string Message, IReadOnlyList<ValidationFinding> Findings, Guid? EntityId = null);
+
+public sealed record SubmissionEvidenceEdit(Guid EvidenceId, string Title, bool Remove = false);
 
 public sealed record ContractEntry(
     FrameworkCode Framework,

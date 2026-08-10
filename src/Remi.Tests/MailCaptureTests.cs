@@ -9,6 +9,35 @@ namespace Remi.Tests;
 public sealed class MailCaptureTests
 {
     [Fact]
+    public async Task All_event_templates_are_manual_and_have_no_schedule()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "remi-data.db");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var schemaStore = new SqliteRemiStore(databasePath);
+            var mailStore = new SqliteRemiMailStore(databasePath, schemaStore);
+
+            var templates = await mailStore.GetTemplatesAsync();
+
+            Assert.Equal(5, templates.Count);
+            Assert.All(templates, template =>
+            {
+                Assert.Equal(MailTriggerMode.Manual, template.TriggerMode);
+                Assert.Null(template.ScheduleDay);
+                Assert.Null(template.ScheduleTimeLocal);
+                Assert.Null(template.TimeZoneId);
+            });
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Capture_writes_one_immutable_eml_and_deduplicates_the_event()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
@@ -87,7 +116,7 @@ public sealed class MailCaptureTests
     }
 
     [Fact]
-    public async Task Monthly_inventory_uses_scheduled_as_of_state_for_new_and_excludes_later_entries()
+    public async Task Monthly_inventory_uses_manual_trigger_time_for_new_and_excludes_later_entries()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
         var databasePath = Path.Combine(root, "remi-data.db");
@@ -95,7 +124,7 @@ public sealed class MailCaptureTests
         Directory.CreateDirectory(root);
         try
         {
-            var scheduled = new DateTimeOffset(2026, 8, 1, 8, 0, 0, TimeSpan.Zero);
+            var triggeredAt = new DateTimeOffset(2026, 8, 1, 8, 0, 0, TimeSpan.Zero);
             var reportedId = Guid.NewGuid();
             var newId = Guid.NewGuid();
             var lateId = Guid.NewGuid();
@@ -127,21 +156,18 @@ public sealed class MailCaptureTests
                 template.EventType,
                 true,
                 template.SubjectTemplate,
-                template.Greeting,
-                template.Introduction,
-                template.RequestText,
-                template.Closing,
-                template.Signature,
-                [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, null, "director@example.test", 0)]), scheduled);
+                "Message before {{reporting_month}}.\n\n{{active_contracts}}\n\nMessage after the inventory.",
+                [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, null, "director@example.test", 0)]), triggeredAt);
             var contentStore = new FileMailContentStore(mailRoot);
-            var capture = new MailCaptureService(mailStore, contentStore, new MailRuntimeOptions(MailDeliveryMode.Capture, "remi@example.test", "Remi"), new FixedTimeProvider(scheduled));
+            var capture = new MailCaptureService(mailStore, contentStore, new MailRuntimeOptions(MailDeliveryMode.Capture, "remi@example.test", "Remi"), new FixedTimeProvider(triggeredAt));
             var events = new RemiMailEventService(schemaStore, mailStore, capture, new DiscardEvidenceArchive());
 
-            var result = await events.CaptureMonthlyActiveContractsAsync("2026-07", scheduled);
+            var result = await events.CaptureMonthlyActiveContractsAsync("2026-07", triggeredAt);
 
             Assert.True(result.Succeeded);
             Assert.NotNull(result.CapturedMessage);
             var message = result.CapturedMessage!;
+            Assert.Null(message.ScheduledForUtc);
             await using var stream = await contentStore.OpenReadAsync(message.StorageKey);
             using var reader = new StreamReader(stream!, Encoding.UTF8);
             var plainText = DecodeFirstMimePart(await reader.ReadToEndAsync());
@@ -150,6 +176,11 @@ public sealed class MailCaptureTests
             Assert.Contains("NEW - Jul 2026 - New Council", plainText, StringComparison.Ordinal);
             Assert.Contains("NOT live yet", plainText, StringComparison.Ordinal);
             Assert.DoesNotContain("Late Council", plainText, StringComparison.Ordinal);
+            Assert.DoesNotContain("{{active_contracts}}", plainText, StringComparison.Ordinal);
+            Assert.True(plainText.IndexOf("Message before July 2026.", StringComparison.Ordinal)
+                < plainText.IndexOf("Reported Council", StringComparison.Ordinal));
+            Assert.True(plainText.IndexOf("Reported Council", StringComparison.Ordinal)
+                < plainText.IndexOf("Message after the inventory.", StringComparison.Ordinal));
         }
         finally
         {
@@ -203,11 +234,7 @@ public sealed class MailCaptureTests
                 template.EventType,
                 true,
                 template.SubjectTemplate,
-                template.Greeting,
-                template.Introduction,
-                template.RequestText,
-                template.Closing,
-                template.Signature,
+                template.BodyTemplate,
                 [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, null, "director@example.test", 0)]), capturedAt);
             var contentStore = new FileMailContentStore(mailRoot);
             var capture = new MailCaptureService(mailStore, contentStore, new MailRuntimeOptions(MailDeliveryMode.Capture, "remi@example.test", "Remi"), new FixedTimeProvider(capturedAt));
@@ -256,8 +283,7 @@ public sealed class MailCaptureTests
             });
             var mailStore = new SqliteRemiMailStore(databasePath, schemaStore);
             var template = Assert.Single(await mailStore.GetTemplatesAsync(), item => item.EventType == MailEventTypes.PostSubmissionReport);
-            await mailStore.SaveTemplateAsync(new MailTemplateUpdate(template.EventType, true, template.SubjectTemplate, template.Greeting,
-                template.Introduction, template.RequestText, template.Closing, template.Signature,
+            await mailStore.SaveTemplateAsync(new MailTemplateUpdate(template.EventType, true, template.SubjectTemplate, template.BodyTemplate,
                 [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, null, "director@example.test", 0)]), now);
             var capture = new MailCaptureService(mailStore, new FileMailContentStore(Path.Combine(root, "mail")), new MailRuntimeOptions(MailDeliveryMode.Capture, "remi@example.test", "Remi"), new FixedTimeProvider(now));
             var events = new RemiMailEventService(schemaStore, mailStore, capture, new FileEvidenceArchive(Path.Combine(root, "evidence")));
@@ -329,7 +355,5 @@ public sealed class MailCaptureTests
         public Task<MailMessageSummary?> GetMessageByDeliveryKeyAsync(string deliveryKey, CancellationToken cancellationToken = default) => Task.FromResult<MailMessageSummary?>(null);
         public Task<MailMessageSummary?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default) => Task.FromResult<MailMessageSummary?>(null);
         public Task SaveCaptureAsync(PersistedMailCapture capture, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<string?> GetSchedulerPeriodAsync(string eventType, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-        public Task SetSchedulerPeriodAsync(string eventType, string period, DateTimeOffset updatedAtUtc, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

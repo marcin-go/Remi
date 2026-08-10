@@ -72,7 +72,7 @@ These are exactly the sort of exceptions Remi should make visible. They should b
 | Evidence | Immutable original MI workbooks, order forms, pricing/dates documents, screenshots and guidance; source path, checksum and optional contract link |
 | Audit event | Append-only actor, time, action, summary and correction reason |
 | Customer reference entry | Locally indexed organisation name, eight-digit URN and address from the archived GCA customer list |
-| Mail template | Event wording, trigger mode, enablement, schedule and event-specific To/Cc/Bcc recipients |
+| Mail template | Subject, one complete body in reading order, explicit generated-content placements, manual trigger, enablement and event-specific To/Cc/Bcc recipients |
 | Captured mail | Immutable recipient snapshot, delivery key, subject, related record/period, SHA-256 and `.eml` content; Capture mode performs no external delivery |
 
 The model deliberately retains the framework-specific fields instead of flattening everything into free text. G-Cloud needs service group and Digital Marketplace Service ID; VAS needs product/service and order-channel attributes.
@@ -100,19 +100,21 @@ Deadlines are **not** hard-coded as a legal rule. They should be stored per agre
 7. Published databases are upgraded only through additive, numbered migrations with preservation tests and pre-migration backup. Destructive restore remains a separate, explicitly confirmed recovery operation; it is never used as a routine upgrade.
 8. Settings can refresh the customer-URN directory. Contract intake then offers local organisation/URN suggestions, while the downloaded source ODS, URL and checksum remain reviewable evidence.
 9. A contract has one operational part by default. A staged contract can expose several system/billing groups with separate actual go-live dates and optional charge-schedule links. Status is derived as `Not live`, `Partially live`, `Live` or `Ended`.
-10. Mail initially runs in Capture mode only. The monthly active-contract message is eligible on the 1st for the preceding month; `NEW` is evaluated against the inventory and reporting-occurrence state at the scheduled instant. A group of contract parts first marked live creates one customer-go-live capture.
+10. Mail initially runs in manual Capture mode only. Every message requires an explicit user action. The monthly active-contract inventory is evaluated at the instant the user chooses Capture, and a customer-go-live message can be captured from the contract only after one or more parts are first marked live.
 11. The manually triggered post-submission message is one immutable capture per reporting month. It requires every reporting framework to have a submitted or nil return plus image evidence recorded after its latest submission event. Those original evidence bytes are embedded inline beneath the G-Cloud 13, G-Cloud 14 and VAS headings; missing state blocks the capture rather than producing a misleading acceptance message.
 
 ## Mail delivery boundary
 
 Capture, Redirect and Live are explicit delivery modes, but only Capture is enabled at go-live. Capture renders an RFC 822 message, stores it immutably under `data/mail`, records recipients and a checksum in SQLite, and never calls Mailgun or any other transport. Attempting to configure this release for Redirect or Live fails closed at startup.
 
-The Settings > Mail screen owns event templates and their recipients. Monthly active contracts, customer going live and the manual post-submission report have active renderers. Contracts expiring within three months and the submission-deadline reminder remain visible but disabled until their remaining selection and scheduling rules are approved. This preserves the event contracts without pretending unfinished automation is live.
+The Settings > Mail screen owns event templates and their recipients. Each template has one complete message body rather than storage-shaped greeting/introduction/request/closing/signature fragments. Explicit tokens place generated blocks at the author's chosen position: `{{active_contracts}}`, `{{operational_parts}}`, `{{submission_evidence}}` and, when enabled, `{{expiring_contracts}}`. Scalar tokens such as `{{customer_name}}` and `{{reporting_month}}` may be inserted as ordinary inline text. Schema migration 4 constructs the single body from every saved legacy fragment, retains the legacy columns for backward-safe rollback, and takes an automatic pre-migration database backup.
+
+Monthly active contracts, customer going live and the post-submission report have active manual renderers. Contracts expiring within three months and the submission-deadline reminder remain visible but disabled until their remaining selection and manual-capture rules are approved. This preserves the event contracts without pretending unfinished behaviour is live.
 
 ## Next delivery slice
 
 1. Agree and implement the three-month contract-expiry selection rules.
-2. Record the formal GCA submission deadline and enable its reminder schedule.
+2. Record the formal GCA submission deadline and enable its manual reminder action.
 3. Add field-level record amendments with before/after values and a reviewer resolution step.
 
 ## Path to colleague access

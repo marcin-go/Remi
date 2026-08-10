@@ -29,9 +29,9 @@ else
 
                 <div class="register-filters">
                     <label class="register-search floating-field floating-field--static"><input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Reference, customer or supplier" /><span class="floating-label">Search contracts</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="frameworkFilter" @bind:after="ResetPage"><option value="">All frameworks</option>@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="evidenceFilter" @bind:after="ResetPage"><option value="">All documents</option><option value="available">Documents linked</option><option value="missing">Documents missing</option></select><span class="floating-label">Documents</span></label>
-                    <label class="floating-field floating-field--static"><select @bind="progressFilter" @bind:after="ResetPage"><option value="">Any progress</option><option value="not-started">Not started</option><option value="in-progress">In progress</option><option value="complete">Complete</option></select><span class="floating-label">Progress</span></label>
+                    <RemiPicklist Id="contract-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" />
+                    <RemiPicklist Id="contract-document-filter-options" Label="Documents" Items="@DocumentFilterItems" Value="@evidenceFilter" ValueChanged="SetEvidenceFilter" ItemLabel="DocumentFilterLabel" />
+                    <RemiPicklist Id="contract-progress-filter-options" Label="Progress" Items="@ProgressFilterItems" Value="@progressFilter" ValueChanged="SetProgressFilter" ItemLabel="ProgressFilterLabel" />
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                     <div class="quick-filters" aria-label="Quick filters">
                         <span>Quick filters</span>
@@ -83,6 +83,9 @@ else
 
 @code {
     private const int PageSize = 10;
+    private static readonly IReadOnlyList<string> FrameworkFilterItems = [string.Empty, .. Frameworks.All.Select(item => item.Code.ToString())];
+    private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
+    private static readonly IReadOnlyList<string> ProgressFilterItems = [string.Empty, "not-started", "in-progress", "complete"];
     private DashboardModel? model;
     private string searchTerm = string.Empty;
     private string frameworkFilter = string.Empty;
@@ -133,6 +136,14 @@ else
     }
 
     private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
+    private void SetFrameworkFilter(string value) { frameworkFilter = value; ResetPage(); }
+    private void SetEvidenceFilter(string value) { evidenceFilter = value; ResetPage(); }
+    private void SetProgressFilter(string value) { progressFilter = value; ResetPage(); }
+    private static string FrameworkFilterLabel(string value) => string.IsNullOrEmpty(value)
+        ? "All frameworks"
+        : Enum.TryParse<FrameworkCode>(value, out var framework) ? Frameworks.Get(framework).DisplayName : value;
+    private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
+    private static string ProgressFilterLabel(string value) => value switch { "not-started" => "Not started", "in-progress" => "In progress", "complete" => "Complete", _ => "Any progress" };
     private void SortBy(string column)
     {
         if (sortColumn == column) sortDescending = !sortDescending;

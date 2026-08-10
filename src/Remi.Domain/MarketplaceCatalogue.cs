@@ -66,7 +66,7 @@ public static class MarketplaceCatalogues
             MarketplaceCataloguePublicationStatus.NotApplicable,
             new DateOnly(2026, 8, 6),
             string.Empty,
-            "G-Cloud 13 is reporting-only. Existing registered contracts supply the Marketplace ID for their invoices; no new-contract suggestions are needed."),
+            "G-Cloud 13 is reporting-only and has no seeded catalogue. Historical product-to-service-ID mappings can be maintained manually in Settings."),
         new(
             StatMapSupplierName,
             FrameworkCode.GCloud14,

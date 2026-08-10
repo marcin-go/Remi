@@ -63,7 +63,6 @@ builder.Services.AddSingleton<IMailContentStore>(_ => new FileMailContentStore(P
 builder.Services.AddSingleton(mailOptions);
 builder.Services.AddSingleton<MailCaptureService>();
 builder.Services.AddSingleton<RemiMailEventService>();
-builder.Services.AddHostedService<MonthlyActiveContractsCaptureWorker>();
 builder.Services.AddSingleton<IRemiDataTransfer>(services => new RemiDataTransferService(
     dataDirectory,
     dataPath,
@@ -137,6 +136,26 @@ app.MapGet("/evidence/{id:guid}", async (
     return stream is null
         ? Results.NotFound()
         : Results.File(stream, evidence.ContentType, fileDownloadName: evidence.FileName, enableRangeProcessing: true);
+});
+
+app.MapGet("/evidence/{id:guid}/preview", async (
+    Guid id,
+    IRemiStore store,
+    IEvidenceArchive archive,
+    CancellationToken cancellationToken) =>
+{
+    var evidence = await store.ReadAsync(
+        database => database.Evidence.SingleOrDefault(item => item.Id == id),
+        cancellationToken);
+    if (evidence is null || !EvidencePreviewPolicy.TryGetPreview(evidence.FileName, out var preview))
+    {
+        return Results.NotFound();
+    }
+
+    var stream = await archive.OpenReadAsync(evidence, cancellationToken);
+    return stream is null
+        ? Results.NotFound()
+        : Results.File(stream, preview.ContentType, enableRangeProcessing: true);
 });
 
 app.MapGet("/evidence/{id:guid}/content", async (

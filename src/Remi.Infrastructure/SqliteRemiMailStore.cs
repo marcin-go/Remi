@@ -30,11 +30,11 @@ public sealed class SqliteRemiMailStore(
                 await using var command = connection.CreateCommand();
                 command.CommandText = """
                     INSERT OR IGNORE INTO mail_templates (
-                        event_type, display_name, enabled, trigger_mode, subject_template,
+                        event_type, display_name, enabled, trigger_mode, subject_template, body_template,
                         greeting, introduction, request_text, closing, signature,
                         schedule_day, schedule_time_local, time_zone_id, updated_at_utc)
                     VALUES (
-                        $eventType, $displayName, 0, $triggerMode, $subject,
+                        $eventType, $displayName, 0, $triggerMode, $subject, $body,
                         $greeting, $introduction, $requestText, $closing, $signature,
                         $scheduleDay, $scheduleTime, $timeZoneId, $updatedAtUtc);
                     """;
@@ -42,6 +42,7 @@ public sealed class SqliteRemiMailStore(
                 Add(command, "$displayName", template.DisplayName);
                 Add(command, "$triggerMode", (int)template.TriggerMode);
                 Add(command, "$subject", template.SubjectTemplate);
+                Add(command, "$body", template.BodyTemplate);
                 Add(command, "$greeting", template.Greeting);
                 Add(command, "$introduction", template.Introduction);
                 Add(command, "$requestText", template.RequestText);
@@ -71,7 +72,7 @@ public sealed class SqliteRemiMailStore(
             await using var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT event_type, display_name, enabled, trigger_mode, subject_template,
-                       greeting, introduction, request_text, closing, signature,
+                       body_template, greeting, introduction, request_text, closing, signature,
                        schedule_day, schedule_time_local, time_zone_id, updated_at_utc
                 FROM mail_templates
                 ORDER BY CASE event_type
@@ -97,10 +98,11 @@ public sealed class SqliteRemiMailStore(
                     reader.GetString(7),
                     reader.GetString(8),
                     reader.GetString(9),
-                    reader.IsDBNull(10) ? null : reader.GetInt32(10),
-                    reader.IsDBNull(11) ? null : TimeOnly.ParseExact(reader.GetString(11), "HH:mm", CultureInfo.InvariantCulture),
-                    reader.IsDBNull(12) ? null : reader.GetString(12),
-                    DateTimeOffset.Parse(reader.GetString(13), CultureInfo.InvariantCulture),
+                    reader.GetString(10),
+                    reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                    reader.IsDBNull(12) ? null : TimeOnly.ParseExact(reader.GetString(12), "HH:mm", CultureInfo.InvariantCulture),
+                    reader.IsDBNull(13) ? null : reader.GetString(13),
+                    DateTimeOffset.Parse(reader.GetString(14), CultureInfo.InvariantCulture),
                     recipients.GetValueOrDefault(eventType, [])));
             }
 
@@ -131,18 +133,13 @@ public sealed class SqliteRemiMailStore(
                 command.Transaction = transaction;
                 command.CommandText = """
                     UPDATE mail_templates
-                    SET enabled = $enabled, subject_template = $subject, greeting = $greeting,
-                        introduction = $introduction, request_text = $requestText,
-                        closing = $closing, signature = $signature, updated_at_utc = $updatedAtUtc
+                    SET enabled = $enabled, subject_template = $subject,
+                        body_template = $body, updated_at_utc = $updatedAtUtc
                     WHERE event_type = $eventType;
                     """;
                 Add(command, "$enabled", update.Enabled ? 1 : 0);
                 Add(command, "$subject", update.SubjectTemplate.Trim());
-                Add(command, "$greeting", update.Greeting.Trim());
-                Add(command, "$introduction", update.Introduction.Trim());
-                Add(command, "$requestText", update.RequestText.Trim());
-                Add(command, "$closing", update.Closing.Trim());
-                Add(command, "$signature", update.Signature.Trim());
+                Add(command, "$body", update.BodyTemplate.Trim());
                 Add(command, "$updatedAtUtc", updatedAtUtc.ToString("O", CultureInfo.InvariantCulture));
                 Add(command, "$eventType", update.EventType);
                 if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
@@ -305,50 +302,6 @@ public sealed class SqliteRemiMailStore(
         }
     }
 
-    public async Task<string?> GetSchedulerPeriodAsync(string eventType, CancellationToken cancellationToken = default)
-    {
-        await EnsureSeededAsync(cancellationToken);
-        await gate.WaitAsync(cancellationToken);
-        try
-        {
-            await using var connection = await OpenAsync(cancellationToken);
-            await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT last_evaluated_period FROM mail_scheduler_state WHERE event_type = $eventType;";
-            Add(command, "$eventType", eventType);
-            return await command.ExecuteScalarAsync(cancellationToken) as string;
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
-
-    public async Task SetSchedulerPeriodAsync(string eventType, string period, DateTimeOffset updatedAtUtc, CancellationToken cancellationToken = default)
-    {
-        await EnsureSeededAsync(cancellationToken);
-        await gate.WaitAsync(cancellationToken);
-        try
-        {
-            await using var connection = await OpenAsync(cancellationToken);
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO mail_scheduler_state (event_type, last_evaluated_period, updated_at_utc)
-                VALUES ($eventType, $period, $updatedAtUtc)
-                ON CONFLICT(event_type) DO UPDATE SET
-                    last_evaluated_period = excluded.last_evaluated_period,
-                    updated_at_utc = excluded.updated_at_utc;
-                """;
-            Add(command, "$eventType", eventType);
-            Add(command, "$period", period);
-            Add(command, "$updatedAtUtc", updatedAtUtc.ToString("O", CultureInfo.InvariantCulture));
-            await command.ExecuteNonQueryAsync(cancellationToken);
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
-
     private async Task<Dictionary<string, IReadOnlyList<MailRecipient>>> LoadTemplateRecipientsAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
@@ -455,16 +408,18 @@ public sealed class SqliteRemiMailStore(
 
     private static IEnumerable<MailTemplateDefinition> DefaultTemplates(string now) =>
     [
-        new(MailEventTypes.MonthlyActiveContracts, "Monthly active contracts", false, MailTriggerMode.Automatic,
+        new(MailEventTypes.MonthlyActiveContracts, "Monthly active contracts", false, MailTriggerMode.Manual,
             "Framework reporting - active contracts for {{reporting_month}}",
+            "Hello everyone,\n\nAnother month has passed and the framework returns for {{reporting_month}} now need compiling.\n\nPlease check the active-contract inventory below and reply with any new contracts, extensions or invoices that Remi does not yet contain.\n\n{{active_contracts}}\n\nTake care\nMarcin Goralski\nGeneral Manager\nStatMap Ltd",
             "Hello everyone,",
             "Another month has passed and the framework returns for {{reporting_month}} now need compiling.",
             "Please check the active-contract inventory below and reply with any new contracts, extensions or invoices that Remi does not yet contain.",
             "Take care",
             "Marcin Goralski\nGeneral Manager\nStatMap Ltd",
-            1, new TimeOnly(9, 0), "Europe/London", DateTimeOffset.Parse(now), []),
+            null, null, null, DateTimeOffset.Parse(now), []),
         new(MailEventTypes.CustomerGoLive, "Customer going live", false, MailTriggerMode.Manual,
             "{{customer_name}} is now live - {{contract_reference}}",
+            "Hello,\n\n{{customer_name}} has gone live under {{framework_name}} contract {{contract_reference}}.\n\nThe operational systems and dates are listed below.\n\n{{operational_parts}}\n\nTake care\nMarcin Goralski\nGeneral Manager\nStatMap Ltd",
             "Hello,",
             "{{customer_name}} has gone live under {{framework_name}} contract {{contract_reference}}.",
             "The operational systems and dates are listed below.",
@@ -473,18 +428,19 @@ public sealed class SqliteRemiMailStore(
             null, null, null, DateTimeOffset.Parse(now), []),
         new(MailEventTypes.PostSubmissionReport, "Post-submission report", false, MailTriggerMode.Manual,
             "Framework MI submission accepted - {{reporting_month}}",
+            "Hi,\n\nI hope this message finds you well.\n\nI'm pleased to inform you that the G-Cloud and VAS monitoring information has been accepted by GCA.\n\nThis month we reported the following values.\n\n{{submission_evidence}}\n\nThis concludes our reporting obligations for this month.\n\nTake care\nMarcin",
             "Hi,",
             "I hope this message finds you well.\n\nI'm pleased to inform you that the G-Cloud and VAS monitoring information has been accepted by GCA.",
             "This month we reported the following values.",
             "This concludes our reporting obligations for this month.",
             "Take care\nMarcin",
             null, null, null, DateTimeOffset.Parse(now), []),
-        new(MailEventTypes.ExpiringContracts, "Contracts expiring within three months", false, MailTriggerMode.Automatic,
-            "Contracts approaching expiry", "Hello,", "The contracts below are approaching their recorded end dates.",
-            "Please review the renewal or extension position.", "Take care", "Marcin Goralski\nGeneral Manager\nStatMap Ltd", 1, new TimeOnly(9, 15), "Europe/London", DateTimeOffset.Parse(now), []),
-        new(MailEventTypes.SubmissionDeadlineReminder, "Submission deadline reminder", false, MailTriggerMode.Automatic,
-            "Framework MI submission deadline reminder - {{reporting_month}}", "Hello,", "The monthly framework reporting deadline is approaching.",
-            "Please ensure the return and its evidence are ready for submission.", "Take care", "Marcin Goralski\nGeneral Manager\nStatMap Ltd", null, null, "Europe/London", DateTimeOffset.Parse(now), []),
+        new(MailEventTypes.ExpiringContracts, "Contracts expiring within three months", false, MailTriggerMode.Manual,
+            "Contracts approaching expiry", "Hello,\n\nThe contracts below are approaching their recorded end dates.\n\n{{expiring_contracts}}\n\nPlease review the renewal or extension position.\n\nTake care\nMarcin Goralski\nGeneral Manager\nStatMap Ltd", "Hello,", "The contracts below are approaching their recorded end dates.",
+            "Please review the renewal or extension position.", "Take care", "Marcin Goralski\nGeneral Manager\nStatMap Ltd", null, null, null, DateTimeOffset.Parse(now), []),
+        new(MailEventTypes.SubmissionDeadlineReminder, "Submission deadline reminder", false, MailTriggerMode.Manual,
+            "Framework MI submission deadline reminder - {{reporting_month}}", "Hello,\n\nThe monthly framework reporting deadline for {{reporting_month}} is approaching.\n\nPlease ensure the return and its evidence are ready for submission.\n\nTake care\nMarcin Goralski\nGeneral Manager\nStatMap Ltd", "Hello,", "The monthly framework reporting deadline is approaching.",
+            "Please ensure the return and its evidence are ready for submission.", "Take care", "Marcin Goralski\nGeneral Manager\nStatMap Ltd", null, null, null, DateTimeOffset.Parse(now), []),
     ];
 
     private static void Add(SqliteCommand command, string name, object? value) =>

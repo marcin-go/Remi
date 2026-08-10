@@ -82,6 +82,7 @@ public sealed class DesignAccessibilityTests
         Assert.Contains(".dashboard-metrics .has-blocking-exceptions dd { color: var(--color-error); }", css, StringComparison.Ordinal);
         Assert.Contains(".dashboard-header { display: flex; align-items: start; justify-content: space-between; gap: 2rem; margin-bottom: 1.35rem; }", css, StringComparison.Ordinal);
         Assert.Contains(".return-register-heading h2 { margin: 0; color: #183c50; font-size: 1.25rem; }", css, StringComparison.Ordinal);
+        Assert.Contains(".gca-summary-content { display: grid; grid-template-columns: 1fr;", css, StringComparison.Ordinal);
         Assert.Contains("th { position: sticky; top: 0; z-index: 1; color: #607482; background: #f7f9fa; font-size: 0.65625rem; font-weight: 700; letter-spacing: normal; text-transform: none; }", css, StringComparison.Ordinal);
         Assert.Contains("/* Definitive Remi density rules: compact facts, persistent floating labels, no decorative title rows. */", css, StringComparison.Ordinal);
         Assert.Contains(".register-filters .floating-field > input,", css, StringComparison.Ordinal);
@@ -106,8 +107,19 @@ public sealed class DesignAccessibilityTests
         Assert.DoesNotContain("Select visible", invoices, StringComparison.Ordinal);
         Assert.Contains("register-search floating-field floating-field--static", contracts, StringComparison.Ordinal);
         Assert.Contains("register-search floating-field floating-field--static", invoices, StringComparison.Ordinal);
+        Assert.DoesNotContain("<select", contracts, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<select", invoices, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, contracts.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, invoices.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("<datalist", razor, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("<SearchablePicklistOptions", razor, StringComparison.Ordinal);
+
+        var contractRecord = File.ReadAllText(Path.Combine(componentRoot, "ContractRecordView.razor"));
+        var invoiceRecord = File.ReadAllText(Path.Combine(componentRoot, "InvoiceRecordView.razor"));
+        Assert.Contains("<EvidenceGallery", contractRecord, StringComparison.Ordinal);
+        Assert.Contains("<EvidenceGallery", invoiceRecord, StringComparison.Ordinal);
+        Assert.DoesNotContain("contract-evidence-file", contractRecord, StringComparison.Ordinal);
+        Assert.DoesNotContain("contract-evidence-file", invoiceRecord, StringComparison.Ordinal);
 
         var picklist = File.ReadAllText(Path.Combine(componentRoot, "SearchablePicklistOptions.razor"));
         Assert.Contains("Virtualize", picklist, StringComparison.Ordinal);
@@ -125,9 +137,32 @@ public sealed class DesignAccessibilityTests
         Assert.Contains("combobox.getAttribute(\"aria-expanded\") !== \"true\"", picklistDismiss, StringComparison.Ordinal);
         Assert.Contains("combobox.blur()", picklistDismiss, StringComparison.Ordinal);
 
+        var clipboardEvidence = File.ReadAllText(FindFromRepository("src", "Remi.Web", "wwwroot", "clipboard-image-evidence.js"));
+        Assert.Contains("isTextEditingTarget(event.target) && !host.contains(event.target)", clipboardEvidence, StringComparison.Ordinal);
+
         var contractRegistration = File.ReadAllText(Path.Combine(componentRoot, "Pages", "ContractRegistration.razor"));
         Assert.DoesNotContain("<select", contractRegistration, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(5, contractRegistration.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+
+        var mailSettings = File.ReadAllText(Path.Combine(componentRoot, "MailSettings.razor"));
+        Assert.Equal(1, mailSettings.Split("mail-message-field", StringSplitOptions.None).Length - 1);
+        Assert.Contains("Insert into message", mailSettings, StringComparison.Ordinal);
+        Assert.Contains("AvailablePlacements", mailSettings, StringComparison.Ordinal);
+        Assert.DoesNotContain("editGreeting", mailSettings, StringComparison.Ordinal);
+        Assert.DoesNotContain("Request or explanation", mailSettings, StringComparison.Ordinal);
+        Assert.Contains("Manual capture mode", mailSettings, StringComparison.Ordinal);
+        Assert.DoesNotContain("MailTriggerMode.Automatic", mailSettings, StringComparison.Ordinal);
+
+        var saveOperationsStart = contractRecord.IndexOf("private async Task SaveOperationsAsync", StringComparison.Ordinal);
+        var manualGoLiveStart = contractRecord.IndexOf("private async Task CaptureCustomerGoLiveMessageAsync", StringComparison.Ordinal);
+        Assert.True(saveOperationsStart >= 0 && manualGoLiveStart > saveOperationsStart);
+        Assert.DoesNotContain("CaptureCustomerGoLiveAsync", contractRecord[saveOperationsStart..manualGoLiveStart], StringComparison.Ordinal);
+        Assert.Contains("Capture customer go-live message", contractRecord, StringComparison.Ordinal);
+        Assert.Contains("CaptureCustomerGoLiveAsync", contractRecord[manualGoLiveStart..], StringComparison.Ordinal);
+
+        var webRoot = FindFromRepository("src", "Remi.Web");
+        Assert.False(File.Exists(Path.Combine(webRoot, "MonthlyActiveContractsCaptureWorker.cs")));
+        Assert.DoesNotContain("MonthlyActiveContractsCaptureWorker", File.ReadAllText(Path.Combine(webRoot, "Program.cs")), StringComparison.Ordinal);
 
         var css = File.ReadAllText(AppCssPath());
         Assert.Contains("height: calc((var(--picklist-visible-rows) * 2.5rem) + 2px);", css, StringComparison.Ordinal);

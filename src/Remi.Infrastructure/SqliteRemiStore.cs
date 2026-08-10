@@ -11,7 +11,7 @@ namespace Remi.Infrastructure;
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 3;
+    internal const int CurrentSchemaVersion = 5;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -291,8 +291,10 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             );
 
             CREATE TABLE IF NOT EXISTS digital_marketplace_services (
-                service_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL
+                framework INTEGER NOT NULL,
+                service_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                PRIMARY KEY (framework, service_id)
             );
 
             CREATE TABLE IF NOT EXISTS audit_events (
@@ -677,12 +679,15 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<DigitalMarketplaceService>> LoadDigitalMarketplaceServicesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT service_id, name FROM digital_marketplace_services ORDER BY name COLLATE NOCASE, service_id;");
+        await using var command = CreateCommand(connection, "SELECT framework, service_id, name FROM digital_marketplace_services ORDER BY framework, name COLLATE NOCASE, service_id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var services = new List<DigitalMarketplaceService>();
         while (await reader.ReadAsync(cancellationToken))
         {
-            services.Add(new DigitalMarketplaceService(reader.GetString(0), reader.GetString(1)));
+            services.Add(new DigitalMarketplaceService(
+                reader.GetString(1),
+                reader.GetString(2),
+                (FrameworkCode)reader.GetInt32(0)));
         }
 
         return services;
@@ -978,7 +983,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertDigitalMarketplaceServiceAsync(SqliteConnection connection, SqliteTransaction transaction, DigitalMarketplaceService item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO digital_marketplace_services (service_id, name) VALUES ($serviceId, $name);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO digital_marketplace_services (framework, service_id, name) VALUES ($framework, $serviceId, $name);");
+        AddParameter(command, "$framework", (int)item.Framework);
         AddParameter(command, "$serviceId", item.ServiceId);
         AddParameter(command, "$name", item.Name);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1251,6 +1257,112 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 "Post-submission evidence mail renderer defaults",
                 cancellationToken);
             transaction.Commit();
+            applied.Add(3);
+        }
+
+        if (!applied.Contains(4))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 4, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            if (!await ColumnExistsAsync(connection, transaction, "mail_templates", "body_template", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "ALTER TABLE mail_templates ADD COLUMN body_template TEXT NOT NULL DEFAULT '';", cancellationToken);
+            }
+            await ExecuteAsync(connection, transaction, """
+                UPDATE mail_templates
+                SET body_template = greeting || char(10) || char(10) ||
+                    introduction || char(10) || char(10) ||
+                    request_text ||
+                    CASE event_type
+                        WHEN 'monthly-active-contracts' THEN char(10) || char(10) || '{{active_contracts}}'
+                        WHEN 'customer-go-live' THEN char(10) || char(10) || '{{operational_parts}}'
+                        WHEN 'post-submission-report' THEN char(10) || char(10) || '{{submission_evidence}}'
+                        WHEN 'expiring-contracts' THEN char(10) || char(10) || '{{expiring_contracts}}'
+                        ELSE ''
+                    END || char(10) || char(10) ||
+                    closing || char(10) || char(10) || signature
+                WHERE trim(body_template) = '';
+                """, cancellationToken);
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                4,
+                "Single-body mail templates with explicit content placements",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(4);
+        }
+
+        if (!applied.Contains(5))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 5, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            if (!await ColumnExistsAsync(connection, transaction, "digital_marketplace_services", "framework", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, $"""
+                    ALTER TABLE digital_marketplace_services RENAME TO digital_marketplace_services_legacy;
+
+                    CREATE TABLE digital_marketplace_services (
+                        framework INTEGER NOT NULL,
+                        service_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        PRIMARY KEY (framework, service_id)
+                    );
+
+                    INSERT INTO digital_marketplace_services (framework, service_id, name)
+                    SELECT {(int)FrameworkCode.GCloud14}, service_id, name
+                    FROM digital_marketplace_services_legacy;
+
+                    DROP TABLE digital_marketplace_services_legacy;
+                    """, cancellationToken);
+            }
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                5,
+                "Framework-specific Digital Marketplace services",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(5);
+        }
+
+        if (!applied.Contains(6))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 6, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                UPDATE mail_templates
+                SET trigger_mode = 1,
+                    schedule_day = NULL,
+                    schedule_time_local = NULL,
+                    time_zone_id = NULL
+                WHERE trigger_mode <> 1
+                   OR schedule_day IS NOT NULL
+                   OR schedule_time_local IS NOT NULL
+                   OR time_zone_id IS NOT NULL;
+
+                DELETE FROM mail_scheduler_state;
+                """, cancellationToken);
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                6,
+                "Manual-only mail event triggers",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(6);
         }
     }
 

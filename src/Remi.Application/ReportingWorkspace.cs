@@ -87,7 +87,13 @@ public sealed class ReportingWorkspace(
 
     public Task<IReadOnlyList<DigitalMarketplaceService>> GetDigitalMarketplaceServicesAsync(
         CancellationToken cancellationToken = default) =>
+        GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud14, cancellationToken);
+
+    public Task<IReadOnlyList<DigitalMarketplaceService>> GetDigitalMarketplaceServicesAsync(
+        FrameworkCode framework,
+        CancellationToken cancellationToken = default) =>
         store.ReadAsync(database => (IReadOnlyList<DigitalMarketplaceService>)database.DigitalMarketplaceServices
+            .Where(item => item.Framework == framework)
             .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.ServiceId, StringComparer.Ordinal)
             .ToList(), cancellationToken);
@@ -95,11 +101,23 @@ public sealed class ReportingWorkspace(
     public Task<DigitalMarketplaceServiceUpdateResult> UpdateDigitalMarketplaceServicesAsync(
         IEnumerable<DigitalMarketplaceService> services,
         string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        UpdateDigitalMarketplaceServicesAsync(FrameworkCode.GCloud14, services, actor, cancellationToken);
+
+    public Task<DigitalMarketplaceServiceUpdateResult> UpdateDigitalMarketplaceServicesAsync(
+        FrameworkCode framework,
+        IEnumerable<DigitalMarketplaceService> services,
+        string? actor = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
+        if (!Frameworks.IsGCloud(framework))
+        {
+            return Task.FromResult(new DigitalMarketplaceServiceUpdateResult(false, "Digital Marketplace services can be configured only for G-Cloud frameworks.", []));
+        }
+
         var updated = services
-            .Select(item => new DigitalMarketplaceService(item.ServiceId.Trim(), item.Name.Trim()))
+            .Select(item => new DigitalMarketplaceService(item.ServiceId.Trim(), item.Name.Trim(), framework))
             .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.ServiceId, StringComparer.Ordinal)
             .ToList();
@@ -116,18 +134,19 @@ public sealed class ReportingWorkspace(
 
         return store.UpdateAsync(database =>
         {
-            database.DigitalMarketplaceServices.Clear();
+            database.DigitalMarketplaceServices.RemoveAll(item => item.Framework == framework);
             database.DigitalMarketplaceServices.AddRange(updated);
+            var frameworkName = Frameworks.Get(framework).DisplayName;
             RecordAudit(
                 database,
                 timeProvider.GetUtcNow(),
                 "DigitalMarketplaceServicesUpdated",
                 "DigitalMarketplaceServiceConfiguration",
                 null,
-                $"Updated the Digital Marketplace suggestion list with {updated.Count} service(s).",
+                $"Updated the {frameworkName} Digital Marketplace suggestion list with {updated.Count} service(s).",
                 null,
                 actor);
-            return new DigitalMarketplaceServiceUpdateResult(true, $"Saved {updated.Count} Digital Marketplace service suggestion(s).", updated);
+            return new DigitalMarketplaceServiceUpdateResult(true, $"Saved {updated.Count} {frameworkName} Digital Marketplace service suggestion(s).", updated);
         }, cancellationToken);
     }
 
@@ -1220,6 +1239,71 @@ public sealed class ReportingWorkspace(
         }, cancellationToken);
     }
 
+    public async Task<ReturnActionResult> DeleteInvoiceAsync(
+        Guid invoiceId,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var deletion = await store.UpdateAsync(database =>
+        {
+            var existing = database.Invoices.SingleOrDefault(item => item.Id == invoiceId);
+            if (existing is null)
+            {
+                return new InvoiceDeletionResult(
+                    new ReturnActionResult(false, "The selected invoice no longer exists.", []),
+                    []);
+            }
+
+            var invoiceOnlyEvidence = database.Evidence
+                .Where(item => IsClipboardEvidenceFor(item, "invoice", invoiceId))
+                .ToList();
+            database.Invoices.Remove(existing);
+            database.InvoiceContractChangeLinks.RemoveAll(link => link.InvoiceId == invoiceId);
+            database.Evidence.RemoveAll(item => invoiceOnlyEvidence.Contains(item));
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "InvoiceDeleted",
+                "Invoice",
+                invoiceId,
+                $"Deleted invoice {existing.InvoiceNumber} for {existing.SupplierReference}.",
+                null,
+                actor);
+
+            var unreferencedEvidence = invoiceOnlyEvidence
+                .Where(item => !database.Evidence.Any(remaining => string.Equals(
+                    remaining.StoredRelativePath,
+                    item.StoredRelativePath,
+                    StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            return new InvoiceDeletionResult(
+                new ReturnActionResult(true, "The invoice has been deleted.", [], invoiceId),
+                unreferencedEvidence);
+        }, cancellationToken);
+
+        if (!deletion.Result.Succeeded)
+        {
+            return deletion.Result;
+        }
+
+        var evidenceCleanupSucceeded = true;
+        foreach (var evidence in deletion.UnreferencedEvidence)
+        {
+            try
+            {
+                await evidenceArchive.DeleteAsync(evidence, cancellationToken);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                evidenceCleanupSucceeded = false;
+            }
+        }
+
+        return evidenceCleanupSucceeded
+            ? deletion.Result
+            : deletion.Result with { Message = "The invoice was deleted, but one or more supporting files could not be removed from the archive." };
+    }
+
     public Task<ReturnActionResult> AddChargeScheduleItemAsync(
         ChargeScheduleEntry entry,
         string? actor = null,
@@ -1690,17 +1774,19 @@ public sealed class ReportingWorkspace(
         FrameworkCode framework,
         string reportingMonth,
         string? submissionReference,
+        DateTimeOffset? submittedAtUtc = null,
         string? actor = null,
         CancellationToken cancellationToken = default) =>
-        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.Submitted, submissionReference, null, actor, cancellationToken);
+        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.Submitted, submissionReference, submittedAtUtc, null, actor, cancellationToken);
 
     public Task<ReturnActionResult> MarkNilReturnAsync(
         FrameworkCode framework,
         string reportingMonth,
         string? submissionReference = null,
+        DateTimeOffset? submittedAtUtc = null,
         string? actor = null,
         CancellationToken cancellationToken = default) =>
-        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.NilReturn, submissionReference, null, actor, cancellationToken);
+        UpdateReturnAsync(framework, reportingMonth, ReturnStatus.NilReturn, submissionReference, submittedAtUtc, null, actor, cancellationToken);
 
     public Task<ReturnActionResult> UpdateSubmissionReferenceAsync(
         FrameworkCode framework,
@@ -1709,16 +1795,173 @@ public sealed class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateReportingMonth(reportingMonth);
         if (string.IsNullOrWhiteSpace(submissionReference))
         {
             return Task.FromResult(new ReturnActionResult(false, "Enter the GCA task reference before saving it.", []));
         }
 
+        return UpdateSubmissionDetailsInternalAsync(
+            framework,
+            reportingMonth,
+            submissionReference,
+            null,
+            "SubmissionReferenceUpdated",
+            $"{Frameworks.Get(framework).DisplayName} {reportingMonth} GCA task reference was recorded.",
+            "The GCA task reference has been saved.",
+            actor,
+            cancellationToken);
+    }
+
+    public Task<ReturnActionResult> UpdateSubmissionDetailsAsync(
+        FrameworkCode framework,
+        string reportingMonth,
+        string? submissionReference,
+        DateTimeOffset? submittedAtUtc,
+        string? actor = null,
+        CancellationToken cancellationToken = default) =>
+        UpdateSubmissionDetailsInternalAsync(
+            framework,
+            reportingMonth,
+            submissionReference,
+            submittedAtUtc,
+            "SubmissionDetailsUpdated",
+            $"{Frameworks.Get(framework).DisplayName} {reportingMonth} submission details were updated.",
+            "The submission details have been saved.",
+            actor,
+            cancellationToken);
+
+    public async Task<ReturnActionResult> UpdateSubmissionEvidenceAsync(
+        Guid monthlyReturnId,
+        IReadOnlyList<SubmissionEvidenceEdit> edits,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var update = await store.UpdateAsync(database =>
+        {
+            var monthlyReturn = database.MonthlyReturns.SingleOrDefault(item => item.Id == monthlyReturnId);
+            if (monthlyReturn is null || monthlyReturn.Status is not (ReturnStatus.Submitted or ReturnStatus.NilReturn or ReturnStatus.CorrectionRequired))
+            {
+                return new SubmissionEvidenceUpdateResult(
+                    new ReturnActionResult(false, "Record the submission before editing its evidence.", []),
+                    []);
+            }
+
+            var distinctEdits = edits
+                .GroupBy(item => item.EvidenceId)
+                .Select(group => group.Last())
+                .ToList();
+            var submissionEvidence = database.Evidence
+                .Where(item => item.Kind == EvidenceKind.SubmissionEvidence &&
+                    item.Framework == monthlyReturn.Framework &&
+                    item.ReportMonth == monthlyReturn.ReportMonth)
+                .ToDictionary(item => item.Id);
+            if (distinctEdits.Any(edit => !submissionEvidence.ContainsKey(edit.EvidenceId)))
+            {
+                return new SubmissionEvidenceUpdateResult(
+                    new ReturnActionResult(false, "One or more submission documents are no longer available. Reload the return and try again.", []),
+                    []);
+            }
+
+            foreach (var edit in distinctEdits.Where(item => !item.Remove))
+            {
+                if (!TryCreateEvidenceFileName(submissionEvidence[edit.EvidenceId].FileName, edit.Title, out _))
+                {
+                    return new SubmissionEvidenceUpdateResult(
+                        new ReturnActionResult(false, "Give each retained submission document a valid title before saving.", []),
+                        []);
+                }
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var removed = new List<EvidenceRecord>();
+            foreach (var edit in distinctEdits)
+            {
+                var existing = submissionEvidence[edit.EvidenceId];
+                if (edit.Remove)
+                {
+                    database.Evidence.Remove(existing);
+                    removed.Add(existing);
+                    RecordAudit(
+                        database,
+                        now,
+                        "SubmissionEvidenceDeleted",
+                        "MonthlyReturn",
+                        monthlyReturn.Id,
+                        $"Deleted submission evidence {existing.FileName} for {Frameworks.Get(monthlyReturn.Framework).DisplayName} {monthlyReturn.ReportMonth}.",
+                        null,
+                        actor);
+                    continue;
+                }
+
+                _ = TryCreateEvidenceFileName(existing.FileName, edit.Title, out var fileName);
+                if (string.Equals(existing.FileName, fileName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                database.Evidence[database.Evidence.IndexOf(existing)] = existing with { FileName = fileName };
+                RecordAudit(
+                    database,
+                    now,
+                    "SubmissionEvidenceRenamed",
+                    "MonthlyReturn",
+                    monthlyReturn.Id,
+                    $"Renamed submission evidence from {existing.FileName} to {fileName} for {Frameworks.Get(monthlyReturn.Framework).DisplayName} {monthlyReturn.ReportMonth}.",
+                    null,
+                    actor);
+            }
+
+            var unreferencedEvidence = removed
+                .Where(item => !database.Evidence.Any(remaining => string.Equals(
+                    remaining.StoredRelativePath,
+                    item.StoredRelativePath,
+                    StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            return new SubmissionEvidenceUpdateResult(
+                new ReturnActionResult(true, "The submission documents have been saved.", [], monthlyReturn.Id),
+                unreferencedEvidence);
+        }, cancellationToken);
+
+        if (!update.Result.Succeeded)
+        {
+            return update.Result;
+        }
+
+        var evidenceCleanupSucceeded = true;
+        foreach (var evidence in update.UnreferencedEvidence)
+        {
+            try
+            {
+                await evidenceArchive.DeleteAsync(evidence, cancellationToken);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                evidenceCleanupSucceeded = false;
+            }
+        }
+
+        return evidenceCleanupSucceeded
+            ? update.Result
+            : update.Result with { Message = "The submission documents were updated, but one or more deleted files could not be removed from the archive." };
+    }
+
+    private Task<ReturnActionResult> UpdateSubmissionDetailsInternalAsync(
+        FrameworkCode framework,
+        string reportingMonth,
+        string? submissionReference,
+        DateTimeOffset? submittedAtUtc,
+        string auditAction,
+        string auditSummary,
+        string successMessage,
+        string? actor,
+        CancellationToken cancellationToken)
+    {
+        ValidateReportingMonth(reportingMonth);
+
         return store.UpdateAsync(database =>
         {
             var existing = database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework && item.ReportMonth == reportingMonth);
-            if (existing is null || existing.Status is not (ReturnStatus.Submitted or ReturnStatus.NilReturn))
+            if (existing is null || existing.Status is not (ReturnStatus.Submitted or ReturnStatus.NilReturn or ReturnStatus.CorrectionRequired))
             {
                 return new ReturnActionResult(false, "Record the submission before adding its GCA task reference.", []);
             }
@@ -1726,7 +1969,8 @@ public sealed class ReportingWorkspace(
             var now = timeProvider.GetUtcNow();
             var replacement = existing with
             {
-                SubmissionReference = submissionReference.Trim(),
+                SubmissionReference = string.IsNullOrWhiteSpace(submissionReference) ? null : submissionReference.Trim(),
+                SubmittedAtUtc = submittedAtUtc?.ToUniversalTime() ?? existing.SubmittedAtUtc,
                 UpdatedAtUtc = now,
             };
             database.MonthlyReturns[database.MonthlyReturns.FindIndex(item => item.Id == existing.Id)] = replacement;
@@ -1734,13 +1978,13 @@ public sealed class ReportingWorkspace(
             RecordAudit(
                 database,
                 now,
-                "SubmissionReferenceUpdated",
+                auditAction,
                 "MonthlyReturn",
                 existing.Id,
-                $"{Frameworks.Get(framework).DisplayName} {reportingMonth} GCA task reference was recorded.",
+                auditSummary,
                 null,
                 actor);
-            return new ReturnActionResult(true, "The GCA task reference has been saved.", [], existing.Id);
+            return new ReturnActionResult(true, successMessage, [], existing.Id);
         }, cancellationToken);
     }
 
@@ -1756,7 +2000,7 @@ public sealed class ReportingWorkspace(
             return Task.FromResult(new ReturnActionResult(false, "Record the reason for the correction request.", []));
         }
 
-        return UpdateReturnAsync(framework, reportingMonth, ReturnStatus.CorrectionRequired, null, reason.Trim(), actor, cancellationToken);
+        return UpdateReturnAsync(framework, reportingMonth, ReturnStatus.CorrectionRequired, null, null, reason.Trim(), actor, cancellationToken);
     }
 
     private Task<ReturnActionResult> UpdateReturnAsync(
@@ -1764,6 +2008,7 @@ public sealed class ReportingWorkspace(
         string reportingMonth,
         ReturnStatus status,
         string? submissionReference,
+        DateTimeOffset? submittedAtUtc,
         string? correctionReason,
         string? actor,
         CancellationToken cancellationToken)
@@ -1790,12 +2035,13 @@ public sealed class ReportingWorkspace(
 
             var now = timeProvider.GetUtcNow();
             var existing = EnsureReturn(database, framework, reportingMonth, null, now);
+            var effectiveSubmissionTime = submittedAtUtc?.ToUniversalTime() ?? now;
             var replacement = existing with
             {
                 Status = status,
                 SubmittedAtUtc = status switch
                 {
-                    ReturnStatus.Submitted or ReturnStatus.NilReturn => now,
+                    ReturnStatus.Submitted or ReturnStatus.NilReturn => effectiveSubmissionTime,
                     ReturnStatus.CorrectionRequired => existing.SubmittedAtUtc,
                     _ => null,
                 },
@@ -1821,7 +2067,7 @@ public sealed class ReportingWorkspace(
                         contract.Id,
                         replacement.Id,
                         reportingMonth,
-                        now));
+                        effectiveSubmissionTime));
                 }
             }
 
@@ -2279,12 +2525,34 @@ public sealed class ReportingWorkspace(
         return true;
     }
 
+    private static bool TryCreateEvidenceFileName(string currentFileName, string title, out string fileName)
+    {
+        fileName = currentFileName;
+        var trimmedTitle = title.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedTitle) ||
+            trimmedTitle is "." or ".." ||
+            trimmedTitle.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return false;
+        }
+
+        var titleWithoutExtension = Path.GetFileNameWithoutExtension(trimmedTitle).Trim();
+        if (string.IsNullOrWhiteSpace(titleWithoutExtension))
+        {
+            return false;
+        }
+
+        fileName = $"{titleWithoutExtension}{Path.GetExtension(currentFileName)}";
+        return true;
+    }
+
     private static EvidenceLink ToEvidenceLink(EvidenceRecord evidence) => new(
         evidence.Id,
         evidence.Kind,
         evidence.FileName,
         evidence.OriginalRelativePath,
         evidence.ContentType,
+        evidence.FileSizeBytes,
         evidence.ReportMonth,
         evidence.ArchivedAtUtc);
 
@@ -2655,6 +2923,13 @@ public sealed class ReportingWorkspace(
         IReadOnlyList<ContractRecord> Contracts,
         IReadOnlyList<InvoiceRecord> Invoices);
 
+    private sealed record InvoiceDeletionResult(
+        ReturnActionResult Result,
+        IReadOnlyList<EvidenceRecord> UnreferencedEvidence);
+
+    private sealed record SubmissionEvidenceUpdateResult(
+        ReturnActionResult Result,
+        IReadOnlyList<EvidenceRecord> UnreferencedEvidence);
 
     private sealed record PaymentScheduleUpdate(int Added, int Relabelled);
 }

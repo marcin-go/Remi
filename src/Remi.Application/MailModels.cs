@@ -48,6 +48,8 @@ public sealed record MailTemplateDefinition(
     bool Enabled,
     MailTriggerMode TriggerMode,
     string SubjectTemplate,
+    string BodyTemplate,
+    // Retained for additive migration compatibility. New authoring and rendering use BodyTemplate.
     string Greeting,
     string Introduction,
     string RequestText,
@@ -63,11 +65,7 @@ public sealed record MailTemplateUpdate(
     string EventType,
     bool Enabled,
     string SubjectTemplate,
-    string Greeting,
-    string Introduction,
-    string RequestText,
-    string Closing,
-    string Signature,
+    string BodyTemplate,
     IReadOnlyList<MailRecipient> Recipients);
 
 public sealed record MailMessageSummary(
@@ -136,8 +134,6 @@ public interface IRemiMailStore
     Task<MailMessageSummary?> GetMessageByDeliveryKeyAsync(string deliveryKey, CancellationToken cancellationToken = default);
     Task<MailMessageSummary?> GetMessageAsync(Guid messageId, CancellationToken cancellationToken = default);
     Task SaveCaptureAsync(PersistedMailCapture capture, CancellationToken cancellationToken = default);
-    Task<string?> GetSchedulerPeriodAsync(string eventType, CancellationToken cancellationToken = default);
-    Task SetSchedulerPeriodAsync(string eventType, string period, DateTimeOffset updatedAtUtc, CancellationToken cancellationToken = default);
 }
 
 public interface IMailContentStore

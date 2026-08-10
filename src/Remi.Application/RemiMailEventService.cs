@@ -11,59 +11,59 @@ public sealed class RemiMailEventService(
     MailCaptureService captureService,
     IEvidenceArchive evidenceArchive)
 {
-    public async Task<MailCaptureResult?> CaptureCustomerGoLiveAsync(
+    public async Task<MailCaptureResult> CaptureCustomerGoLiveAsync(
         Guid contractId,
-        IReadOnlyList<Guid> newlyLivePartIds,
+        IReadOnlyList<Guid> livePartIds,
         CancellationToken cancellationToken = default)
     {
-        if (newlyLivePartIds.Count == 0) return null;
+        if (livePartIds.Count == 0)
+        {
+            return new MailCaptureResult(false, false, "No live contract parts are available for this message.", null);
+        }
         var template = await mailStore.GetTemplateAsync(MailEventTypes.CustomerGoLive, cancellationToken);
-        if (template is null || !template.Enabled) return null;
+        if (template is null || !template.Enabled)
+        {
+            return new MailCaptureResult(false, false, "The customer go-live template is not enabled.", null);
+        }
 
         var context = await store.ReadAsync(database =>
         {
             var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
             if (contract is null) return null;
-            var selectedIds = newlyLivePartIds.ToHashSet();
+            var selectedIds = livePartIds.ToHashSet();
             var parts = database.ContractServiceParts
                 .Where(part => part.ContractId == contractId && selectedIds.Contains(part.Id) && part.GoLiveDate is not null)
                 .OrderBy(part => part.SortOrder)
                 .ToList();
             return parts.Count == 0 ? null : new GoLiveContext(contract, parts);
         }, cancellationToken);
-        if (context is null) return null;
+        if (context is null)
+        {
+            return new MailCaptureResult(false, false, "No matching live contract parts were found.", null);
+        }
 
         var tokens = Tokens(context.Contract, null);
         var subject = Expand(template.SubjectTemplate, tokens);
-        var plain = new StringBuilder()
-            .AppendLine(Expand(template.Greeting, tokens)).AppendLine()
-            .AppendLine(Expand(template.Introduction, tokens)).AppendLine()
-            .AppendLine(Expand(template.RequestText, tokens)).AppendLine();
+        var partsPlain = new StringBuilder();
+        var partsHtml = new StringBuilder("<ul style=\"padding-left:22px\">");
         foreach (var part in context.Parts)
         {
-            plain.Append("- ").Append(part.Name).Append(": ").AppendLine(part.GoLiveDate!.Value.ToString("dd MMMM yyyy", CultureInfo.GetCultureInfo("en-GB")));
-        }
-        plain.AppendLine().AppendLine(Expand(template.Closing, tokens)).AppendLine(Expand(template.Signature, tokens));
-
-        var html = new StringBuilder()
-            .Append("<p>").Append(Html(Expand(template.Greeting, tokens))).Append("</p>")
-            .Append("<p>").Append(Html(Expand(template.Introduction, tokens))).Append("</p>")
-            .Append("<p>").Append(Html(Expand(template.RequestText, tokens))).Append("</p><ul>");
-        foreach (var part in context.Parts)
-        {
-            html.Append("<li><strong>").Append(Html(part.Name)).Append("</strong>: ")
+            var goLiveDate = part.GoLiveDate!.Value.ToString("dd MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"));
+            partsPlain.Append("- ").Append(part.Name).Append(": ").AppendLine(goLiveDate);
+            partsHtml.Append("<li style=\"margin:6px 0\"><strong>").Append(Html(part.Name)).Append("</strong>: ")
                 .Append(Html(part.GoLiveDate!.Value.ToString("dd MMMM yyyy", CultureInfo.GetCultureInfo("en-GB")))).Append("</li>");
         }
-        html.Append("</ul><p>").Append(Html(Expand(template.Closing, tokens))).Append("</p><p>")
-            .Append(HtmlWithBreaks(Expand(template.Signature, tokens))).Append("</p>");
+        partsHtml.Append("</ul>");
+        var body = RenderTemplateBody(template.BodyTemplate, tokens,
+            new TemplateBlock("operational_parts", partsPlain.ToString().TrimEnd(), partsHtml.ToString()));
 
         var keyParts = context.Parts.Select(part => $"{part.Id:N}-{part.GoLiveDate:yyyyMMdd}");
         return await captureService.CaptureAsync(new MailCaptureDraft(
             MailEventTypes.CustomerGoLive,
             $"customer-go-live:{contractId:N}:{string.Join('-', keyParts)}",
             subject,
-            plain.ToString(),
-            HtmlDocument(subject, html.ToString()),
+            body.PlainText,
+            HtmlDocument(subject, body.Html),
             template.Recipients,
             RelatedEntityType: "Contract",
             RelatedEntityId: contractId), cancellationToken);
@@ -71,7 +71,7 @@ public sealed class RemiMailEventService(
 
     public async Task<MailCaptureResult> CaptureMonthlyActiveContractsAsync(
         string sourcePeriod,
-        DateTimeOffset scheduledForUtc,
+        DateTimeOffset triggeredAtUtc,
         CancellationToken cancellationToken = default)
     {
         if (!DateOnly.TryParseExact($"{sourcePeriod}-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var monthStart))
@@ -85,24 +85,23 @@ public sealed class RemiMailEventService(
         }
 
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
-        var inventory = await store.ReadAsync(database => BuildActiveInventory(database, monthStart, monthEnd, scheduledForUtc), cancellationToken);
+        var inventory = await store.ReadAsync(database => BuildActiveInventory(database, monthStart, monthEnd, triggeredAtUtc), cancellationToken);
         var monthName = monthStart.ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"));
         var tokens = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["reporting_month"] = monthName,
         };
         var subject = Expand(template.SubjectTemplate, tokens);
-        var plain = BuildMonthlyPlainText(template, tokens, inventory);
-        var html = BuildMonthlyHtml(template, tokens, inventory, subject);
+        var body = RenderTemplateBody(template.BodyTemplate, tokens,
+            new TemplateBlock("active_contracts", BuildMonthlyPlainBlock(inventory), BuildMonthlyHtmlBlock(inventory)));
         return await captureService.CaptureAsync(new MailCaptureDraft(
             MailEventTypes.MonthlyActiveContracts,
-            $"monthly-active-contracts:{sourcePeriod}:{scheduledForUtc.UtcDateTime:yyyyMMddTHHmmssZ}",
+            $"monthly-active-contracts:{sourcePeriod}:{triggeredAtUtc.UtcDateTime:yyyyMMddTHHmmssZ}",
             subject,
-            plain,
-            html,
+            body.PlainText,
+            HtmlDocument(subject, body.Html),
             template.Recipients,
-            scheduledForUtc,
-            sourcePeriod), cancellationToken);
+            SourcePeriod: sourcePeriod), cancellationToken);
     }
 
     public async Task<MailCaptureResult> CapturePostSubmissionReportAsync(
@@ -159,14 +158,14 @@ public sealed class RemiMailEventService(
             ["reporting_month"] = reportingMonth,
         };
         var subject = Expand(template.SubjectTemplate, tokens);
-        var plain = BuildPostSubmissionPlainText(template, tokens, renderedFrameworks);
-        var html = BuildPostSubmissionHtml(template, tokens, renderedFrameworks, subject);
+        var body = RenderTemplateBody(template.BodyTemplate, tokens,
+            new TemplateBlock("submission_evidence", BuildPostSubmissionPlainBlock(renderedFrameworks), BuildPostSubmissionHtmlBlock(renderedFrameworks)));
         return await captureService.CaptureAsync(new MailCaptureDraft(
             MailEventTypes.PostSubmissionReport,
             $"post-submission-report:{sourcePeriod}",
             subject,
-            plain,
-            html,
+            body.PlainText,
+            HtmlDocument(subject, body.Html),
             template.Recipients,
             SourcePeriod: sourcePeriod,
             RelatedEntityType: "MonthlyReportingCycle",
@@ -224,15 +223,10 @@ public sealed class RemiMailEventService(
         return new PostSubmissionContext(frameworks, problems);
     }
 
-    private static string BuildPostSubmissionPlainText(
-        MailTemplateDefinition template,
-        IReadOnlyDictionary<string, string> tokens,
+    private static string BuildPostSubmissionPlainBlock(
         IReadOnlyList<PostSubmissionRenderedFramework> frameworks)
     {
-        var builder = new StringBuilder()
-            .AppendLine(Expand(template.Greeting, tokens)).AppendLine()
-            .AppendLine(Expand(template.Introduction, tokens)).AppendLine()
-            .AppendLine(Expand(template.RequestText, tokens)).AppendLine();
+        var builder = new StringBuilder();
         foreach (var framework in frameworks)
         {
             builder.AppendLine(framework.Name);
@@ -242,21 +236,13 @@ public sealed class RemiMailEventService(
             }
             builder.AppendLine();
         }
-        builder.AppendLine(Expand(template.Closing, tokens)).AppendLine()
-            .AppendLine(Expand(template.Signature, tokens));
-        return builder.ToString();
+        return builder.ToString().TrimEnd();
     }
 
-    private static string BuildPostSubmissionHtml(
-        MailTemplateDefinition template,
-        IReadOnlyDictionary<string, string> tokens,
-        IReadOnlyList<PostSubmissionRenderedFramework> frameworks,
-        string subject)
+    private static string BuildPostSubmissionHtmlBlock(
+        IReadOnlyList<PostSubmissionRenderedFramework> frameworks)
     {
-        var builder = new StringBuilder()
-            .Append("<p>").Append(HtmlWithBreaks(Expand(template.Greeting, tokens))).Append("</p>")
-            .Append("<p>").Append(HtmlWithBreaks(Expand(template.Introduction, tokens))).Append("</p>")
-            .Append("<p>").Append(HtmlWithBreaks(Expand(template.RequestText, tokens))).Append("</p>");
+        var builder = new StringBuilder();
         foreach (var framework in frameworks)
         {
             builder.Append("<h2 style=\"font-size:17px;margin:24px 0 10px;color:#143c5d\">")
@@ -269,9 +255,7 @@ public sealed class RemiMailEventService(
                     .Append("\" style=\"display:block;max-width:100%;height:auto;border:1px solid #d6e0e5\"></div>");
             }
         }
-        builder.Append("<p>").Append(HtmlWithBreaks(Expand(template.Closing, tokens))).Append("</p><p>")
-            .Append(HtmlWithBreaks(Expand(template.Signature, tokens))).Append("</p>");
-        return HtmlDocument(subject, builder.ToString());
+        return builder.ToString();
     }
 
     private static bool IsImageEvidence(EvidenceRecord evidence) =>
@@ -303,7 +287,10 @@ public sealed class RemiMailEventService(
     {
         var asOfDate = DateOnly.FromDateTime(asOfUtc.UtcDateTime);
         var reportedAt = database.ContractReportingOccurrences.ToDictionary(item => item.ContractId, item => item.ReportedAtUtc);
-        var marketplaceNames = database.DigitalMarketplaceServices.ToDictionary(item => item.ServiceId, item => item.Name, StringComparer.OrdinalIgnoreCase);
+        var marketplaceNames = database.DigitalMarketplaceServices.ToDictionary(
+            item => MarketplaceServiceKey(item.Framework, item.ServiceId),
+            item => item.Name,
+            StringComparer.OrdinalIgnoreCase);
         return database.Contracts
             .Where(contract => contract.CreatedAtUtc <= asOfUtc)
             .Select(contract => new
@@ -342,15 +329,10 @@ public sealed class RemiMailEventService(
             .ToList();
     }
 
-    private static string BuildMonthlyPlainText(
-        MailTemplateDefinition template,
-        IReadOnlyDictionary<string, string> tokens,
+    private static string BuildMonthlyPlainBlock(
         IReadOnlyList<FrameworkInventory> inventory)
     {
-        var builder = new StringBuilder()
-            .AppendLine(Expand(template.Greeting, tokens)).AppendLine()
-            .AppendLine(Expand(template.Introduction, tokens)).AppendLine()
-            .AppendLine(Expand(template.RequestText, tokens)).AppendLine();
+        var builder = new StringBuilder();
         foreach (var framework in inventory)
         {
             builder.AppendLine(framework.Name);
@@ -364,20 +346,13 @@ public sealed class RemiMailEventService(
             }
             builder.AppendLine();
         }
-        builder.AppendLine(Expand(template.Closing, tokens)).AppendLine(Expand(template.Signature, tokens));
-        return builder.ToString();
+        return builder.ToString().TrimEnd();
     }
 
-    private static string BuildMonthlyHtml(
-        MailTemplateDefinition template,
-        IReadOnlyDictionary<string, string> tokens,
-        IReadOnlyList<FrameworkInventory> inventory,
-        string subject)
+    private static string BuildMonthlyHtmlBlock(
+        IReadOnlyList<FrameworkInventory> inventory)
     {
-        var builder = new StringBuilder()
-            .Append("<p>").Append(Html(Expand(template.Greeting, tokens))).Append("</p>")
-            .Append("<p>").Append(Html(Expand(template.Introduction, tokens))).Append("</p>")
-            .Append("<p>").Append(Html(Expand(template.RequestText, tokens))).Append("</p>");
+        var builder = new StringBuilder();
         foreach (var framework in inventory)
         {
             builder.Append("<h2 style=\"font-size:17px;margin:24px 0 8px;color:#143c5d\">").Append(Html(framework.Name)).Append("</h2><ul style=\"padding-left:22px\">");
@@ -391,9 +366,7 @@ public sealed class RemiMailEventService(
             }
             builder.Append("</ul>");
         }
-        builder.Append("<p>").Append(Html(Expand(template.Closing, tokens))).Append("</p><p>")
-            .Append(HtmlWithBreaks(Expand(template.Signature, tokens))).Append("</p>");
-        return HtmlDocument(subject, builder.ToString());
+        return builder.ToString();
     }
 
     private static DateOnly? EffectiveEndDate(RemiDatabase database, ContractRecord contract, DateTimeOffset asOfUtc) =>
@@ -404,13 +377,18 @@ public sealed class RemiMailEventService(
             .Append(contract.EndDate)
             .Max();
 
-    private static string ServiceName(ContractRecord contract, IReadOnlyDictionary<string, string> marketplaceNames)
+    private static string ServiceName(
+        ContractRecord contract,
+        IReadOnlyDictionary<string, string> marketplaceNames)
     {
         if (!string.IsNullOrWhiteSpace(contract.ServiceDescription)) return contract.ServiceDescription;
         if (!string.IsNullOrWhiteSpace(contract.DigitalMarketplaceServiceId)
-            && marketplaceNames.TryGetValue(contract.DigitalMarketplaceServiceId, out var name)) return name;
+            && marketplaceNames.TryGetValue(MarketplaceServiceKey(contract.Framework, contract.DigitalMarketplaceServiceId), out var name)) return name;
         return contract.ServiceGroup ?? "Service not recorded";
     }
+
+    private static string MarketplaceServiceKey(FrameworkCode framework, string serviceId) =>
+        $"{(int)framework}:{serviceId.Trim()}";
 
     private static string ContractTerm(RemiDatabase database, ContractRecord contract, DateTimeOffset asOfUtc)
     {
@@ -444,6 +422,59 @@ public sealed class RemiMailEventService(
         ["reporting_month"] = reportingMonth ?? contract.ReportMonth,
     };
 
+    private static RenderedTemplateBody RenderTemplateBody(
+        string bodyTemplate,
+        IReadOnlyDictionary<string, string> tokens,
+        params TemplateBlock[] blocks)
+    {
+        var expanded = Expand(bodyTemplate, tokens)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        var plain = expanded;
+        foreach (var block in blocks)
+        {
+            plain = plain.Replace($"{{{{{block.Token}}}}}", block.PlainText, StringComparison.Ordinal);
+        }
+
+        var html = new StringBuilder();
+        var offset = 0;
+        while (offset < expanded.Length)
+        {
+            TemplateBlock? nextBlock = null;
+            var nextIndex = expanded.Length;
+            foreach (var block in blocks)
+            {
+                var index = expanded.IndexOf($"{{{{{block.Token}}}}}", offset, StringComparison.Ordinal);
+                if (index >= 0 && index < nextIndex)
+                {
+                    nextIndex = index;
+                    nextBlock = block;
+                }
+            }
+
+            if (nextBlock is null)
+            {
+                AppendStaticTemplateHtml(html, expanded[offset..]);
+                break;
+            }
+            AppendStaticTemplateHtml(html, expanded[offset..nextIndex]);
+            html.Append(nextBlock.Html);
+            offset = nextIndex + nextBlock.Token.Length + 4;
+        }
+
+        return new RenderedTemplateBody(plain.Trim(), html.ToString());
+    }
+
+    private static void AppendStaticTemplateHtml(StringBuilder builder, string value)
+    {
+        foreach (var paragraph in value.Split("\n\n", StringSplitOptions.None))
+        {
+            var content = paragraph.Trim();
+            if (content.Length == 0) continue;
+            builder.Append("<p>").Append(HtmlWithBreaks(content)).Append("</p>");
+        }
+    }
+
     private static string Expand(string value, IReadOnlyDictionary<string, string> tokens)
     {
         var expanded = value;
@@ -462,4 +493,6 @@ public sealed class RemiMailEventService(
     private sealed record PostSubmissionFramework(FrameworkCode Framework, IReadOnlyList<EvidenceRecord> Evidence);
     private sealed record PostSubmissionRenderedFramework(string Name, IReadOnlyList<PostSubmissionRenderedEvidence> Evidence);
     private sealed record PostSubmissionRenderedEvidence(string FileName, string ContentId);
+    private sealed record TemplateBlock(string Token, string PlainText, string Html);
+    private sealed record RenderedTemplateBody(string PlainText, string Html);
 }

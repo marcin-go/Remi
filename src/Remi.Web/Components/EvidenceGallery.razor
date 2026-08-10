@@ -1,0 +1,93 @@
+@using Remi.Application
+
+@if (Documents.Count > 0)
+{
+    <ul class="remi-document-gallery">
+        @foreach (var document in Documents)
+        {
+            <li class="remi-document-card" @key="document.Id">
+                <button class="remi-document-open" type="button" @onclick="() => OpenPreview(document)" aria-label="Open @document.FileName">
+                    <span class="remi-document-thumbnail" aria-hidden="true">
+                        @if (EvidencePreviewPolicy.GetKind(document.FileName) == EvidencePreviewKind.Image)
+                        {
+                            <img src="@PreviewUrl(document)" alt="" />
+                        }
+                        else
+                        {
+                            @ThumbnailLabel(document)
+                        }
+                    </span>
+                    <span class="remi-document-copy">
+                        <span class="remi-document-name">@DisplayFileName(document)</span>
+                        <span class="remi-document-meta">@FormatBytes(document.FileSizeBytes)</span>
+                    </span>
+                </button>
+            </li>
+        }
+    </ul>
+}
+
+@if (previewing is not null)
+{
+    <div class="remi-document-preview-backdrop" @onclick="ClosePreview">
+        <section class="remi-document-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="remi-document-preview-title" @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <p>Document preview</p>
+                    <h2 id="remi-document-preview-title">@previewing.FileName</h2>
+                </div>
+                <div class="remi-document-preview-actions">
+                    <a class="button secondary" href="@DownloadUrl(previewing)">Download</a>
+                    <button class="button primary" type="button" @onclick="ClosePreview" aria-label="Close preview">Close</button>
+                </div>
+            </header>
+            <div class="remi-document-preview-content">
+                @switch (EvidencePreviewPolicy.GetKind(previewing.FileName))
+                {
+                    case EvidencePreviewKind.Image:
+                        <img src="@PreviewUrl(previewing)" alt="@previewing.FileName" />
+                        break;
+                    case EvidencePreviewKind.Pdf:
+                        <iframe src="@PreviewUrl(previewing)" title="Preview of @previewing.FileName"></iframe>
+                        break;
+                    case EvidencePreviewKind.Text:
+                        <iframe class="remi-document-preview-text" src="@PreviewUrl(previewing)" title="Preview of @previewing.FileName" sandbox></iframe>
+                        break;
+                    default:
+                        <div class="remi-document-preview-unavailable" role="status">
+                            <h3>Preview unavailable</h3>
+                            <p>This file format cannot be previewed in Remi. Download the file to open it in a compatible application, or close this dialog.</p>
+                        </div>
+                        break;
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<EvidenceLink> Documents { get; set; } = [];
+
+    private EvidenceLink? previewing;
+
+    private void OpenPreview(EvidenceLink document) => previewing = document;
+    private void ClosePreview() => previewing = null;
+    private static string PreviewUrl(EvidenceLink document) => $"/evidence/{document.Id}/preview";
+    private static string DownloadUrl(EvidenceLink document) => $"/evidence/{document.Id}/download";
+
+    private static string ThumbnailLabel(EvidenceLink document)
+    {
+        var extension = Path.GetExtension(document.FileName).TrimStart('.').ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(extension) ? "FILE" : extension[..Math.Min(5, extension.Length)];
+    }
+
+    private static string DisplayFileName(EvidenceLink document)
+    {
+        var nameWithoutExtension = Path.GetFileNameWithoutExtension(document.FileName);
+        return string.IsNullOrWhiteSpace(nameWithoutExtension) ? document.FileName : nameWithoutExtension;
+    }
+
+    private static string FormatBytes(long bytes) => bytes < 1024 * 1024
+        ? $"{bytes / 1024d:0.#} KB"
+        : $"{bytes / 1024d / 1024d:0.#} MB";
+}

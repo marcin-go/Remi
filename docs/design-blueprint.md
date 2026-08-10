@@ -178,9 +178,9 @@ For linked reference data such as the GCA customer directory:
 ### Reports
 
 - The register is a sortable/browsable table with direct `Open` actions.
-- A return workspace shows framework and month first, then its reporting summary and lifecycle workflow.
-- Workflow steps communicate state; they are not dashboard metrics.
-- Generated files, checks and evidence may use disclosure sections when their contents are secondary.
+- A return workspace keeps framework, month and reporting summary visible, then uses four clickable workflow tabs: Review data, Generate workbook, Upload to GCA and Record submission.
+- The workflow tabs communicate both progress and navigation; they do not lock users into a wizard.
+- Checks and report rows belong to Review data; generated workbooks belong to Generate workbook; GCA instructions belong to Upload to GCA; task details, evidence, history and corrections belong to Record submission.
 
 ### Settings
 
@@ -204,7 +204,9 @@ For linked reference data such as the GCA customer directory:
 - Lead with the current delivery mode. In Capture mode say literally that Remi retains messages and sends nothing.
 - The event list is navigation, not a dashboard. Show event name plus Enabled/Disabled and Manual/Automatic status.
 - To, Cc and Bcc belong to each event template. Use floating fields and permit several addresses without adding a recipient-management subsystem.
-- Keep editable copy in task order: subject, greeting, introduction, request/explanation, closing and signature.
+- Keep the subject separate, then present one full-width Message field containing the complete message in reading order. Internal rendering stages must never appear as separate copy fields.
+- Show the event's available placements beside the Message field. Inserting a placement writes an explicit token such as `{{active_contracts}}`, `{{operational_parts}}` or `{{submission_evidence}}` at the caret; the generated content appears at that exact point when Remi composes the message.
+- A generated-content placement that defines the event's purpose is required. Explain a missing placement beside the editor and disable Save until it has been restored. Scalar placements such as `{{customer_name}}` and `{{reporting_month}}` are optional and may appear in either the subject or message.
 - For post-submission capture, use a searchable Remi reporting-month picklist beside the manual action. Require every in-scope framework to be submitted and to have image evidence for its latest submission; embed the retained images beneath concise framework headings in the message.
 - A missing submission, missing image or missing archived file is a blocking error. Never compose an acceptance statement with an incomplete evidence set.
 - The captured-message register shows when, event, subject, recipient summary, mode and a direct `.eml` download.

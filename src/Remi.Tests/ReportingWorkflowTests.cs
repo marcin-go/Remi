@@ -243,6 +243,145 @@ public sealed class ReportingWorkflowTests
     }
 
     [Fact]
+    public void Submission_timestamp_parser_accepts_pasted_british_utc_text()
+    {
+        var parsed = SubmissionTimestampParser.TryParseUtc("6 August 2026 13:45 UTC", out var timestamp);
+
+        Assert.True(parsed);
+        Assert.Equal(new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero), timestamp);
+        Assert.Equal("6 August 2026 13:45 UTC", SubmissionTimestampParser.FormatUtc(timestamp));
+    }
+
+    [Fact]
+    public async Task Submission_record_uses_the_explicit_utc_timestamp()
+    {
+        var database = new RemiDatabase();
+        var submittedAt = new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero);
+
+        var recorded = await Workspace(database).MarkNilReturnAsync(
+            FrameworkCode.GCloud13,
+            "2026-07",
+            "e0303f95-3441-4d48-bd32-e028a66f87db",
+            submittedAt);
+
+        Assert.True(recorded.Succeeded);
+        Assert.Equal(submittedAt, Assert.Single(database.MonthlyReturns).SubmittedAtUtc);
+    }
+
+    [Fact]
+    public async Task Missing_submission_timestamp_can_be_added_without_reopening_the_return()
+    {
+        var returnId = Guid.NewGuid();
+        var submittedAt = new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero);
+        var database = new RemiDatabase
+        {
+            MonthlyReturns =
+            [
+                new MonthlyReturn(returnId, FrameworkCode.GCloud13, "2026-07", ReturnStatus.NilReturn, null, "existing-task", null, DateTimeOffset.UtcNow),
+            ],
+        };
+
+        var saved = await Workspace(database).UpdateSubmissionDetailsAsync(
+            FrameworkCode.GCloud13,
+            "2026-07",
+            "existing-task",
+            submittedAt);
+
+        var monthlyReturn = Assert.Single(database.MonthlyReturns);
+        Assert.True(saved.Succeeded);
+        Assert.Equal(ReturnStatus.NilReturn, monthlyReturn.Status);
+        Assert.Equal(submittedAt, monthlyReturn.SubmittedAtUtc);
+        Assert.Contains(database.AuditEvents, item => item.Action == "SubmissionDetailsUpdated");
+    }
+
+    [Fact]
+    public async Task Retained_submission_document_can_be_retitled_without_replacing_its_archived_copy()
+    {
+        var returnId = Guid.NewGuid();
+        var evidenceId = Guid.NewGuid();
+        var submittedAt = new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero);
+        var original = new EvidenceRecord(
+            evidenceId,
+            EvidenceKind.SubmissionEvidence,
+            FrameworkCode.GCloud13,
+            "2026-07",
+            "gca-confirmation.png",
+            $"clipboard/monthly-return/{returnId:D}/gca-confirmation.png",
+            "evidence/immutable-copy.png",
+            "image/png",
+            2048,
+            new string('a', 64),
+            null,
+            submittedAt.AddMinutes(1));
+        var database = new RemiDatabase
+        {
+            MonthlyReturns =
+            [
+                new MonthlyReturn(returnId, FrameworkCode.GCloud13, "2026-07", ReturnStatus.NilReturn, submittedAt, "existing-task", null, submittedAt),
+            ],
+            Evidence = [original],
+        };
+
+        var saved = await Workspace(database).UpdateSubmissionEvidenceAsync(
+            returnId,
+            [new SubmissionEvidenceEdit(evidenceId, "GCA nil-return confirmation")]);
+
+        Assert.True(saved.Succeeded);
+        var retained = Assert.Single(database.Evidence);
+        Assert.Equal("GCA nil-return confirmation.png", retained.FileName);
+        Assert.Equal(original.OriginalRelativePath, retained.OriginalRelativePath);
+        Assert.Equal(original.StoredRelativePath, retained.StoredRelativePath);
+        Assert.Equal(original.Sha256, retained.Sha256);
+        Assert.Contains(database.AuditEvents, item =>
+            item.Action == "SubmissionEvidenceRenamed" &&
+            item.EntityId == returnId &&
+            item.Summary.Contains("gca-confirmation.png", StringComparison.Ordinal) &&
+            item.Summary.Contains("GCA nil-return confirmation.png", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Submission_document_can_be_deleted_from_the_record_and_archive()
+    {
+        var returnId = Guid.NewGuid();
+        var evidenceId = Guid.NewGuid();
+        var submittedAt = new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero);
+        var evidence = new EvidenceRecord(
+            evidenceId,
+            EvidenceKind.SubmissionEvidence,
+            FrameworkCode.GCloud13,
+            "2026-07",
+            "duplicate-confirmation.png",
+            $"clipboard/monthly-return/{returnId:D}/duplicate-confirmation.png",
+            "evidence/duplicate-confirmation.png",
+            "image/png",
+            2048,
+            new string('b', 64),
+            null,
+            submittedAt.AddMinutes(1));
+        var database = new RemiDatabase
+        {
+            MonthlyReturns =
+            [
+                new MonthlyReturn(returnId, FrameworkCode.GCloud13, "2026-07", ReturnStatus.NilReturn, submittedAt, "existing-task", null, submittedAt),
+            ],
+            Evidence = [evidence],
+        };
+        var archive = new RecordingEvidenceArchive();
+
+        var saved = await Workspace(database, evidenceArchive: archive).UpdateSubmissionEvidenceAsync(
+            returnId,
+            [new SubmissionEvidenceEdit(evidenceId, string.Empty, true)]);
+
+        Assert.True(saved.Succeeded);
+        Assert.Empty(database.Evidence);
+        Assert.Equal(evidenceId, Assert.Single(archive.DeletedEvidence).Id);
+        Assert.Contains(database.AuditEvents, item =>
+            item.Action == "SubmissionEvidenceDeleted" &&
+            item.EntityId == returnId &&
+            item.Summary.Contains("duplicate-confirmation.png", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Reporting_findings_are_loaded_from_current_period_data_not_the_last_action()
     {
         var database = new RemiDatabase
@@ -376,21 +515,25 @@ public sealed class ReportingWorkflowTests
             DigitalMarketplaceServices =
             [
                 new DigitalMarketplaceService("115981361947474", "StatMap Cluster"),
+                new DigitalMarketplaceService("g13-existing", "Existing G-Cloud 13 product", FrameworkCode.GCloud13),
             ],
         };
         var workspace = Workspace(database);
 
         var saved = await workspace.UpdateDigitalMarketplaceServicesAsync(
+            FrameworkCode.GCloud13,
         [
-            new DigitalMarketplaceService("779097416520979", "StatMap Earthlight GIS"),
-            new DigitalMarketplaceService("115981361947474", "StatMap Cluster"),
+            new DigitalMarketplaceService("g13-second", "Second G-Cloud 13 product", FrameworkCode.GCloud13),
+            new DigitalMarketplaceService("g13-first", "First G-Cloud 13 product", FrameworkCode.GCloud13),
         ]);
 
-        var services = await workspace.GetDigitalMarketplaceServicesAsync();
+        var gCloud13Services = await workspace.GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud13);
+        var gCloud14Services = await workspace.GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud14);
 
         Assert.True(saved.Succeeded);
-        Assert.Equal(["StatMap Cluster", "StatMap Earthlight GIS"], services.Select(item => item.Name));
-        Assert.Contains(database.AuditEvents, item => item.Action == "DigitalMarketplaceServicesUpdated");
+        Assert.Equal(["First G-Cloud 13 product", "Second G-Cloud 13 product"], gCloud13Services.Select(item => item.Name));
+        Assert.Equal("StatMap Cluster", Assert.Single(gCloud14Services).Name);
+        Assert.Contains(database.AuditEvents, item => item.Action == "DigitalMarketplaceServicesUpdated" && item.Summary.Contains("G-Cloud 13"));
     }
 
     [Fact]
@@ -449,6 +592,52 @@ public sealed class ReportingWorkflowTests
         Assert.True(result.Succeeded);
         Assert.DoesNotContain(database.ChargeScheduleItems, item => item.Id == scheduleItemId);
         Assert.Contains(database.AuditEvents, item => item.Action == "ChargeScheduleDeleted" && item.EntityId == scheduleItemId);
+    }
+
+    [Fact]
+    public async Task Deleting_invoice_removes_its_link_and_private_evidence_and_records_an_audit_event()
+    {
+        var contractId = Guid.NewGuid();
+        var changeId = Guid.NewGuid();
+        var invoiceId = Guid.NewGuid();
+        var privateEvidence = new EvidenceRecord(
+            Guid.NewGuid(),
+            EvidenceKind.SupportingDocument,
+            FrameworkCode.GCloud14,
+            "2026-07",
+            "invoice.pdf",
+            $"clipboard/invoice/{invoiceId:D}/invoice.pdf",
+            "invoice-private.pdf",
+            "application/pdf",
+            100,
+            "private-hash",
+            "RM-001",
+            DateTimeOffset.UtcNow);
+        var sharedEvidence = privateEvidence with
+        {
+            Id = Guid.NewGuid(),
+            OriginalRelativePath = "imports/2026-07/return.xlsx",
+            StoredRelativePath = "shared-return.xlsx",
+            FileName = "return.xlsx",
+        };
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            ContractChanges = [new ContractChangeRecord(changeId, contractId, ContractChangeKind.Extension, new DateOnly(2026, 7, 14), null, null, 500, true, true, null, DateTimeOffset.UtcNow)],
+            Invoices = [Invoice(invoiceId, FrameworkCode.GCloud14, "RM-001", "INV-001", 250, "2026-07")],
+            InvoiceContractChangeLinks = [new InvoiceContractChangeLink(invoiceId, changeId)],
+            Evidence = [privateEvidence, sharedEvidence],
+        };
+        var archive = new RecordingEvidenceArchive();
+
+        var result = await Workspace(database, evidenceArchive: archive).DeleteInvoiceAsync(invoiceId);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(database.Invoices);
+        Assert.Empty(database.InvoiceContractChangeLinks);
+        Assert.Equal(sharedEvidence, Assert.Single(database.Evidence));
+        Assert.Equal(privateEvidence.Id, Assert.Single(archive.DeletedEvidence).Id);
+        Assert.Contains(database.AuditEvents, item => item.Action == "InvoiceDeleted" && item.EntityId == invoiceId);
     }
 
     [Fact]
@@ -605,8 +794,11 @@ public sealed class ReportingWorkflowTests
         Assert.Contains(database.ChargeScheduleItems, item => item.Description == "Annual licence and maintenance (uplift: unspecified)" && item.ValueExVat == 42800);
     }
 
-    private static ReportingWorkspace Workspace(RemiDatabase database, TimeProvider? timeProvider = null) =>
-        new(new InMemoryStore(database), null!, null!, null!, null!, timeProvider ?? TimeProvider.System);
+    private static ReportingWorkspace Workspace(
+        RemiDatabase database,
+        TimeProvider? timeProvider = null,
+        IEvidenceArchive? evidenceArchive = null) =>
+        new(new InMemoryStore(database), null!, null!, evidenceArchive!, null!, timeProvider ?? TimeProvider.System);
 
     private static ContractRecord Contract(Guid id, FrameworkCode framework, string reference, string reportMonth) =>
         new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), framework == FrameworkCode.VerticalApplicationSolutions ? "3" : "2", framework == FrameworkCode.VerticalApplicationSolutions ? null : "Information and Communication Technology (ICT)", null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct Award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
@@ -619,5 +811,22 @@ public sealed class ReportingWorkflowTests
         public Task<T> ReadAsync<T>(Func<RemiDatabase, T> reader, CancellationToken cancellationToken = default) => Task.FromResult(reader(database));
 
         public Task<T> UpdateAsync<T>(Func<RemiDatabase, T> update, CancellationToken cancellationToken = default) => Task.FromResult(update(database));
+    }
+
+    private sealed class RecordingEvidenceArchive : IEvidenceArchive
+    {
+        public List<EvidenceRecord> DeletedEvidence { get; } = [];
+
+        public Task<ArchivedEvidenceFile> ArchiveAsync(EvidenceArchiveRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Stream?> OpenReadAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task DeleteAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default)
+        {
+            DeletedEvidence.Add(evidence);
+            return Task.CompletedTask;
+        }
     }
 }

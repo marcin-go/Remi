@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Remi.Application;
+using Remi.Domain;
 using Remi.Infrastructure;
 using Xunit;
 
@@ -8,7 +9,7 @@ namespace Remi.Tests;
 public sealed class SchemaMigrationTests
 {
     [Fact]
-    public async Task Post_submission_default_upgrade_preserves_event_state_and_recipients()
+    public async Task Single_body_upgrade_preserves_custom_copy_event_state_and_recipients()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
         var databasePath = Path.Combine(root, "remi-data.db");
@@ -21,18 +22,23 @@ public sealed class SchemaMigrationTests
             await mailStore.SaveTemplateAsync(new MailTemplateUpdate(
                 template.EventType,
                 true,
-                "Framework MI submission recorded - {{reporting_month}}",
-                "Hello,",
-                "The framework MI return has been submitted.",
-                "Submission evidence will be included when this event is enabled.",
-                "Take care",
-                "Marcin",
+                "Custom post-submission subject",
+                template.BodyTemplate,
                 [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, "Director", "director@example.test", 0)]),
                 DateTimeOffset.UtcNow);
             await using (var connection = await OpenAsync(databasePath))
             await using (var command = connection.CreateCommand())
             {
-                command.CommandText = "DELETE FROM remi_schema_migrations WHERE version = 3;";
+                command.CommandText = """
+                    UPDATE mail_templates
+                    SET greeting = 'Dear team,', introduction = 'Custom introduction.',
+                        request_text = 'Custom explanation.', closing = 'Regards,',
+                        signature = 'Marcin', body_template = '', trigger_mode = 0,
+                        schedule_day = 5, schedule_time_local = '08:30', time_zone_id = 'Europe/London'
+                    WHERE event_type = 'post-submission-report';
+                    DELETE FROM remi_schema_migrations WHERE version = 4;
+                    DELETE FROM remi_schema_migrations WHERE version = 6;
+                    """;
                 await command.ExecuteNonQueryAsync();
             }
 
@@ -41,12 +47,16 @@ public sealed class SchemaMigrationTests
             var upgraded = Assert.Single(await upgradedMailStore.GetTemplatesAsync(), item => item.EventType == MailEventTypes.PostSubmissionReport);
 
             Assert.True(upgraded.Enabled);
-            Assert.Equal("Framework MI submission accepted - {{reporting_month}}", upgraded.SubjectTemplate);
-            Assert.Contains("accepted by GCA", upgraded.Introduction, StringComparison.Ordinal);
-            Assert.Equal("This month we reported the following values.", upgraded.RequestText);
+            Assert.Equal("Custom post-submission subject", upgraded.SubjectTemplate);
+            Assert.Equal("Dear team,\n\nCustom introduction.\n\nCustom explanation.\n\n{{submission_evidence}}\n\nRegards,\n\nMarcin", upgraded.BodyTemplate);
+            Assert.Equal(MailTriggerMode.Manual, upgraded.TriggerMode);
+            Assert.Null(upgraded.ScheduleDay);
+            Assert.Null(upgraded.ScheduleTimeLocal);
+            Assert.Null(upgraded.TimeZoneId);
             var recipient = Assert.Single(upgraded.Recipients);
             Assert.Equal("director@example.test", recipient.EmailAddress);
-            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v3-*.db"));
+            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v4-*.db"));
+            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v6-*.db"));
         }
         finally
         {
@@ -75,6 +85,7 @@ public sealed class SchemaMigrationTests
                 Evidence = database.Evidence.ToList(),
                 Parts = database.ContractServiceParts.ToList(),
                 ReportingOccurrences = database.ContractReportingOccurrences.ToList(),
+                MarketplaceServices = database.DigitalMarketplaceServices.ToList(),
             });
 
             Assert.Single(snapshot.Contracts);
@@ -89,6 +100,9 @@ public sealed class SchemaMigrationTests
             Assert.Single(snapshot.ReportingOccurrences);
             Assert.Equal(snapshot.Contracts[0].Id, snapshot.ReportingOccurrences[0].ContractId);
             Assert.Equal(snapshot.Returns[0].Id, snapshot.ReportingOccurrences[0].MonthlyReturnId);
+            var marketplaceService = Assert.Single(snapshot.MarketplaceServices);
+            Assert.Equal(FrameworkCode.GCloud14, marketplaceService.Framework);
+            Assert.Equal("legacy-service", marketplaceService.ServiceId);
 
             await using var verification = await OpenAsync(databasePath);
             var versions = new List<int>();
@@ -101,8 +115,10 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
+            Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
+            Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));
 
             var automaticBackup = Assert.Single(Directory.GetFiles(
                 Path.Combine(root, "migration-backups"),
@@ -119,6 +135,30 @@ public sealed class SchemaMigrationTests
             await using var versionThreeIntegrity = versionThreeBackup.CreateCommand();
             versionThreeIntegrity.CommandText = "PRAGMA integrity_check;";
             Assert.Equal("ok", await versionThreeIntegrity.ExecuteScalarAsync());
+
+            var singleBodyBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v4-*.db"));
+            await using var versionFourBackup = await OpenAsync(singleBodyBackup, readOnly: true);
+            await using var versionFourIntegrity = versionFourBackup.CreateCommand();
+            versionFourIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionFourIntegrity.ExecuteScalarAsync());
+
+            var marketplaceBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v5-*.db"));
+            await using var versionFiveBackup = await OpenAsync(marketplaceBackup, readOnly: true);
+            await using var versionFiveIntegrity = versionFiveBackup.CreateCommand();
+            versionFiveIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionFiveIntegrity.ExecuteScalarAsync());
+
+            var manualTriggerBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v6-*.db"));
+            await using var versionSixBackup = await OpenAsync(manualTriggerBackup, readOnly: true);
+            await using var versionSixIntegrity = versionSixBackup.CreateCommand();
+            versionSixIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionSixIntegrity.ExecuteScalarAsync());
         }
         finally
         {
@@ -168,6 +208,8 @@ public sealed class SchemaMigrationTests
                 id TEXT PRIMARY KEY, contract_id TEXT NOT NULL, contract_year INTEGER NOT NULL,
                 description TEXT NOT NULL, expected_invoice_date TEXT NULL, value_ex_vat TEXT NOT NULL,
                 is_optional_extension INTEGER NOT NULL DEFAULT 0, created_at_utc TEXT NOT NULL);
+            CREATE TABLE digital_marketplace_services (
+                service_id TEXT PRIMARY KEY, name TEXT NOT NULL);
 
             INSERT INTO contracts VALUES (
                 '11111111-1111-1111-1111-111111111111', 2, 'LIVE-CONTRACT', 'Mole Valley District Council',
@@ -193,6 +235,7 @@ public sealed class SchemaMigrationTests
                 '55555555-5555-5555-5555-555555555555',
                 '11111111-1111-1111-1111-111111111111', 1, 'Annual charge', '2024-10-01',
                 '40000.00', 0, '2024-10-01T09:00:00.0000000+00:00');
+            INSERT INTO digital_marketplace_services VALUES ('legacy-service', 'Legacy product');
             """;
         await command.ExecuteNonQueryAsync();
     }

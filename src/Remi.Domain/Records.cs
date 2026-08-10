@@ -203,7 +203,8 @@ public sealed record FrameworkConfiguration(
 /// </summary>
 public sealed record DigitalMarketplaceService(
     string ServiceId,
-    string Name);
+    string Name,
+    FrameworkCode Framework = FrameworkCode.GCloud14);
 
 /// <summary>
 /// An append-only record of material reporting actions and corrections.

@@ -9,10 +9,13 @@ using ContractRegistrationPage = Remi.Web.Components.Pages.ContractRegistration;
 using Remi.Web.Components.Layout;
 using ContractsRegister = Remi.Web.Components.Pages.Contracts;
 using DashboardPage = Remi.Web.Components.Pages.Dashboard;
+using EvidenceGallery = Remi.Web.Components.EvidenceGallery;
 using InvoiceRecordView = Remi.Web.Components.InvoiceRecordView;
 using InvoiceRegistrationPage = Remi.Web.Components.Pages.InvoiceRegistration;
 using InvoicesRegister = Remi.Web.Components.Pages.Invoices;
+using ReportingWorkbookCard = Remi.Web.Components.ReportingWorkbookCard;
 using ReportingRegister = Remi.Web.Components.Pages.Reporting;
+using SettingsPage = Remi.Web.Components.Pages.Maintenance;
 using TemplatesPage = Remi.Web.Components.Pages.Templates;
 using Xunit;
 
@@ -72,6 +75,9 @@ public sealed class RegisterComponentTests
             Assert.Empty(contracts.FindAll(".register-table-toolbar, .register-selection-bar, .register-selection-drawer"));
             Assert.DoesNotContain(contracts.FindAll(".quick-filter"), button => button.TextContent.Trim() == "Selected");
             Assert.Equal(4, contracts.FindAll(".register-filters .floating-field").Count);
+            Assert.Empty(contracts.FindAll(".register-filters select"));
+            Assert.Equal(3, contracts.FindAll(".register-filters button[role='combobox']").Count);
+            Assert.Equal(["All frameworks", "All documents", "Any progress"], contracts.FindAll(".register-filters button[role='combobox']").Select(button => button.TextContent.Trim()).ToList());
         });
 
         var invoices = context.Render<InvoicesRegister>();
@@ -82,6 +88,9 @@ public sealed class RegisterComponentTests
             Assert.Empty(invoices.FindAll(".register-table-toolbar, .register-selection-bar, .register-selection-drawer"));
             Assert.DoesNotContain(invoices.FindAll(".quick-filter"), button => button.TextContent.Trim() == "Selected");
             Assert.Equal(4, invoices.FindAll(".register-filters .floating-field").Count);
+            Assert.Empty(invoices.FindAll(".register-filters select"));
+            Assert.Equal(3, invoices.FindAll(".register-filters button[role='combobox']").Count);
+            Assert.Equal(["All frameworks", "All records", "All documents"], invoices.FindAll(".register-filters button[role='combobox']").Select(button => button.TextContent.Trim()).ToList());
         });
     }
 
@@ -146,6 +155,67 @@ public sealed class RegisterComponentTests
             Assert.Single(registration.FindAll(".invoice-intake-actions"));
             Assert.Equal(12, registration.FindAll(".invoice-details-grid label").Count);
         });
+    }
+
+    [Fact]
+    public void Settings_opens_frameworks_by_default_and_preserves_explicit_sections()
+    {
+        using var context = CreateContext();
+
+        var cut = context.Render<SettingsPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Frameworks", cut.Find(".settings-side-nav a.active").TextContent.Trim());
+            Assert.Equal("Framework reporting start dates", cut.Find(".settings-content h2").TextContent.Trim());
+            Assert.DoesNotContain("Customer URN list", cut.Markup);
+        });
+
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/settings?section=customer-urns");
+        var customerUrns = context.Render<SettingsPage>();
+        customerUrns.WaitForAssertion(() =>
+        {
+            Assert.Equal("Customer URNs", customerUrns.Find(".settings-side-nav a.active").TextContent.Trim());
+            Assert.Equal("Customer URN list", customerUrns.Find(".settings-content h2").TextContent.Trim());
+        });
+    }
+
+    [Fact]
+    public async Task Settings_can_define_g_cloud_13_digital_marketplace_mappings_separately()
+    {
+        using var context = CreateContext();
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/settings?section=digital-marketplace");
+        var cut = context.Render<SettingsPage>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("G-Cloud 14 Digital Marketplace services", cut.Find(".settings-content h2").TextContent.Trim());
+            Assert.Equal(2, cut.FindAll("select[aria-label='Digital Marketplace framework'] option").Count);
+            Assert.Contains("StatMap Cluster", cut.Markup);
+        });
+
+        cut.Find("select[aria-label='Digital Marketplace framework']").Change(FrameworkCode.GCloud13.ToString());
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("G-Cloud 13 Digital Marketplace services", cut.Find(".settings-content h2").TextContent.Trim());
+            Assert.Contains("No mappings are configured for G-Cloud 13.", cut.Markup);
+            Assert.DoesNotContain("StatMap Cluster", cut.Markup);
+        });
+
+        cut.FindAll("button").Single(button => button.TextContent.Trim() == "Edit").Click();
+        cut.FindAll("button").Single(button => button.TextContent.Trim() == "Add service").Click();
+        cut.Find("input[aria-label='Product name']").Change("Historical StatMap product");
+        cut.Find("input[aria-label='Digital Marketplace Service ID']").Change("g13-service-001");
+        cut.Find("button.primary").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Historical StatMap product", cut.Markup));
+        var mappings = await context.Services.GetRequiredService<ReportingWorkspace>()
+            .GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud13);
+        var mapping = Assert.Single(mappings);
+        Assert.Equal("g13-service-001", mapping.ServiceId);
+        Assert.Equal(FrameworkCode.GCloud13, mapping.Framework);
     }
 
     [Fact]
@@ -631,6 +701,7 @@ public sealed class RegisterComponentTests
                 "Example customer · G-Cloud 14",
                 heading.QuerySelector(".contract-hero-context")!.TextContent.Trim());
             Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim());
+            Assert.Empty(cut.FindAll(".contract-hero-actions a"));
             Assert.Equal(4, cut.FindAll(".record-display-grid").Count);
             Assert.Contains("Operational delivery", cut.Markup);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
@@ -746,14 +817,14 @@ public sealed class RegisterComponentTests
             Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
             Assert.Empty(cut.FindAll(".invoice-record .contract-breadcrumbs"));
-            Assert.Empty(cut.FindAll(".invoice-record .contract-hero-actions button"));
-            Assert.Equal("Back", cut.Find(".invoice-record .contract-hero-actions a").TextContent.Trim());
-            Assert.Equal("Edit", cut.Find(".invoice-overview-actions button.secondary").TextContent.Trim());
+            Assert.Equal("Edit", cut.Find(".invoice-record .contract-hero-actions button.secondary").TextContent.Trim());
+            Assert.Empty(cut.FindAll(".invoice-record .contract-hero-actions a"));
+            Assert.Empty(cut.FindAll(".invoice-overview-actions button.secondary"));
             Assert.DoesNotContain("View →", cut.Markup);
             Assert.DoesNotContain("Back ←", cut.Markup);
         });
 
-        cut.Find(".invoice-overview-actions button.secondary").Click();
+        cut.Find(".invoice-record .contract-hero-actions button.secondary").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -764,6 +835,48 @@ public sealed class RegisterComponentTests
             Assert.Equal("LABEL", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TagName);
             Assert.Contains("press Ctrl+V to paste an image", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TextContent);
         });
+    }
+
+    [Fact]
+    public void Document_cards_open_a_Casey_style_preview_with_download_inside_the_dialog()
+    {
+        using var context = CreateContext();
+        var evidenceId = Guid.Parse("f2ac7a1a-59e8-4894-9f95-40c7019a364a");
+        IReadOnlyList<EvidenceLink> documents =
+        [
+            new(evidenceId, EvidenceKind.ContractDocument, "signed-contract.pdf", "contracts/signed-contract.pdf", "application/pdf", 1536, "2026-07", DateTimeOffset.UtcNow),
+        ];
+        var cut = context.Render<EvidenceGallery>(parameters => parameters.Add(component => component.Documents, documents));
+
+        var card = cut.Find(".remi-document-card");
+        Assert.Equal("BUTTON", card.QuerySelector(".remi-document-open")!.TagName);
+        Assert.Equal("Open signed-contract.pdf", card.QuerySelector(".remi-document-open")!.GetAttribute("aria-label"));
+        Assert.Equal("PDF", card.QuerySelector(".remi-document-thumbnail")!.TextContent.Trim());
+        Assert.Equal("signed-contract", card.QuerySelector(".remi-document-name")!.TextContent.Trim());
+        Assert.Equal("1.5 KB", card.QuerySelector(".remi-document-meta")!.TextContent.Trim());
+        Assert.DoesNotContain("Download", card.TextContent);
+
+        card.QuerySelector(".remi-document-open")!.Click();
+
+        var dialog = cut.Find("[role='dialog'][aria-modal='true']");
+        Assert.Equal($"/evidence/{evidenceId}/preview", dialog.QuerySelector("iframe")!.GetAttribute("src"));
+        Assert.Equal($"/evidence/{evidenceId}/download", dialog.QuerySelector("a")!.GetAttribute("href"));
+        Assert.Equal("Download", dialog.QuerySelector("a")!.TextContent.Trim());
+        dialog.QuerySelector("button[aria-label='Close preview']")!.Click();
+        Assert.Empty(cut.FindAll("[role='dialog']"));
+    }
+
+    [Fact]
+    public void Document_preview_policy_matches_Caseys_supported_formats()
+    {
+        Assert.Equal(EvidencePreviewKind.Image, EvidencePreviewPolicy.GetKind("image.png"));
+        Assert.Equal(EvidencePreviewKind.Image, EvidencePreviewPolicy.GetKind("image.jpeg"));
+        Assert.Equal(EvidencePreviewKind.Image, EvidencePreviewPolicy.GetKind("image.gif"));
+        Assert.Equal(EvidencePreviewKind.Image, EvidencePreviewPolicy.GetKind("image.webp"));
+        Assert.Equal(EvidencePreviewKind.Pdf, EvidencePreviewPolicy.GetKind("contract.pdf"));
+        Assert.Equal(EvidencePreviewKind.Text, EvidencePreviewPolicy.GetKind("notes.txt"));
+        Assert.Equal(EvidencePreviewKind.Text, EvidencePreviewPolicy.GetKind("data.csv"));
+        Assert.Equal(EvidencePreviewKind.None, EvidencePreviewPolicy.GetKind("contract.docx"));
     }
 
     [Fact]
@@ -804,10 +917,66 @@ public sealed class RegisterComponentTests
         {
             Assert.Contains("Generate workbook", workspace.Markup);
             Assert.Contains("Review data", workspace.Markup);
-            Assert.Contains("Generated files", workspace.Markup);
+            Assert.Equal(4, workspace.FindAll("[role='tablist'] .return-workflow-tab").Count);
             Assert.DoesNotContain("Monthly MI workbook", workspace.Markup);
             Assert.Empty(workspace.FindAll("input[type='file']"));
         });
+
+        workspace.Find("button[data-stage='2']").Click();
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.Equal("true", workspace.Find("button[data-stage='2']").GetAttribute("aria-selected"));
+            Assert.Contains("Create the workbook that will be uploaded", workspace.Find(".return-stage-panel").TextContent);
+            Assert.DoesNotContain("Generated files", workspace.Markup);
+        });
+    }
+
+    [Fact]
+    public void Report_workflow_tabs_keep_each_stage_available_without_bypassing_its_prerequisites()
+    {
+        using var context = CreateContext();
+        var workspace = context.Render<ReportingRegister>(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.GCloud14)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.Equal("true", workspace.Find("button[data-stage='1']").GetAttribute("aria-selected"));
+            Assert.Contains("Checks", workspace.Find(".return-stage-panel").TextContent);
+        });
+
+        workspace.Find("button[data-stage='3']").Click();
+        workspace.WaitForAssertion(() => Assert.Contains("Generate the reporting workbook before uploading", workspace.Find(".return-stage-panel").TextContent));
+
+        workspace.Find("button[data-stage='4']").Click();
+        workspace.WaitForAssertion(() => Assert.Contains("Complete the GCA upload stage", workspace.Find(".return-stage-panel").TextContent));
+
+        workspace.Find("button[data-stage='1']").Click();
+        workspace.WaitForAssertion(() => Assert.Contains("Report contents", workspace.Find(".return-stage-panel").TextContent));
+    }
+
+    [Fact]
+    public async Task Invoice_deletion_requires_confirmation_and_returns_to_the_period_register()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<InvoiceRecordView>(parameters => parameters.Add(component => component.InvoiceId, SampleInvoiceId));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Delete", cut.Find("button.invoice-delete-trigger").TextContent.Trim());
+            Assert.Empty(cut.FindAll("button.invoice-delete-confirm"));
+        });
+
+        cut.Find("button.invoice-delete-trigger").Click();
+        Assert.Contains("permanently removes the invoice", cut.Find(".invoice-delete-confirmation").TextContent);
+        cut.Find("button.invoice-delete-confirm").Click();
+
+        cut.WaitForAssertion(() => Assert.EndsWith(
+            "/invoices?period=2026-07",
+            context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri,
+            StringComparison.Ordinal));
+        Assert.Null(await context.Services.GetRequiredService<ReportingWorkspace>().GetInvoiceDetailsAsync(SampleInvoiceId));
     }
 
     [Fact]
@@ -881,11 +1050,98 @@ public sealed class RegisterComponentTests
         workspace.WaitForAssertion(() =>
         {
             var summary = workspace.Find(".gca-return-summary");
-            Assert.Contains("RM6259 reporting summary", summary.TextContent);
+            Assert.Equal("Return totals", summary.GetAttribute("aria-label"));
+            Assert.Contains("RM6259", workspace.Find(".return-workspace-header .lede").TextContent);
+            Assert.DoesNotContain("reporting summary", workspace.Markup, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Invoices", summary.TextContent);
             Assert.Contains("Purchase order", summary.TextContent);
             Assert.Contains("GCA_VAS_202607", summary.TextContent);
+            Assert.Equal("Submission workflow", workspace.Find(".return-workflow-heading h2").TextContent.Trim());
         });
+    }
+
+    [Fact]
+    public void Reporting_workbook_card_uses_one_compact_download_presentation()
+    {
+        using var context = CreateContext();
+        var workbook = new ReportingEvidence(
+            Guid.Parse("5d948fa9-07a4-4b2c-b189-604e81d90fd7"),
+            EvidenceKind.GeneratedMiWorkbook,
+            "RM1557.14-MI-2026-07.xlsx",
+            "generated/RM1557.14-MI-2026-07.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            28656,
+            null,
+            new DateTimeOffset(2026, 8, 6, 15, 44, 0, TimeSpan.Zero));
+
+        var card = context.Render<ReportingWorkbookCard>(parameters => parameters.Add(component => component.Workbook, workbook));
+
+        Assert.Equal("RM1557.14-MI-2026-07.xlsx", card.Find(".return-workbook-card-copy strong").TextContent.Trim());
+        Assert.Contains("Generated", card.Find(".return-workbook-card-copy span").TextContent);
+        Assert.Contains("28.0 KB", card.Find(".return-workbook-card-copy span").TextContent);
+        Assert.Equal(workbook.ArchivedAtUtc.ToString("O"), card.Find("time").GetAttribute("datetime"));
+        var download = card.Find("a");
+        Assert.Equal("Download workbook", download.TextContent.Trim());
+        Assert.Equal($"/evidence/{workbook.Id}", download.GetAttribute("href"));
+        Assert.Single(card.FindAll("a"));
+    }
+
+    [Fact]
+    public void Submitted_return_separates_its_evidence_view_from_editing_submission_details()
+    {
+        using var context = CreateContext(includeSubmittedReturn: true);
+        var workspace = context.Render<ReportingRegister>(parameters => parameters
+            .Add(component => component.FrameworkValue, (int)FrameworkCode.GCloud13)
+            .Add(component => component.WorkspaceMonth, "2026-07"));
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("? Help", workspace.Markup, StringComparison.Ordinal);
+            Assert.DoesNotContain("Back to reports", workspace.Markup, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("GCA_G13_202607", workspace.Find(".gca-return-summary").TextContent);
+            Assert.NotNull(workspace.Find(".return-submission-evidence-view").QuerySelector("img[src^='/evidence/']"));
+            Assert.Empty(workspace.FindAll(".return-workflow-tab-mark"));
+            Assert.Equal(3, workspace.FindAll(".return-workflow-tab-status").Count);
+            Assert.Equal("true", workspace.Find("button[data-stage='4']").GetAttribute("aria-selected"));
+            var metadata = workspace.Find(".return-submission-metadata");
+            Assert.Contains("e0303f95-3441-4d48-bd32-e028a66f87db", metadata.TextContent);
+            Assert.Contains("6 August 2026 13:45 UTC", metadata.TextContent);
+            Assert.Contains("Open GCA submission", metadata.TextContent);
+            Assert.Empty(workspace.FindAll("input[type='file']"));
+        });
+
+        workspace.Find(".return-submission-record-actions button").Click();
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.Empty(workspace.FindAll(".return-submission-record-grid"));
+            Assert.Equal("6 August 2026 13:45 UTC", workspace.Find("input[aria-label='Submission date and time']").GetAttribute("value"));
+            Assert.Single(workspace.FindAll("input[type='file']"));
+            var evidenceIntake = workspace.Find(".return-submission-evidence-layout");
+            Assert.Empty(evidenceIntake.QuerySelectorAll(".clipboard-image-panel > header"));
+            Assert.Contains("clipboard-image-panel--plain", evidenceIntake.QuerySelector(".clipboard-image-panel")!.ClassList);
+            Assert.Equal("Submission evidence", evidenceIntake.QuerySelector(".clipboard-document-dropzone strong")!.TextContent.Trim());
+            Assert.Contains("Add the GCA submission confirmation screenshot.", evidenceIntake.QuerySelector(".clipboard-documents-empty")!.TextContent);
+            Assert.Contains("Retained documents", workspace.Find(".submission-document-editor").TextContent);
+            Assert.Equal("gca-confirmation", workspace.Find("input[aria-label='Document title for gca-confirmation.png']").GetAttribute("value"));
+            Assert.Equal("Remove", workspace.Find("button[aria-label='Remove gca-confirmation.png']").TextContent.Trim());
+        });
+
+        workspace.Find("button[aria-label='Remove gca-confirmation.png']").Click();
+
+        workspace.WaitForAssertion(() =>
+        {
+            Assert.True(workspace.Find("input[aria-label='Document title for gca-confirmation.png']").HasAttribute("disabled"));
+            Assert.Contains("permanently deleted when you save", workspace.Find(".submission-document-removal-note").TextContent);
+            Assert.False(workspace.Find(".submission-evidence-save .remi-action--primary").HasAttribute("disabled"));
+        });
+
+        workspace.Find("button[aria-label='Undo removal of gca-confirmation.png']").Click();
+
+        workspace.WaitForAssertion(() => Assert.True(workspace.Find(".submission-evidence-save .remi-action--primary").HasAttribute("disabled")));
+        workspace.Find("input[aria-label='Document title for gca-confirmation.png']").Input("GCA nil-return confirmation");
+
+        workspace.WaitForAssertion(() => Assert.False(workspace.Find(".submission-evidence-save .remi-action--primary").HasAttribute("disabled")));
     }
 
     [Fact]
@@ -914,7 +1170,8 @@ public sealed class RegisterComponentTests
         FrameworkCode? additionalFramework = null,
         bool includePaymentSchedule = false,
         int additionalContracts = 0,
-        int additionalMarketplaceServices = 0)
+        int additionalMarketplaceServices = 0,
+        bool includeSubmittedReturn = false)
     {
         var database = new RemiDatabase
         {
@@ -967,6 +1224,33 @@ public sealed class RegisterComponentTests
                     DateTimeOffset.UtcNow),
             ],
         };
+        if (includeSubmittedReturn)
+        {
+            var returnId = Guid.NewGuid();
+            var submittedAt = new DateTimeOffset(2026, 8, 6, 13, 45, 0, TimeSpan.Zero);
+            database.MonthlyReturns.Add(new MonthlyReturn(
+                returnId,
+                FrameworkCode.GCloud13,
+                "2026-07",
+                ReturnStatus.NilReturn,
+                submittedAt,
+                "e0303f95-3441-4d48-bd32-e028a66f87db",
+                null,
+                submittedAt));
+            database.Evidence.Add(new EvidenceRecord(
+                Guid.NewGuid(),
+                EvidenceKind.SubmissionEvidence,
+                FrameworkCode.GCloud13,
+                "2026-07",
+                "gca-confirmation.png",
+                $"clipboard/monthly-return/{returnId:D}/gca-confirmation.png",
+                "evidence/gca-confirmation.png",
+                "image/png",
+                2048,
+                new string('a', 64),
+                null,
+                submittedAt.AddMinutes(1)));
+        }
         for (var index = 1; index <= additionalContracts; index++)
         {
             database.Contracts.Add(new ContractRecord(
@@ -1027,6 +1311,7 @@ public sealed class RegisterComponentTests
         reportingPeriod.Synchronise(["2026-07"], "2026-07");
         var context = new BunitContext();
         context.Services.AddSingleton(reportingPeriod);
+        context.Services.AddSingleton<IRemiDataTransfer>(new StubDataTransfer());
         context.Services.AddSingleton(new ReportingWorkspace(
             new InMemoryStore(database),
             null!,
@@ -1067,5 +1352,25 @@ public sealed class RegisterComponentTests
 
         public Task<T> UpdateAsync<T>(Func<RemiDatabase, T> update, CancellationToken cancellationToken = default) =>
             Task.FromResult(update(database));
+    }
+
+    private sealed class StubDataTransfer : IRemiDataTransfer
+    {
+        public Task<PreparedDataTransfer> PrepareExportAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public PreparedDataTransfer? GetPreparedExport(Guid id) => null;
+
+        public Task<Stream?> OpenPreparedExportAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Stream?>(null);
+
+        public Task DiscardPreparedExportAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task ExportAsync(Stream destination, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

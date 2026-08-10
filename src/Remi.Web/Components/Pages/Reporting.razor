@@ -12,19 +12,12 @@
         <div class="return-workspace-title">
             <div>
                 <h1>@Frameworks.Get(framework).DisplayName</h1>
-                <p class="lede">@DisplayReportingMonth(reportingMonth) return</p>
-            </div>
-            <div class="return-workspace-actions">
-                <details class="return-contextual-help"><summary>? Help</summary><p>Remi retains generated workbooks and submission evidence. Review the return before recording the GCA submission.</p><a href="@($"/settings?period={reportingMonth}&section=templates")">Manage approved templates</a></details>
-                <a class="remi-action remi-action--compact" href="@QueueRoute">Back to reports</a>
+                <p class="lede">@DisplayReportingMonth(reportingMonth) return · @Frameworks.Get(framework).AgreementNumber</p>
             </div>
         </div>
     </header>
 
-    <section class="gca-return-summary gca-return-summary--workspace" aria-labelledby="gca-return-summary-heading">
-        <div class="gca-return-summary-heading">
-            <h2 id="gca-return-summary-heading">@Frameworks.Get(framework).AgreementNumber reporting summary</h2>
-        </div>
+    <section class="gca-return-summary gca-return-summary--workspace" aria-label="Return totals">
         <div class="gca-summary-content">
             <div class="table-wrap"><table>
                 <thead><tr><th>Report section</th><th>Rows</th><th>Total (ex VAT)</th></tr></thead>
@@ -34,164 +27,252 @@
                     <tr><th class="gca-summary-section" scope="row">Others</th><td>0</td><td>@Currency(0)</td></tr>
                 </tbody>
             </table></div>
-            @if (PurchaseOrderNumber is not null)
-            {
-                <p class="gca-purchase-order"><span>Purchase order</span><strong>@PurchaseOrderNumber</strong></p>
-            }
+            <p class="gca-purchase-order"><span>Purchase order</span><strong>@PurchaseOrderNumber</strong></p>
         </div>
     </section>
 
     <section class="return-workflow" aria-labelledby="return-workflow-heading">
         <div class="return-workflow-heading">
             <div>
-                <h2 id="return-workflow-heading">@LifecycleHeading</h2>
-                @if (IsNilReturn) { <p class="nil-return-context">Nil return</p> }
+                <h2 id="return-workflow-heading">Submission workflow</h2>
                 @if (IsCorrectionRequired) { <p class="muted">A correction has been requested. The earlier submission remains in the record below.</p> }
             </div>
-            <span class="@LifecycleBadgeClass">@LifecycleHeading</span>
+            <div class="return-workflow-statuses">
+                <span class="@LifecycleBadgeClass">@LifecycleHeading</span>
+                @if (IsNilReturn || IsNilReturnDraft) { <span class="nil-return-badge">Nil return</span> }
+            </div>
         </div>
-        <ol class="return-workflow-steps" aria-label="Monthly return progress">
-            <li class="@WorkflowStepClass(1)"><span>@WorkflowStepMark(1)</span><strong>Review data</strong></li>
-            <li class="@WorkflowStepClass(2)"><span>@WorkflowStepMark(2)</span><strong>Generate workbook</strong></li>
-            <li class="@WorkflowStepClass(3)"><span>@WorkflowStepMark(3)</span><strong>Upload to GCA portal</strong></li>
-            <li class="@WorkflowStepClass(4)"><span>@WorkflowStepMark(4)</span><strong>Record submission</strong></li>
-        </ol>
-        @if (CanGenerateReturn)
+        <div class="return-workflow-tabs" role="tablist" aria-label="Report submission stages">
+            @foreach (var stage in WorkflowStages)
+            {
+                <button type="button"
+                        id="@($"return-stage-tab-{stage.Number}")"
+                        class="@WorkflowTabClass(stage.Number)"
+                        role="tab"
+                        aria-selected="@(activeWorkflowStage == stage.Number ? "true" : "false")"
+                        data-stage="@stage.Number"
+                        @onclick="@(() => SelectWorkflowStage(stage.Number))">
+                    <span>@stage.Label</span>
+                    @if (WorkflowStageMark(stage.Number) is { } statusMark)
+                    {
+                        <span class="return-workflow-tab-status" aria-label="Completed">@statusMark</span>
+                    }
+                </button>
+            }
+        </div>
+        <section id="@($"return-stage-panel-{activeWorkflowStage}")" class="return-stage-panel" role="tabpanel" aria-labelledby="@($"return-stage-tab-{activeWorkflowStage}")">
+        @if (activeWorkflowStage == 2)
         {
-            <section class="return-current-action" aria-labelledby="return-action-heading">
-                <div><h3 id="return-action-heading">@(IsCorrectionRequired ? "Generate corrected workbook" : "Generate workbook")</h3><p class="muted">This creates and retains a review copy using the active approved template.</p></div>
-                <button class="remi-action remi-action--primary" disabled="@working" @onclick="GenerateReturnAsync">Generate workbook</button>
+            <section class="return-stage-workbook" aria-label="Generate workbook">
+                @if (IsNilReturnDraft)
+                {
+                    <p class="return-stage-intro">Nil returns do not need a workbook. Report no business in GCA, then return to Remi to record the confirmation.</p>
+                    <button class="remi-action remi-action--primary" @onclick="@(() => SelectWorkflowStage(3))">Continue to upload</button>
+                }
+                else if (GeneratedFiles.Count == 0)
+                {
+                    <p class="return-stage-intro">Create the workbook that will be uploaded to GCA. Reporting checks run before generation.</p>
+                    <button class="remi-action remi-action--primary" disabled="@(working || !CanPrepareWorkbook)" @onclick="GenerateReturnAsync">Generate workbook</button>
+                }
+                else
+                {
+                    <p class="return-stage-intro">The retained workbook is ready for GCA.</p>
+                    <div class="return-workbook-list">@foreach (var item in GeneratedFiles) { <ReportingWorkbookCard Workbook="item" /> }</div>
+                    <div class="return-stage-actions">@if (CanPrepareWorkbook) { <button class="remi-action remi-action--section" disabled="@working" @onclick="GenerateReturnAsync">Regenerate workbook</button> }<button class="remi-action remi-action--primary" @onclick="@(() => SelectWorkflowStage(3))">Continue to upload</button></div>
+                }
             </section>
         }
-        else if (CanRecordPortalSubmission)
+        else if (activeWorkflowStage == 3)
+        {
+            <section class="return-stage-upload" aria-label="Upload to GCA">
+                <p class="return-stage-intro">Upload the retained workbook in GCA, then return here to record the confirmation.</p>
+                @if (CanProceedToUpload)
+                {
+                    @if (GeneratedFiles.FirstOrDefault() is { } workbook)
+                    {
+                        <ReportingWorkbookCard Workbook="workbook" />
+                    }
+                    else
+                    {
+                        <p class="return-stage-empty">This is a nil return, so no workbook needs to be uploaded.</p>
+                    }
+                    <ol class="return-upload-steps"><li>Sign in to the GCA reporting portal.</li><li>@(IsNilReturnDraft ? "Report no business for this period." : "Upload the workbook above.")</li><li>Complete the GCA submission.</li><li>Return here to record the confirmation.</li></ol>
+                    <div class="return-stage-actions"><a class="remi-action remi-action--section" href="https://www.reportmi.gca.gov.uk/" target="_blank" rel="noreferrer">Open GCA portal</a><button class="remi-action remi-action--primary" @onclick="@(() => SelectWorkflowStage(4))">Continue to record submission</button></div>
+                }
+                else
+                {
+                    <p class="return-stage-empty">Generate the reporting workbook before uploading it to GCA.</p>
+                    <button class="remi-action remi-action--primary" @onclick="@(() => SelectWorkflowStage(2))">Go to workbook</button>
+                }
+            </section>
+        }
+        else if (activeWorkflowStage == 4 && CanRecordPortalSubmission)
         {
             <ClipboardImageEvidence @ref="submissionClipboardEvidence"
                                     LayoutClass="return-submission-evidence-layout"
                                     OnDocumentsChanged="SetSubmissionClipboardImageCount"
                                     Heading="Submission evidence"
-                                    EmptyStatus="Add a confirmation screenshot"
-                                    DropZoneTitle="Drop screenshot or file"
-                                    EmptyMessage="Paste the GCA submission-details screenshot here, or add it from disk. Remi will retain it when you record this submission.">
-                <section class="return-current-action return-submission-capture" id="submission-record" aria-labelledby="return-action-heading">
-                    <div><h3 id="return-action-heading">@SubmissionActionHeading</h3><p class="muted">@SubmissionActionGuidance</p></div>
+                                    DropZoneTitle="Submission evidence"
+                                    EmptyMessage="Add the GCA submission confirmation screenshot."
+                                    ShowHeader="false">
+                <section class="return-current-action return-submission-capture" id="submission-record" aria-label="@SubmissionActionHeading">
+                    <p class="return-stage-intro">@SubmissionActionGuidance</p>
                     <div class="return-submission-capture-actions">
                         <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference (optional)</span></label>
-                        <button class="remi-action remi-action--primary" disabled="@working" @onclick="RecordCurrentSubmissionAsync">@(IsNilReturnDraft ? "Record nil submission" : IsCorrectionRequired ? "Record corrected submission" : "Record submission")</button>
+                        <label class="submission-timestamp floating-field floating-field--static"><input @bind="submissionTimestampInput" @bind:event="oninput" placeholder="6 August 2026 13:45 UTC" aria-label="Submission date and time" /><span class="floating-label">Submission date and time (UTC)</span></label>
+                        <button class="remi-action remi-action--primary" disabled="@(working || !SubmissionTimestampIsValid)" @onclick="RecordCurrentSubmissionAsync">@(IsNilReturnDraft ? "Record nil submission" : IsCorrectionRequired ? "Record corrected submission" : "Record submission")</button>
                     </div>
+                    @if (!SubmissionTimestampIsValid) { <p class="field-validation-message" role="status">Use a date and time such as 6 August 2026 13:45 UTC.</p> }
                 </section>
             </ClipboardImageEvidence>
         }
-        else if (HasSubmissionRecord)
+        else if (activeWorkflowStage == 4 && HasSubmissionRecord)
         {
-            <section class="return-submission-record" aria-labelledby="submission-record-heading">
-                <div class="return-submission-record-heading"><div><h3 id="submission-record-heading">Submission record</h3><p class="muted">@SubmissionTiming</p></div>@if (IsNilReturn) { <span class="nil-return-badge">Nil return</span> }</div>
-                @if (!string.IsNullOrWhiteSpace(SelectedReturn?.SubmissionReference))
-                {
-                    <p class="submission-reference-display">GCA task reference <code>@SelectedReturn!.SubmissionReference</code></p>
-                    @if (GcaSubmissionTaskUrl is { } gcaSubmissionTaskUrl) { <a class="remi-action remi-action--section" href="@gcaSubmissionTaskUrl" target="_blank" rel="noreferrer">Open GCA submission</a> }
-                }
-                else { <p class="muted">No GCA task reference was retained.</p> }
-                @if (SubmissionEvidence.Count == 0) { <p class="muted">No submission screenshot has been retained.</p> }
-                else { <div class="evidence-list">@foreach (var item in SubmissionEvidence) { <a class="evidence-item" href="@($"/evidence/{item.Id}")" target="_blank"><span><strong>@item.FileName</strong><span class="cell-secondary">Saved <time datetime="@item.ArchivedAtUtc.ToString("O")">@item.ArchivedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time></span></span></a> }</div> }
-                @if (submissionHistory.Count > 1) { <details class="submission-history"><summary>Previous submission history (@(submissionHistory.Count - 1))</summary><ul>@foreach (var item in submissionHistory.Skip(1)) { <li>@SubmissionHistoryDescription(item)</li> }</ul></details> }
-                @if (!showMissingSubmissionEvidence)
-                {
-                    <button class="remi-action remi-action--section remi-action--quiet" @onclick="ShowMissingSubmissionEvidence">Add missing submission evidence</button>
-                }
-                else
-                {
-                    <ClipboardImageEvidence @ref="recordedSubmissionClipboardEvidence"
-                                            LayoutClass="return-submission-evidence-layout return-submission-evidence-layout--recovery"
-                                            OnDocumentsChanged="SetRecordedSubmissionClipboardImageCount"
-                                            Heading="Missing submission evidence"
-                                            EmptyStatus="Paste a confirmation screenshot"
-                                            DropZoneTitle="Drop screenshot or file"
-                                            EmptyMessage="Use this only to add a missing GCA reference or confirmation screenshot. It does not reopen the return.">
-                        <div class="submission-evidence-recovery"><label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference</span></label><button class="remi-action remi-action--section" disabled="@(!CanSaveMissingSubmissionEvidence)" @onclick="SaveMissingSubmissionEvidenceAsync">@(working ? "Saving…" : "Save missing evidence")</button></div>
-                    </ClipboardImageEvidence>
-                }
+            @if (!editingSubmissionRecord)
+            {
+                <section class="return-submission-record" aria-labelledby="submission-record-heading">
+                    <div class="return-submission-record-heading">
+                        <div><h3 id="submission-record-heading">Submission record</h3></div>
+                        <div class="return-submission-record-actions">@if (IsNilReturn) { <span class="nil-return-badge">Nil return</span> }<button class="remi-action remi-action--section" @onclick="EditSubmissionRecord">Edit</button></div>
+                    </div>
+                    <div class="return-submission-record-grid">
+                        <div class="return-submission-evidence-view">
+                            @if (SubmissionEvidenceDocuments.Count == 0)
+                            {
+                                <div class="return-submission-evidence-empty"><strong>No submission evidence</strong><span>Edit the record to paste or upload the GCA confirmation image.</span></div>
+                            }
+                            else
+                            {
+                                <EvidenceGallery Documents="SubmissionEvidenceDocuments" />
+                            }
+                        </div>
+                        <div class="return-submission-metadata">
+                            <dl class="return-submission-facts">
+                                <div><dt>GCA task reference</dt><dd>@if (!string.IsNullOrWhiteSpace(SelectedReturn?.SubmissionReference)) { <code>@SelectedReturn!.SubmissionReference</code> } else { <span class="not-recorded">Not recorded</span> }</dd></div>
+                                <div><dt>Date and time of submission</dt><dd>@if (SelectedReturn?.SubmittedAtUtc is { } submittedAt) { <time datetime="@submittedAt.ToString("O")">@SubmissionTimestampParser.FormatUtc(submittedAt)</time> } else { <span class="not-recorded">Not recorded</span> }</dd></div>
+                            </dl>
+                            @if (GcaSubmissionTaskUrl is { } gcaSubmissionTaskUrl) { <a class="remi-action remi-action--section" href="@gcaSubmissionTaskUrl" target="_blank" rel="noreferrer">Open GCA submission</a> }
+                        </div>
+                    </div>
+                    @if (submissionHistory.Count > 1) { <details class="submission-history"><summary>Previous submission history (@(submissionHistory.Count - 1))</summary><ul>@foreach (var item in submissionHistory.Skip(1)) { <li>@SubmissionHistoryDescription(item)</li> }</ul></details> }
+                </section>
+            }
+            else
+            {
+                <ClipboardImageEvidence @ref="submissionEditClipboardEvidence"
+                                        LayoutClass="return-submission-evidence-layout return-submission-evidence-layout--edit"
+                                        OnDocumentsChanged="SetSubmissionEditClipboardImageCount"
+                                        Heading="Submission evidence"
+                                        DropZoneTitle="Submission evidence"
+                                        EmptyMessage="Add the GCA submission confirmation screenshot."
+                                        ShowHeader="false">
+                    <section class="return-current-action return-submission-edit" aria-labelledby="submission-edit-heading">
+                        <div><h3 id="submission-edit-heading">Edit submission record</h3><p class="muted">Update the retained GCA details and documents without reopening the return.</p></div>
+                        <div class="submission-evidence-details">
+                            <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference</span></label>
+                            <label class="submission-timestamp floating-field floating-field--static"><input @bind="submissionTimestampInput" @bind:event="oninput" placeholder="6 August 2026 13:45 UTC" aria-label="Submission date and time" /><span class="floating-label">Submission date and time (UTC)</span></label>
+                            @if (!SubmissionTimestampIsValid) { <p class="field-validation-message" role="status">Use a date and time such as 6 August 2026 13:45 UTC.</p> }
+                        </div>
+                        @if (submissionEvidenceEdits.Count != 0)
+                        {
+                            <section class="submission-document-editor" aria-labelledby="submission-document-editor-heading">
+                                <header><div><h4 id="submission-document-editor-heading">Retained documents</h4><p>Change a title or mark a document for deletion. Changes take effect when you save.</p></div><span>@SubmissionEvidenceEditStatus</span></header>
+                                <div class="submission-document-edit-list">
+                                    @foreach (var document in submissionEvidenceEdits)
+                                    {
+                                        <article class="submission-document-edit-item @(document.MarkedForDeletion ? "submission-document-edit-item--remove" : null)">
+                                            @if (EvidencePreviewPolicy.GetKind(document.FileName) == EvidencePreviewKind.Image)
+                                            {
+                                                <img src="@($"/evidence/{document.EvidenceId}/preview")" alt="" />
+                                            }
+                                            else
+                                            {
+                                                <span class="submission-document-edit-icon" aria-hidden="true">▧</span>
+                                            }
+                                            <div>
+                                                <label class="floating-field floating-field--static"><input @bind="document.Title" @bind:event="oninput" placeholder="Document title" aria-label="Document title for @document.FileName" disabled="@document.MarkedForDeletion" /><span class="floating-label">Document title</span></label>
+                                                <small>@document.FileName</small>
+                                                @if (document.MarkedForDeletion) { <span class="submission-document-removal-note">Will be permanently deleted when you save.</span> }
+                                                else if (!IsValidEvidenceTitle(document.Title)) { <span class="field-validation-message">Enter a valid document title.</span> }
+                                            </div>
+                                            <button type="button"
+                                                    class="remi-action remi-action--compact @(document.MarkedForDeletion ? "remi-action--quiet" : "remi-action--danger") submission-document-remove"
+                                                    aria-label="@(document.MarkedForDeletion ? $"Undo removal of {document.FileName}" : $"Remove {document.FileName}")"
+                                                    aria-pressed="@(document.MarkedForDeletion ? "true" : "false")"
+                                                    @onclick="@(() => ToggleSubmissionEvidenceRemoval(document))">@(document.MarkedForDeletion ? "Undo" : "Remove")</button>
+                                        </article>
+                                    }
+                                </div>
+                            </section>
+                        }
+                        <div class="submission-evidence-save"><button class="remi-action remi-action--primary" disabled="@(!CanSaveSubmissionRecord)" @onclick="SaveSubmissionRecordAsync">@(working ? "Saving..." : "Save")</button><button class="remi-action remi-action--compact" disabled="@working" @onclick="CancelSubmissionEdit">Cancel</button></div>
+                    </section>
+                </ClipboardImageEvidence>
+            }
+            @if (IsSubmitted && !editingSubmissionRecord)
+            {
+                <section class="return-stage-correction" aria-labelledby="return-correction-heading"><header><div><h3 id="return-correction-heading">Correction</h3><p>Use only when the submitted return needs amendment.</p></div></header><label class="correction-reason floating-field floating-field--static"><input @bind="correctionReason" @bind:event="oninput" placeholder="What needs correcting and why?" /><span class="floating-label">Correction reason</span></label><button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button></section>
+            }
+        }
+        else if (activeWorkflowStage == 4)
+        {
+            <section class="return-stage-record-gate" aria-label="Record submission"><p class="return-stage-intro">Complete the GCA upload stage before recording its confirmation.</p><button class="remi-action remi-action--primary" @onclick="@(() => SelectWorkflowStage(3))">Go to upload</button></section>
+        }
+        else
+        {
+            <section class="return-stage-review" aria-label="Review data">
+                <div class="return-stage-toolbar"><p class="return-stage-intro">Inspect the data that will be included in this reporting period.</p><button class="remi-action remi-action--section" @onclick="@(() => SelectWorkflowStage(2))">Continue to workbook</button></div>
+                <section class="return-stage-checks @(HasReportingIssues ? "return-stage-checks--issues" : null)" aria-labelledby="return-checks-heading">
+                    <h3 id="return-checks-heading">Checks</h3>
+                    @if (reportingFindings.Count != 0)
+                    {
+                        <ul class="findings inline-findings">@foreach (var finding in reportingFindings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li> }</ul>
+                    }
+                    else
+                    {
+                        <p>No reporting issues found.</p>
+                    }
+                </section>
+                <section class="return-stage-review-data" aria-labelledby="return-review-data-heading">
+                    <header><h3 id="return-review-data-heading">Report contents</h3><span>@ActivitySummary</span></header>
+                    @if (IsNilReturn || IsNilReturnDraft)
+                    {
+                        <p class="return-stage-empty">Nil return. No contracts, invoices or other reportable items were present for this reporting period.</p>
+                    }
+                    else if (!HasActivity)
+                    {
+                        <p class="return-stage-empty">No reportable contracts or invoices have been recorded for this framework and month.</p>
+                    }
+                    else if (!HasReviewData)
+                    {
+                        <p class="return-stage-empty">The review rows are not available yet. Open the Contracts or Invoices register to inspect the recorded data.</p>
+                    }
+                    else
+                    {
+                        @if (reportingCard?.Contracts.Count > 0)
+                        {
+                            <h4>Contracts <span>@reportingCard.Contracts.Count</span></h4>
+                            @foreach (var item in reportingCard.Contracts)
+                            {
+                                <details class="reporting-card-row"><summary>@item.Title</summary><dl>@foreach (var field in item.Fields) { <div><dt>@field.Label</dt><dd>@field.Value</dd></div> }</dl></details>
+                            }
+                        }
+                        @if (reportingCard?.Invoices.Count > 0)
+                        {
+                            <h4>Invoices <span>@reportingCard.Invoices.Count</span></h4>
+                            @foreach (var item in reportingCard.Invoices)
+                            {
+                                <details class="reporting-card-row"><summary>@item.Title</summary><dl>@foreach (var field in item.Fields) { <div><dt>@field.Label</dt><dd>@field.Value</dd></div> }</dl></details>
+                            }
+                        }
+                    }
+                </section>
             </section>
         }
+        </section>
         @if (actionResult is not null) { <p class="notice @(actionResult.Succeeded ? "success" : "error")" role="status">@actionResult.Message</p> }
     </section>
 
-    <section class="return-disclosures" aria-label="Return detail">
-        <details class="return-disclosure">
-            <summary><span><strong>Data review</strong><small>@ActivitySummary</small></span></summary>
-            @if (IsNilReturn)
-            {
-                <p class="muted">Nil return. No contracts, invoices or other reportable items were present for this reporting period.</p>
-            }
-            else if (!HasActivity)
-            {
-                <p class="muted">No reportable contracts or invoices have been recorded for this framework and month.</p>
-            }
-            else if (!HasReviewData)
-            {
-                <p class="muted">This return has reportable activity, but its review rows are not available yet. Open the Contracts or Invoices register to review the recorded data.</p>
-            }
-            else
-            {
-                @if (reportingCard?.Contracts.Count > 0)
-                {
-                    <h3>Contracts</h3>
-                    @foreach (var item in reportingCard.Contracts)
-                    {
-                        <details class="reporting-card-row"><summary>@item.Title</summary><dl>@foreach (var field in item.Fields) { <div><dt>@field.Label</dt><dd>@field.Value</dd></div> }</dl></details>
-                    }
-                }
-                @if (reportingCard?.Invoices.Count > 0)
-                {
-                    <h3>Invoices</h3>
-                    @foreach (var item in reportingCard.Invoices)
-                    {
-                        <details class="reporting-card-row"><summary>@item.Title</summary><dl>@foreach (var field in item.Fields) { <div><dt>@field.Label</dt><dd>@field.Value</dd></div> }</dl></details>
-                    }
-                }
-            }
-        </details>
-
-        <details class="return-disclosure @(HasReportingIssues ? "return-disclosure--issues" : null)">
-            <summary><span><strong>Checks</strong><small>@ChecksSummary</small></span></summary>
-            @if (reportingFindings.Count != 0)
-            {
-                <ul class="findings inline-findings">@foreach (var finding in reportingFindings) { <li class="@finding.Severity.ToString().ToLowerInvariant()"><span>@finding.Message</span></li> }</ul>
-            }
-            else
-            {
-                <p class="muted">No reporting issues found.</p>
-            }
-        </details>
-
-        <details class="return-disclosure">
-            <summary><span><strong>Generated files</strong><small>@GeneratedFilesSummary</small></span></summary>
-            @if (GeneratedFiles.Count == 0)
-            {
-                <p class="muted">No workbook has been generated for this return.</p>
-            }
-            else
-            {
-                <div class="evidence-list">@foreach (var item in GeneratedFiles) { <a class="evidence-item" href="@($"/evidence/{item.Id}")" target="_blank"><span><strong>@item.FileName</strong><span class="cell-secondary">Created <time datetime="@item.ArchivedAtUtc.ToString("O")">@item.ArchivedAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time></span></span></a> }</div>
-                @if (CanRegenerateReturn)
-                {
-                    <div class="return-regenerate-action">
-                        <p class="muted">Regenerate only after changing the registered data or approved template. The previous unsubmitted generated workbook is superseded in the evidence archive.</p>
-                        <button class="remi-action remi-action--section" disabled="@working" @onclick="GenerateReturnAsync">Regenerate workbook</button>
-                    </div>
-                }
-            }
-        </details>
-
-        @if (IsSubmitted)
-        {
-            <details class="return-disclosure return-disclosure--secondary">
-                <summary><span><strong>Correction</strong><small>Use only when the submitted return needs amendment</small></span></summary>
-                <label class="correction-reason floating-field floating-field--static"><input @bind="correctionReason" @bind:event="oninput" placeholder="What needs correcting and why?" /><span class="floating-label">Correction reason</span></label>
-                <button class="remi-action remi-action--section" disabled="@(!CanRequestCorrection || working)" @onclick="RequestCorrectionAsync">Request correction</button>
-            </details>
-        }
-
-    </section>
 }
 else
 {
@@ -266,6 +347,7 @@ else
     private string registerMonth = string.Empty;
     private string registerView = "month";
     private string? submissionReference;
+    private string submissionTimestampInput = string.Empty;
     private string? correctionReason;
     private ReturnActionResult? actionResult;
     private IReadOnlyList<ReportingEvidence> evidence = [];
@@ -273,10 +355,12 @@ else
     private IReadOnlyList<ReturnSubmissionHistoryItem> submissionHistory = [];
     private ReportingCardModel? reportingCard;
     private ClipboardImageEvidence? submissionClipboardEvidence;
-    private ClipboardImageEvidence? recordedSubmissionClipboardEvidence;
+    private ClipboardImageEvidence? submissionEditClipboardEvidence;
     private int submissionClipboardImageCount;
-    private int recordedSubmissionClipboardImageCount;
-    private bool showMissingSubmissionEvidence;
+    private int submissionEditClipboardImageCount;
+    private readonly List<SubmissionEvidenceEditModel> submissionEvidenceEdits = [];
+    private int activeWorkflowStage;
+    private bool editingSubmissionRecord;
     private bool working;
 
     private bool IsWorkspace => FrameworkValue is not null && !string.IsNullOrWhiteSpace(WorkspaceMonth);
@@ -289,24 +373,44 @@ else
     private bool HasSubmissionRecord => IsSubmitted || IsCorrectionRequired;
     private IReadOnlyList<ReportingEvidence> GeneratedFiles => evidence.Where(item => item.Kind == EvidenceKind.GeneratedMiWorkbook).OrderByDescending(item => item.ArchivedAtUtc).ToList();
     private IReadOnlyList<ReportingEvidence> SubmissionEvidence => evidence.Where(item => item.Kind == EvidenceKind.SubmissionEvidence).OrderByDescending(item => item.ArchivedAtUtc).ToList();
-    private string QueueRoute => ReportingRoutes.WithPeriod("/reports", reportingMonth);
+    private IReadOnlyList<EvidenceLink> SubmissionEvidenceDocuments => SubmissionEvidence
+        .Select(item => new EvidenceLink(item.Id, item.Kind, item.FileName, item.OriginalRelativePath, item.ContentType, item.FileSizeBytes, reportingMonth, item.ArchivedAtUtc))
+        .ToList();
     private string LifecycleHeading => LifecycleLabel(LifecycleStatus);
     private string LifecycleBadgeClass => LifecycleClass(LifecycleStatus);
     private bool HasActivity => (SelectedReturn?.ContractCount ?? 0) + (SelectedReturn?.InvoiceCount ?? 0) > 0;
     private bool HasReviewData => reportingCard is not null && (reportingCard.Contracts.Count != 0 || reportingCard.Invoices.Count != 0);
-    private string? PurchaseOrderNumber => (SelectedReturn?.InvoiceCount ?? 0) > 0
-        ? $"GCA_{FrameworkAbbreviation(framework)}_{reportingMonth.Replace("-", string.Empty, StringComparison.Ordinal)}"
-        : null;
+    private string PurchaseOrderNumber => $"GCA_{FrameworkAbbreviation(framework)}_{reportingMonth.Replace("-", string.Empty, StringComparison.Ordinal)}";
     private bool HasEvidence => GeneratedFiles.Count != 0;
     private bool CanMarkSubmitted => HasActivity && HasEvidence && LifecycleStatus is ReportLifecycleStatus.Draft or ReportLifecycleStatus.CorrectionRequired;
     private bool CanGenerateReturn => HasActivity && !HasEvidence && LifecycleStatus is ReportLifecycleStatus.Draft or ReportLifecycleStatus.CorrectionRequired;
     private bool CanRegenerateReturn => HasActivity && HasEvidence && LifecycleStatus is ReportLifecycleStatus.Draft or ReportLifecycleStatus.CorrectionRequired;
+    private bool CanPrepareWorkbook => CanGenerateReturn || CanRegenerateReturn;
     private bool CanMarkNilReturn => !HasActivity && LifecycleStatus == ReportLifecycleStatus.Draft;
     private bool CanRecordPortalSubmission => CanMarkSubmitted || CanMarkNilReturn;
+    private bool CanProceedToUpload => HasEvidence || IsNilReturnDraft;
     private bool CanRequestCorrection => IsSubmitted && !string.IsNullOrWhiteSpace(correctionReason);
     private bool HasReportingIssues => reportingFindings.Count != 0;
     private bool HasSubmissionReferenceChanged => !string.Equals(NormalizeSubmissionReference(submissionReference), NormalizeSubmissionReference(SelectedReturn?.SubmissionReference), StringComparison.Ordinal);
-    private bool CanSaveMissingSubmissionEvidence => !working && SelectedReturn?.ReturnId is Guid && (HasSubmissionReferenceChanged || recordedSubmissionClipboardImageCount != 0);
+    private bool SubmissionTimestampIsValid => string.IsNullOrWhiteSpace(submissionTimestampInput) || SubmissionTimestampParser.TryParseUtc(submissionTimestampInput, out _);
+    private bool HasSubmissionTimestampChanged => SubmissionTimestampParser.TryParseUtc(submissionTimestampInput, out var parsed)
+        && SelectedReturn?.SubmittedAtUtc?.ToUniversalTime() != parsed;
+    private bool HasSubmissionEvidenceChanged => submissionEvidenceEdits.Any(item => item.HasChanged);
+    private bool SubmissionEvidenceTitlesAreValid => submissionEvidenceEdits.All(item => item.MarkedForDeletion || IsValidEvidenceTitle(item.Title));
+    private string SubmissionEvidenceEditStatus
+    {
+        get
+        {
+            var removalCount = submissionEvidenceEdits.Count(item => item.MarkedForDeletion);
+            var retainedCount = submissionEvidenceEdits.Count - removalCount;
+            return removalCount == 0 ? $"{retainedCount} retained" : $"{retainedCount} retained · {removalCount} to delete";
+        }
+    }
+    private bool CanSaveSubmissionRecord => !working
+        && SubmissionTimestampIsValid
+        && SubmissionEvidenceTitlesAreValid
+        && SelectedReturn?.ReturnId is Guid
+        && (HasSubmissionReferenceChanged || HasSubmissionTimestampChanged || HasSubmissionEvidenceChanged || submissionEditClipboardImageCount != 0);
     private string ActivitySummary => DescribeActivity(SelectedReturn?.ContractCount ?? 0, SelectedReturn?.InvoiceCount ?? 0);
     private string ChecksSummary => reportingFindings.Count == 0 ? "✓ No reporting issues found" : $"{reportingFindings.Count} {Pluralize(reportingFindings.Count, "issue", "issues")} require attention";
     private string GeneratedFilesSummary => GeneratedFiles.Count switch { 0 => "No workbook", 1 => GeneratedFiles[0].FileName, _ => $"{GeneratedFiles.Count} retained files" };
@@ -317,16 +421,19 @@ else
         : IsCorrectionRequired
             ? "Review the correction, upload the revised workbook in GCA, then record the replacement submission."
             : "Upload the retained workbook in GCA, then record its task reference and confirmation screenshot here.";
-    private string SubmissionTiming => SelectedReturn?.SubmittedAtUtc is { } submittedAt
-        ? $"Submitted {submittedAt.LocalDateTime:dd MMMM yyyy 'at' HH:mm}"
-        : SelectedReturn?.InferredSubmissionDeadline is { } deadline
-            ? $"Submission timestamp was not retained. Inferred deadline: {deadline:dd MMMM yyyy} ({Frameworks.Get(framework).ReportingDeadline?.Description})."
-            : "Submission timestamp was not retained.";
+    private static readonly WorkflowStageDefinition[] WorkflowStages =
+    [
+        new(1, "Review data"),
+        new(2, "Generate workbook"),
+        new(3, "Upload to GCA"),
+        new(4, "Record submission"),
+    ];
 
     protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;
 
     protected override async Task OnParametersSetAsync()
     {
+        activeWorkflowStage = 0;
         if (IsWorkspace && FrameworkValue is int routeFramework && Enum.IsDefined(typeof(FrameworkCode), routeFramework) && ReportingPeriodContext.IsValidPeriod(WorkspaceMonth))
         {
             framework = (FrameworkCode)routeFramework;
@@ -373,9 +480,23 @@ else
         await ReloadAsync();
     }
 
-    private Task RecordCurrentSubmissionAsync() => IsNilReturnDraft
-        ? RecordSubmissionAsync(() => Workspace.MarkNilReturnAsync(framework, reportingMonth, submissionReference))
-        : RecordSubmissionAsync(() => Workspace.MarkSubmittedAsync(framework, reportingMonth, submissionReference));
+    private async Task RecordCurrentSubmissionAsync()
+    {
+        if (!TryGetSubmissionTimestamp(out var submittedAtUtc))
+        {
+            actionResult = new ReturnActionResult(false, "Enter the submission date and time as, for example, 6 August 2026 13:45 UTC.", []);
+            return;
+        }
+
+        if (IsNilReturnDraft)
+        {
+            await RecordSubmissionAsync(() => Workspace.MarkNilReturnAsync(framework, reportingMonth, submissionReference, submittedAtUtc));
+        }
+        else
+        {
+            await RecordSubmissionAsync(() => Workspace.MarkSubmittedAsync(framework, reportingMonth, submissionReference, submittedAtUtc));
+        }
+    }
 
     private async Task RecordSubmissionAsync(Func<Task<ReturnActionResult>> recordSubmission)
     {
@@ -426,34 +547,66 @@ else
         }
     }
 
-    private void ShowMissingSubmissionEvidence()
+    private void EditSubmissionRecord()
     {
         submissionReference = SelectedReturn?.SubmissionReference;
-        showMissingSubmissionEvidence = true;
+        submissionTimestampInput = SelectedReturn?.SubmittedAtUtc is { } submittedAt
+            ? SubmissionTimestampParser.FormatUtc(submittedAt)
+            : string.Empty;
+        submissionEditClipboardImageCount = 0;
+        ResetSubmissionEvidenceEdits();
+        actionResult = null;
+        editingSubmissionRecord = true;
     }
 
-    private async Task SaveMissingSubmissionEvidenceAsync()
+    private void CancelSubmissionEdit()
     {
-        if (!CanSaveMissingSubmissionEvidence || SelectedReturn?.ReturnId is not Guid monthlyReturnId) return;
+        submissionReference = SelectedReturn?.SubmissionReference;
+        submissionTimestampInput = SelectedReturn?.SubmittedAtUtc is { } submittedAt
+            ? SubmissionTimestampParser.FormatUtc(submittedAt)
+            : string.Empty;
+        submissionEditClipboardImageCount = 0;
+        submissionEvidenceEdits.Clear();
+        editingSubmissionRecord = false;
+    }
+
+    private async Task SaveSubmissionRecordAsync()
+    {
+        if (!CanSaveSubmissionRecord || SelectedReturn?.ReturnId is not Guid monthlyReturnId || !TryGetSubmissionTimestamp(out var submittedAtUtc)) return;
         working = true;
         try
         {
-            actionResult = HasSubmissionReferenceChanged
-                ? await Workspace.UpdateSubmissionReferenceAsync(framework, reportingMonth, submissionReference)
-                : new ReturnActionResult(true, "The submission details have been saved.", [], monthlyReturnId);
-            if (actionResult.Succeeded && recordedSubmissionClipboardImageCount != 0)
+            actionResult = HasSubmissionReferenceChanged || HasSubmissionTimestampChanged
+                ? await Workspace.UpdateSubmissionDetailsAsync(framework, reportingMonth, submissionReference, submittedAtUtc)
+                : new ReturnActionResult(true, "The submission record has been saved.", [], monthlyReturnId);
+            if (actionResult.Succeeded && HasSubmissionEvidenceChanged)
             {
-                await ArchiveMissingSubmissionEvidenceAsync(actionResult);
+                var detailsChanged = HasSubmissionReferenceChanged || HasSubmissionTimestampChanged;
+                var detailsMessage = actionResult.Message;
+                var evidenceResult = await Workspace.UpdateSubmissionEvidenceAsync(
+                    monthlyReturnId,
+                    submissionEvidenceEdits
+                        .Where(item => item.HasChanged)
+                        .Select(item => new SubmissionEvidenceEdit(item.EvidenceId, item.Title, item.MarkedForDeletion))
+                        .ToList());
+                actionResult = evidenceResult.Succeeded && detailsChanged
+                    ? evidenceResult with { Message = $"{detailsMessage} {evidenceResult.Message}" }
+                    : evidenceResult;
+            }
+            if (actionResult.Succeeded && submissionEditClipboardImageCount != 0)
+            {
+                await ArchiveSubmissionEditEvidenceAsync(actionResult);
             }
 
-            if (actionResult.Succeeded && recordedSubmissionClipboardImageCount == 0)
+            if (actionResult.Succeeded && submissionEditClipboardImageCount == 0)
             {
-                showMissingSubmissionEvidence = false;
+                submissionEvidenceEdits.Clear();
+                editingSubmissionRecord = false;
             }
         }
         catch (Exception exception)
         {
-            actionResult = new ReturnActionResult(false, $"The missing submission evidence could not be saved: {exception.Message}", []);
+            actionResult = new ReturnActionResult(false, $"The submission record could not be saved: {exception.Message}", []);
         }
         finally
         {
@@ -463,15 +616,15 @@ else
         await ReloadAsync();
     }
 
-    private async Task ArchiveMissingSubmissionEvidenceAsync(ReturnActionResult saved)
+    private async Task ArchiveSubmissionEditEvidenceAsync(ReturnActionResult saved)
     {
-        if (saved.EntityId is not Guid monthlyReturnId || recordedSubmissionClipboardEvidence is null) return;
+        if (saved.EntityId is not Guid monthlyReturnId || submissionEditClipboardEvidence is null) return;
         try
         {
-            var archived = await recordedSubmissionClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId);
+            var archived = await submissionEditClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId);
             if (archived)
             {
-                recordedSubmissionClipboardImageCount = 0;
+                submissionEditClipboardImageCount = 0;
                 actionResult = saved with { Message = $"{saved.Message} Submission evidence was retained." };
             }
             else
@@ -514,6 +667,10 @@ else
         reportingFindings = await findingsTask;
         submissionHistory = await historyTask;
         submissionReference = SelectedReturn?.SubmissionReference;
+        submissionTimestampInput = SelectedReturn?.SubmittedAtUtc is { } submittedAt
+            ? SubmissionTimestampParser.FormatUtc(submittedAt)
+            : string.Empty;
+        if (activeWorkflowStage == 0) activeWorkflowStage = RecommendedWorkflowStage;
     }
 
     private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => (returnRegister?.Entries ?? [])
@@ -522,9 +679,13 @@ else
     private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? []).Select(item => item.Framework).DistinctBy(item => item.Code).OrderBy(item => item.DisplayName, StringComparer.Ordinal).ToList();
     private void EnsureRegisterFrameworkSelection() { if (RegisterFrameworks.All(item => item.Code != registerFramework)) registerFramework = RegisterFrameworks.FirstOrDefault()?.Code ?? registerFramework; }
     private string WorkspaceRoute(MonthlyReturnRegisterEntry item) => $"/reports/{(int)item.Framework.Code}/{item.ReportingMonth}?period={item.ReportingMonth}";
-    private int CurrentWorkflowStep => IsSubmitted ? 5 : IsCorrectionRequired ? 4 : CanGenerateReturn ? 2 : CanRecordPortalSubmission ? 4 : 1;
-    private string WorkflowStepClass(int step) => step < CurrentWorkflowStep ? "complete" : step == CurrentWorkflowStep ? "current" : string.Empty;
-    private string WorkflowStepMark(int step) => WorkflowStepClass(step) == "complete" ? "✓" : step.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private int RecommendedWorkflowStage => IsSubmitted ? 4 : IsCorrectionRequired ? 2 : IsNilReturnDraft || HasEvidence ? 3 : 1;
+    private bool IsWorkflowStageComplete(int stage) => IsSubmitted || (!IsCorrectionRequired && stage < RecommendedWorkflowStage);
+    private string WorkflowTabClass(int stage) => activeWorkflowStage == stage
+        ? "return-workflow-tab is-current"
+        : IsWorkflowStageComplete(stage) ? "return-workflow-tab is-complete" : "return-workflow-tab";
+    private string? WorkflowStageMark(int stage) => activeWorkflowStage != stage && IsWorkflowStageComplete(stage) ? "✓" : null;
+    private void SelectWorkflowStage(int stage) => activeWorkflowStage = Math.Clamp(stage, 1, 4);
     private static string LifecycleLabel(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "Submitted", ReportLifecycleStatus.CorrectionRequired => "Correction required", _ => "Draft" };
     private static string LifecycleClass(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "readiness-status complete", ReportLifecycleStatus.CorrectionRequired => "readiness-status warning", _ => "readiness-status neutral" };
     private static string SubmissionRegisterTiming(MonthlyReturnRegisterEntry item) => item.SubmittedAtUtc is { } submittedAt
@@ -544,11 +705,46 @@ else
     };
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private void SetSubmissionClipboardImageCount(int count) => submissionClipboardImageCount = count;
-    private void SetRecordedSubmissionClipboardImageCount(int count) => recordedSubmissionClipboardImageCount = count;
+    private void SetSubmissionEditClipboardImageCount(int count) => submissionEditClipboardImageCount = count;
+    private void ResetSubmissionEvidenceEdits()
+    {
+        submissionEvidenceEdits.Clear();
+        submissionEvidenceEdits.AddRange(SubmissionEvidence.Select(item => new SubmissionEvidenceEditModel(item)));
+    }
+    private static void ToggleSubmissionEvidenceRemoval(SubmissionEvidenceEditModel document) =>
+        document.MarkedForDeletion = !document.MarkedForDeletion;
+    private static bool IsValidEvidenceTitle(string title)
+    {
+        var trimmed = title.Trim();
+        return !string.IsNullOrWhiteSpace(trimmed) &&
+            trimmed is not ("." or "..") &&
+            trimmed.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+            !string.IsNullOrWhiteSpace(Path.GetFileNameWithoutExtension(trimmed));
+    }
+    private bool TryGetSubmissionTimestamp(out DateTimeOffset? submittedAtUtc)
+    {
+        submittedAtUtc = null;
+        if (string.IsNullOrWhiteSpace(submissionTimestampInput)) return true;
+        if (!SubmissionTimestampParser.TryParseUtc(submissionTimestampInput, out var parsed)) return false;
+        submittedAtUtc = parsed;
+        return true;
+    }
     private static string? NormalizeSubmissionReference(string? submissionReference) => string.IsNullOrWhiteSpace(submissionReference) ? null : submissionReference.Trim();
     private static string? GcaTaskUrl(string? submissionReference) => Guid.TryParse(submissionReference?.Trim(), out var taskId)
         ? $"https://www.reportmi.gca.gov.uk/tasks/{taskId:D}"
         : null;
     private static string SubmissionHistoryDescription(ReturnSubmissionHistoryItem item) =>
         $"{(item.IsNilReturn ? "Nil return" : "Submitted return")} recorded {item.OccurredAtUtc.LocalDateTime:dd MMM yyyy, HH:mm}{(string.IsNullOrWhiteSpace(item.SubmissionReference) ? string.Empty : $" · GCA ref {item.SubmissionReference}")}";
+
+    private sealed class SubmissionEvidenceEditModel(ReportingEvidence evidence)
+    {
+        private readonly string originalTitle = Path.GetFileNameWithoutExtension(evidence.FileName);
+        public Guid EvidenceId { get; } = evidence.Id;
+        public string FileName { get; } = evidence.FileName;
+        public string Title { get; set; } = Path.GetFileNameWithoutExtension(evidence.FileName);
+        public bool MarkedForDeletion { get; set; }
+        public bool HasChanged => MarkedForDeletion || !string.Equals(Title.Trim(), originalTitle, StringComparison.Ordinal);
+    }
+
+    private sealed record WorkflowStageDefinition(int Number, string Label);
 }

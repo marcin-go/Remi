@@ -3,7 +3,7 @@ const maxFileSizeBytes = 15 * 1024 * 1024;
 
 export function attach(host, dotNetReference) {
     const onPaste = async event => {
-        if (isTextEditingTarget(event.target)) return;
+        if (isTextEditingTarget(event.target) && !host.contains(event.target)) return;
 
         const image = [...event.clipboardData?.items ?? []].find(item => item.type.startsWith('image/'));
         if (!image) return;
