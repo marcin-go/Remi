@@ -36,6 +36,7 @@
                                   Value="@FrameworkValue"
                                   ValueChanged="@SelectFramework"
                                   ItemLabel="@DisplayFramework"
+                                  ItemGroup="@FrameworkGroup"
                                   Placeholder="Select a framework"
                                   Required="true" />
                     @if (selectedFramework is not null)
@@ -208,7 +209,7 @@
                     <div class="invoice-details-grid">
                         <div class="registration-field">
                             <label class="floating-field floating-field--static"><input required @ref="startDateField" type="date" @bind="startDate" aria-invalid="@(ShowError(StartDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(StartDateInvalid) ? "start-date-error" : null)" /><span class="floating-label">@FieldNames.ContractStartDate</span></label>
-                            @if (ShowError(StartDateInvalid)) { <span id="start-date-error" class="field-validation-message">Choose the contract start date.</span> }
+                            @if (ShowError(StartDateInvalid)) { <span id="start-date-error" class="field-validation-message">@ContractStartDateValidationMessage</span> }
                         </div>
                         <div class="registration-field">
                             <label class="floating-field floating-field--static"><input required @ref="endDateField" type="date" @bind="endDate" aria-invalid="@(ShowError(EndDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(EndDateInvalid) ? "end-date-error" : null)" /><span class="floating-label">@FieldNames.ContractEndDate</span></label>
@@ -257,6 +258,7 @@
     private const string OrderChannelPickerKey = "contract-order-channel-picker";
     private string? ActiveCustomerPicker;
     private IReadOnlyList<CustomerUrnSuggestion> customerDirectoryEntries = [];
+    private IReadOnlyList<FrameworkConfigurationSummary> frameworkConfigurations = [];
     private IReadOnlyList<CustomerUrnSuggestion> FilteredCustomerSuggestions = [];
     private CustomerUrnSuggestion? selectedCustomer;
     private IReadOnlyList<DigitalMarketplaceService> marketplaceServices = [];
@@ -284,7 +286,14 @@
     private MiInvoiceIntakeForm IntakeForm => MiInvoiceIntakeForms.For(selectedFramework!.Value);
     private IReadOnlyList<string> ServiceGroupOptions => IntakeForm.ServiceGroupsFor(lotNumber);
     private IReadOnlyList<FrameworkDefinition> availableFrameworks =>
-        Frameworks.All.Where(item => item.AllowsNewContracts && ContractReportFields.IsAvailable(item.Code)).ToList();
+        frameworkConfigurations
+            .Where(item => item.StartDate is { } startDate && item.EndDate is { } endDate
+                && Today >= startDate && Today <= endDate
+                && ContractReportFields.IsAvailable(item.Framework.Code))
+            .Select(item => item.Framework)
+            .OrderBy(item => item.IsHistorical)
+            .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     private IReadOnlyList<string> FrameworkOptions => availableFrameworks.Select(item => item.Code.ToString()).ToList();
     private string FrameworkValue => selectedFramework?.ToString() ?? string.Empty;
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
@@ -297,18 +306,27 @@
     private bool DigitalMarketplaceServiceIdInvalid => IsGCloud && string.IsNullOrWhiteSpace(digitalMarketplaceServiceId);
     private bool ServiceDescriptionInvalid => !IsGCloud && string.IsNullOrWhiteSpace(serviceDescription);
     private bool OrderChannelInvalid => !IsGCloud && !ContractReportFields.VasOrderChannels.Contains(orderChannel, StringComparer.Ordinal);
-    private bool StartDateInvalid => startDate is null;
+    private DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private FrameworkConfigurationSummary? SelectedFrameworkConfiguration => selectedFramework is { } framework
+        ? frameworkConfigurations.SingleOrDefault(item => item.Framework.Code == framework)
+        : null;
+    private bool StartDateInvalid => startDate is null
+        || SelectedFrameworkConfiguration is not { StartDate: { } frameworkStart, EndDate: { } frameworkEnd }
+        || startDate < frameworkStart
+        || startDate > frameworkEnd;
+    private string ContractStartDateValidationMessage => SelectedFrameworkConfiguration is { StartDate: { } frameworkStart, EndDate: { } frameworkEnd }
+        ? $"Choose a contract start date between {frameworkStart:d MMM yyyy} and {frameworkEnd:d MMM yyyy}."
+        : "Choose a contract start date while the framework is in operation.";
     private bool EndDateInvalid => endDate is null;
     private bool ContractValueInvalid => contractValue <= 0;
     private bool CanCreate => selectedFramework is FrameworkCode framework
-        && Frameworks.AllowsNewContracts(framework)
         && ContractReportFields.IsAvailable(framework)
         && IsValidReportingMonth
         && !string.IsNullOrWhiteSpace(supplierReference)
         && !string.IsNullOrWhiteSpace(customerName)
         && !string.IsNullOrWhiteSpace(customerUrn)
         && IntakeForm.Lots.Contains(lotNumber, StringComparer.Ordinal)
-        && startDate is not null
+        && !StartDateInvalid
         && endDate is not null
         && contractValue > 0
         && (IsGCloud
@@ -333,9 +351,11 @@
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
         var marketplaceTask = Workspace.GetDigitalMarketplaceServicesAsync(FrameworkCode.GCloud14);
         var customerDirectoryTask = Workspace.GetCustomerUrnDirectoryEntriesAsync();
-        await Task.WhenAll(marketplaceTask, customerDirectoryTask);
+        var frameworkConfigurationsTask = Workspace.GetFrameworkConfigurationsAsync();
+        await Task.WhenAll(marketplaceTask, customerDirectoryTask, frameworkConfigurationsTask);
         marketplaceServices = await marketplaceTask;
         customerDirectoryEntries = await customerDirectoryTask;
+        frameworkConfigurations = await frameworkConfigurationsTask;
         FilteredMarketplaceServices = marketplaceServices;
         FilteredCustomerSuggestions = customerDirectoryEntries;
     }
@@ -343,7 +363,7 @@
     private void SelectFramework(string value)
     {
         validationAttempted = false;
-        if (!Enum.TryParse<FrameworkCode>(value, out var framework) || !Frameworks.AllowsNewContracts(framework))
+        if (!Enum.TryParse<FrameworkCode>(value, out var framework) || availableFrameworks.All(item => item.Code != framework))
         {
             selectedFramework = null;
             return;
@@ -581,6 +601,12 @@
     {
         var definition = availableFrameworks.FirstOrDefault(item => item.Code.ToString() == value);
         return definition is null ? value : $"{definition.DisplayName} ({definition.AgreementNumber})";
+    }
+
+    private string? FrameworkGroup(string value)
+    {
+        var definition = availableFrameworks.FirstOrDefault(item => item.Code.ToString() == value);
+        return definition is null ? null : definition.IsHistorical ? "Historical" : "Live";
     }
 
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;

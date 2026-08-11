@@ -349,7 +349,7 @@ app.MapPost("/data-transfer/restore", async (
 
     var confirmsReplacement = string.Equals(form["confirmDestructiveRestore"], "on", StringComparison.OrdinalIgnoreCase);
     var confirmsPackage = string.Equals(form["confirmBackupPackage"], "on", StringComparison.OrdinalIgnoreCase);
-    if (!confirmsReplacement || !confirmsPackage || !string.Equals(form["replacementPhrase"], "REPLACE", StringComparison.Ordinal))
+    if (!confirmsReplacement || !confirmsPackage || !string.Equals(form["replacementPhrase"], "RESTORE", StringComparison.Ordinal))
     {
         logger.LogWarning("Rejected a Remi restore request because its destructive-action confirmation was incomplete.");
         return Results.Redirect(RestoreResultLocation(request, "not-confirmed"));

@@ -29,7 +29,7 @@ else
 
                 <div class="register-filters invoice-filters">
                     <label class="register-search floating-field floating-field--static"><input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /><span class="floating-label">Search invoices</span></label>
-                    <RemiPicklist Id="invoice-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" />
+                    <RemiPicklist Id="invoice-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" ItemGroup="FrameworkFilterGroup" />
                     <RemiPicklist Id="invoice-contract-filter-options" Label="Contract match" Items="@ContractMatchFilterItems" Value="@matchFilter" ValueChanged="SetMatchFilter" ItemLabel="ContractMatchFilterLabel" />
                     <RemiPicklist Id="invoice-document-filter-options" Label="Documents" Items="@DocumentFilterItems" Value="@evidenceFilter" ValueChanged="SetEvidenceFilter" ItemLabel="DocumentFilterLabel" />
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
@@ -91,7 +91,11 @@ else
 
 @code {
     private const int PageSize = 10;
-    private static readonly IReadOnlyList<string> FrameworkFilterItems = [string.Empty, .. Frameworks.All.Select(item => item.Code.ToString())];
+    private static readonly IReadOnlyList<string> FrameworkFilterItems =
+    [
+        string.Empty,
+        .. Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
+    ];
     private static readonly IReadOnlyList<string> ContractMatchFilterItems = [string.Empty, "matched", "unmatched"];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private IReadOnlyList<InvoiceRegisterItem>? invoices;
@@ -150,6 +154,9 @@ else
     private static string FrameworkFilterLabel(string value) => string.IsNullOrEmpty(value)
         ? "All frameworks"
         : Enum.TryParse<FrameworkCode>(value, out var framework) ? Frameworks.Get(framework).DisplayName : value;
+    private static string? FrameworkFilterGroup(string value) => !Enum.TryParse<FrameworkCode>(value, out var framework)
+        ? null
+        : Frameworks.Get(framework).IsHistorical ? "Historical" : "Live";
     private static string ContractMatchFilterLabel(string value) => value switch { "matched" => "Matched", "unmatched" => "Needs a contract", _ => "All records" };
     private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
     private void SortBy(string column)

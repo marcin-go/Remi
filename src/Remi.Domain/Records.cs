@@ -192,11 +192,12 @@ public sealed record MiTemplateConfiguration(
     DateTimeOffset RegisteredAtUtc);
 
 /// <summary>
-/// A local override of the date on which an existing supported framework enters Remi reporting.
+/// Local overrides for the dates during which a supported framework can accept contracts.
 /// </summary>
 public sealed record FrameworkConfiguration(
     FrameworkCode Framework,
-    DateOnly StartDate);
+    DateOnly StartDate,
+    DateOnly? EndDate);
 
 /// <summary>
 /// A supplier service that Remi offers as a Digital Marketplace service-ID suggestion.

@@ -256,9 +256,9 @@ public sealed class MigrationRunner(
     {
         var match = Regex.Match(
             Path.GetFileNameWithoutExtension(sourcePath),
-            @"\b[A-Z]{3}_\d{6}_[A-Z0-9]+\b",
+            @"(?<![A-Z0-9])(?<reference>[A-Z]{3}_\d{6}_[A-Z0-9]+)(?=[^A-Z0-9]|$)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        return match.Success ? match.Value.ToUpperInvariant() : null;
+        return match.Success ? match.Groups["reference"].Value.ToUpperInvariant() : null;
     }
 
     private static string ContentTypeFor(string sourcePath) => Path.GetExtension(sourcePath).ToLowerInvariant() switch

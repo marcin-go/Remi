@@ -29,8 +29,8 @@
 @if (ActiveSection == FrameworksSection)
 {
 <section class="panel maintenance-panel">
-    <h2>Framework reporting start dates</h2>
-    <p>These dates determine when Remi includes each supported framework in its report register and dashboard readiness. The calendar month containing a start date is included.</p>
+    <h2>Framework dates</h2>
+    <p>The start date determines when a framework enters reporting. New contracts must have a contract start date within the framework's start and end dates; contracts signed during that window remain reportable after the framework ends.</p>
     @if (frameworkConfigurations.Count == 0)
     {
         <p class="muted">Loading framework settings…</p>
@@ -50,7 +50,7 @@
         </div>
         <div class="table-wrap maintenance-table">
             <table>
-                <thead><tr><th>Framework</th><th>Agreement</th><th>Reporting start date</th></tr></thead>
+                <thead><tr><th>Framework</th><th>Agreement</th><th>Start date</th><th>End date</th></tr></thead>
                 <tbody>
                     @foreach (var configuration in frameworkConfigurations)
                     {
@@ -59,15 +59,21 @@
                             <td>@configuration.Framework.AgreementNumber</td>
                             @if (editingFrameworks)
                             {
-                                var fieldId = $"framework-start-{configuration.Framework.Code}";
+                                var startFieldId = $"framework-start-{configuration.Framework.Code}";
+                                var endFieldId = $"framework-end-{configuration.Framework.Code}";
                                 <td>
-                                    <label class="visually-hidden" for="@fieldId">@configuration.Framework.DisplayName reporting start date</label>
-                                    <input id="@fieldId" type="date" value="@FrameworkStartDateValue(configuration.Framework.Code)" @onchange="@(args => FrameworkStartDateChanged(configuration.Framework.Code, args))" />
+                                    <label class="visually-hidden" for="@startFieldId">@configuration.Framework.DisplayName start date</label>
+                                    <input id="@startFieldId" type="date" value="@FrameworkStartDateValue(configuration.Framework.Code)" @onchange="@(args => FrameworkStartDateChanged(configuration.Framework.Code, args))" />
+                                </td>
+                                <td>
+                                    <label class="visually-hidden" for="@endFieldId">@configuration.Framework.DisplayName end date</label>
+                                    <input id="@endFieldId" type="date" value="@FrameworkEndDateValue(configuration.Framework.Code)" @onchange="@(args => FrameworkEndDateChanged(configuration.Framework.Code, args))" />
                                 </td>
                             }
                             else
                             {
                                 <td>@FrameworkStartDateDisplay(configuration.StartDate)</td>
+                                <td>@FrameworkEndDateDisplay(configuration.EndDate)</td>
                             }
                         </tr>
                     }
@@ -79,7 +85,7 @@
     {
         <p class="notice @(frameworkSaveSucceeded ? "success" : "error")" role="status">@frameworkMessage</p>
     }
-    <p class="caption">The default dates are from the official agreement records. G-Cloud 15 is left blank until a local reporting start date is confirmed.</p>
+    <p class="caption">The default dates are from the official agreement records. G-Cloud 15 is left blank until its operational dates are confirmed.</p>
 </section>
 }
 
@@ -116,15 +122,7 @@
     <h2>@DigitalMarketplaceFramework.DisplayName Digital Marketplace services</h2>
     <p>Maintain product-to-service-ID mappings separately for each G-Cloud framework. Remi offers only the selected framework's mappings when reviewing a contract.</p>
     <div class="form-grid">
-        <label class="floating-field floating-field--static">
-            <select aria-label="Digital Marketplace framework" disabled="@(working || editingDigitalMarketplaceServices)" @bind="digitalMarketplaceFramework" @bind:after="DigitalMarketplaceFrameworkChangedAsync">
-                @foreach (var framework in DigitalMarketplaceFrameworks)
-                {
-                    <option value="@framework.Code">@framework.DisplayName</option>
-                }
-            </select>
-            <span class="floating-label">Framework</span>
-        </label>
+        <RemiPicklist Id="digital-marketplace-framework-picklist-options" Label="Digital Marketplace framework" Items="@DigitalMarketplaceFrameworkOptions" Value="@digitalMarketplaceFramework.ToString()" ValueChanged="SetDigitalMarketplaceFrameworkAsync" ItemLabel="DigitalMarketplaceFrameworkLabel" ItemGroup="FrameworkGroup" CssClass="digital-marketplace-framework-picklist" Disabled="@(working || editingDigitalMarketplaceServices)" />
     </div>
     <div class="action-row">
         @if (editingDigitalMarketplaceServices)
@@ -252,11 +250,11 @@
             <input name="confirmBackupPackage" type="checkbox" required />
             <span>I have created a backup of the current data and have checked that this is the correct Remi backup.</span>
         </label>
-        <label for="data-transfer-replacement-phrase">To make the replacement, type <strong>REPLACE</strong>
-            <input id="data-transfer-replacement-phrase" name="replacementPhrase" type="text" autocomplete="off" spellcheck="false" pattern="REPLACE" required />
+        <label for="data-transfer-replacement-phrase">To restore backup type: <strong>RESTORE</strong>
+            <input id="data-transfer-replacement-phrase" name="replacementPhrase" type="text" autocomplete="off" spellcheck="false" pattern="RESTORE" required />
         </label>
         <div class="action-row">
-            <button class="button danger" type="button" data-remi-restore-submit>Restore and replace all data</button>
+            <button class="button danger" type="button" data-remi-restore-submit>RESTORE</button>
         </div>
     </form>
     @if (RestoreMessage is { } restoreMessage)
@@ -277,10 +275,12 @@
     private const string AuditSection = "audit";
     private const string DataTransferSection = "data-transfer";
     private static readonly IReadOnlyList<FrameworkDefinition> DigitalMarketplaceFrameworks =
-    [
-        Frameworks.Get(FrameworkCode.GCloud13),
-        Frameworks.Get(FrameworkCode.GCloud14),
-    ];
+        [Frameworks.Get(FrameworkCode.GCloud13), Frameworks.Get(FrameworkCode.GCloud14)];
+    private static readonly IReadOnlyList<string> DigitalMarketplaceFrameworkOptions = DigitalMarketplaceFrameworks
+        .OrderBy(item => item.IsHistorical)
+        .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .Select(item => item.Code.ToString())
+        .ToList();
 
     [Parameter, SupplyParameterFromQuery(Name = "section")]
     public string? Section { get; set; }
@@ -296,6 +296,7 @@
     private List<EditableDigitalMarketplaceService> digitalMarketplaceServices = [];
     private FrameworkCode digitalMarketplaceFramework = FrameworkCode.GCloud14;
     private readonly Dictionary<FrameworkCode, string> frameworkStartDateInputs = [];
+    private readonly Dictionary<FrameworkCode, string> frameworkEndDateInputs = [];
     private string? urnMessage;
     private bool working;
     private bool urnRefreshing;
@@ -328,7 +329,7 @@
     {
         "complete" => "The Remi datastore was restored successfully.",
         "expired" => "The restore form had expired. Reload Settings, select the backup again and reconfirm the replacement.",
-        "not-confirmed" => "Restore was not confirmed. Acknowledge both warnings and type REPLACE before restoring.",
+        "not-confirmed" => "Restore was not confirmed. Acknowledge both warnings and type RESTORE before restoring.",
         "missing-file" => "Choose a non-empty Remi backup ZIP file before restoring.",
         "invalid-package" => "That file is not a valid, intact Remi backup. Your current data was not replaced.",
         "package-too-large" => "That backup is too large for Remi to accept.",
@@ -380,17 +381,23 @@
     private string FrameworkStartDateValue(FrameworkCode framework) =>
         frameworkStartDateInputs.TryGetValue(framework, out var value) ? value : string.Empty;
 
+    private string FrameworkEndDateValue(FrameworkCode framework) =>
+        frameworkEndDateInputs.TryGetValue(framework, out var value) ? value : string.Empty;
+
     private string FrameworkStartDateDisplay(DateOnly? startDate) =>
         startDate?.ToString("d MMM yyyy") ?? "Not set";
 
+    private string FrameworkEndDateDisplay(DateOnly? endDate) =>
+        endDate?.ToString("d MMM yyyy") ?? "Not set";
+
     private bool CanSaveFrameworkChanges =>
-        !working && frameworkConfigurations.All(configuration =>
-            string.IsNullOrWhiteSpace(FrameworkStartDateValue(configuration.Framework.Code))
-                ? configuration.StartDate is null
-                : DateOnly.TryParseExact(FrameworkStartDateValue(configuration.Framework.Code), "yyyy-MM-dd", out _));
+        !working && frameworkConfigurations.All(FrameworkDatesValid);
 
     private void FrameworkStartDateChanged(FrameworkCode framework, ChangeEventArgs args) =>
         frameworkStartDateInputs[framework] = args.Value?.ToString() ?? string.Empty;
+
+    private void FrameworkEndDateChanged(FrameworkCode framework, ChangeEventArgs args) =>
+        frameworkEndDateInputs[framework] = args.Value?.ToString() ?? string.Empty;
 
     private void BeginFrameworkEdit()
     {
@@ -423,14 +430,17 @@
                 {
                     Configuration = configuration,
                     StartDate = ParsedFrameworkStartDate(configuration.Framework.Code),
+                    EndDate = ParsedFrameworkEndDate(configuration.Framework.Code),
                 })
-                .Where(item => item.StartDate is not null && item.StartDate != item.Configuration.StartDate)
+                .Where(item => item.StartDate is not null && item.EndDate is not null
+                    && (item.StartDate != item.Configuration.StartDate || item.EndDate != item.Configuration.EndDate))
                 .ToList();
             foreach (var change in changes)
             {
-                var result = await Workspace.UpdateFrameworkStartDateAsync(
+                var result = await Workspace.UpdateFrameworkDatesAsync(
                     change.Configuration.Framework.Code,
-                    change.StartDate!.Value);
+                    change.StartDate!.Value,
+                    change.EndDate!.Value);
                 if (!result.Succeeded)
                 {
                     frameworkSaveSucceeded = false;
@@ -443,14 +453,14 @@
             ResetFrameworkStartDateInputs();
             frameworkSaveSucceeded = true;
             frameworkMessage = changes.Count == 0
-                ? "No framework start-date changes were made."
-                : $"Saved {changes.Count} framework start-date change(s).";
+                ? "No framework date changes were made."
+                : $"Saved {changes.Count} framework date change(s).";
             editingFrameworks = false;
         }
         catch (Exception exception)
         {
             frameworkSaveSucceeded = false;
-            frameworkMessage = $"The framework start date could not be saved: {exception.Message}";
+            frameworkMessage = $"The framework dates could not be saved: {exception.Message}";
         }
         finally
         {
@@ -464,12 +474,33 @@
             ? startDate
             : null;
 
+    private DateOnly? ParsedFrameworkEndDate(FrameworkCode framework) =>
+        DateOnly.TryParseExact(FrameworkEndDateValue(framework), "yyyy-MM-dd", out var endDate)
+            ? endDate
+            : null;
+
+    private bool FrameworkDatesValid(FrameworkConfigurationSummary configuration)
+    {
+        var startValue = FrameworkStartDateValue(configuration.Framework.Code);
+        var endValue = FrameworkEndDateValue(configuration.Framework.Code);
+        if (string.IsNullOrWhiteSpace(startValue) && string.IsNullOrWhiteSpace(endValue))
+        {
+            return configuration.StartDate is null && configuration.EndDate is null;
+        }
+
+        return DateOnly.TryParseExact(startValue, "yyyy-MM-dd", out var startDate)
+            && DateOnly.TryParseExact(endValue, "yyyy-MM-dd", out var endDate)
+            && endDate >= startDate;
+    }
+
     private void ResetFrameworkStartDateInputs()
     {
         frameworkStartDateInputs.Clear();
+        frameworkEndDateInputs.Clear();
         foreach (var configuration in frameworkConfigurations)
         {
             frameworkStartDateInputs[configuration.Framework.Code] = configuration.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
+            frameworkEndDateInputs[configuration.Framework.Code] = configuration.EndDate?.ToString("yyyy-MM-dd") ?? string.Empty;
         }
     }
 
@@ -536,6 +567,16 @@
         digitalMarketplaceMessage = null;
         await ReloadDigitalMarketplaceServicesAsync();
     }
+
+    private async Task SetDigitalMarketplaceFrameworkAsync(string value)
+    {
+        if (!Enum.TryParse<FrameworkCode>(value, out var selected)) return;
+        digitalMarketplaceFramework = selected;
+        await DigitalMarketplaceFrameworkChangedAsync();
+    }
+
+    private static string DigitalMarketplaceFrameworkLabel(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).DisplayName : value;
+    private static string? FrameworkGroup(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).IsHistorical ? "Historical" : "Live" : null;
 
     private async Task ReloadDigitalMarketplaceServicesAsync() =>
         digitalMarketplaceServices = (await Workspace.GetDigitalMarketplaceServicesAsync(digitalMarketplaceFramework))

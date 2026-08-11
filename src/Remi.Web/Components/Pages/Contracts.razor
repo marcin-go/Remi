@@ -23,23 +23,17 @@ else
         <section class="register-workspace register-workspace-full" id="contract-register">
             <article class="register-card">
                 <header class="register-card-header register-card-header-compact">
-                    <div><h2>Find and check contracts</h2><p>Documents and reported value are visible before review.</p></div>
+                    <div><h2>Find and check contracts</h2><p>Contract dates, status and reported value are visible before review.</p></div>
                     <div class="register-result-count"><strong>@FilteredContracts.Count</strong><span>matching contracts</span></div>
                 </header>
 
-                <div class="register-filters">
+                <div class="register-filters contract-register-filters">
                     <label class="register-search floating-field floating-field--static"><input @bind="searchTerm" @bind:event="oninput" @bind:after="ResetPage" placeholder="Reference, customer or supplier" /><span class="floating-label">Search contracts</span></label>
-                    <RemiPicklist Id="contract-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" />
+                    <RemiPicklist Id="contract-framework-filter-options" Label="Framework" Items="@FrameworkFilterItems" Value="@frameworkFilter" ValueChanged="SetFrameworkFilter" ItemLabel="FrameworkFilterLabel" ItemGroup="FrameworkFilterGroup" />
                     <RemiPicklist Id="contract-document-filter-options" Label="Documents" Items="@DocumentFilterItems" Value="@evidenceFilter" ValueChanged="SetEvidenceFilter" ItemLabel="DocumentFilterLabel" />
                     <RemiPicklist Id="contract-progress-filter-options" Label="Progress" Items="@ProgressFilterItems" Value="@progressFilter" ValueChanged="SetProgressFilter" ItemLabel="ProgressFilterLabel" />
+                    <RemiPicklist Id="contract-status-filter-options" Label="Contract status" Items="@StatusFilterItems" Value="@statusFilter" ValueChanged="SetStatusFilter" ItemLabel="StatusFilterLabel" Placeholder="All statuses" />
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
-                    <div class="quick-filters" aria-label="Quick filters">
-                        <span>Quick filters</span>
-                        <button class="@QuickButtonClass("available")" @onclick="@(() => SetQuickFilter("available"))">Documents linked</button>
-                        <button class="@QuickButtonClass("missing")" @onclick="@(() => SetQuickFilter("missing"))">Documents missing</button>
-                        <button class="@QuickButtonClass("expiring")" @onclick="@(() => SetQuickFilter("expiring"))">Expiring soon</button>
-                        <button class="@QuickButtonClass("period")" @onclick="@(() => SetQuickFilter("period"))">Selected period</button>
-                    </div>
                 </div>
 
                 <div class="register-table-scroll">
@@ -47,24 +41,26 @@ else
                         <thead><tr>
                             <th aria-sort="@SortAria("reference")"><button class="table-sort" @onclick="@(() => SortBy("reference"))">Reference &amp; framework <span aria-hidden="true">@SortIndicator("reference")</span></button></th>
                             <th aria-sort="@SortAria("customer")"><button class="table-sort" @onclick="@(() => SortBy("customer"))">Customer <span aria-hidden="true">@SortIndicator("customer")</span></button></th>
+                            <th aria-sort="@SortAria("startDate")"><button class="table-sort" @onclick="@(() => SortBy("startDate"))">Start date <span aria-hidden="true">@SortIndicator("startDate")</span></button></th>
                             <th aria-sort="@SortAria("endDate")"><button class="table-sort" @onclick="@(() => SortBy("endDate"))">End date <span aria-hidden="true">@SortIndicator("endDate")</span></button></th>
+                            <th>Contract status</th>
                             <th aria-sort="@SortAria("value")"><button class="table-sort" @onclick="@(() => SortBy("value"))">Value <span aria-hidden="true">@SortIndicator("value")</span></button></th>
-                            <th aria-sort="@SortAria("evidence")"><button class="table-sort" @onclick="@(() => SortBy("evidence"))">Documents <span aria-hidden="true">@SortIndicator("evidence")</span></button></th>
                             <th aria-sort="@SortAria("progress")"><button class="table-sort" @onclick="@(() => SortBy("progress"))">Progress <span aria-hidden="true">@SortIndicator("progress")</span></button></th>
                         </tr></thead>
                         <tbody>
                         @if (PagedContracts.Count == 0)
                         {
-                            <tr><td colspan="6" class="register-empty">No contracts match these filters.</td></tr>
+                            <tr><td colspan="7" class="register-empty">No contracts match these filters.</td></tr>
                         }
                         @foreach (var contract in PagedContracts)
                         {
                             <tr>
                                 <td><a class="register-reference" href="@ContractRoute(contract.ContractId)">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName</span></td>
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
-                                <td class="register-date"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span><span>@DisplayDate(contract.EndDate)</span></td>
+                                <td class="register-date">@DisplayDate(contract.StartDate)</td>
+                                <td class="register-date">@DisplayDate(contract.EndDate)</td>
+                                <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span></td>
                                 <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
-                                <td><span class="@EvidenceStatusClass(contract)"><i aria-hidden="true"></i>@EvidenceStatus(contract)</span><span>@contract.Evidence.Count file@(contract.Evidence.Count == 1 ? "" : "s")</span></td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
                             </tr>
                         }
@@ -83,15 +79,20 @@ else
 
 @code {
     private const int PageSize = 10;
-    private static readonly IReadOnlyList<string> FrameworkFilterItems = [string.Empty, .. Frameworks.All.Select(item => item.Code.ToString())];
+    private static readonly IReadOnlyList<string> FrameworkFilterItems =
+    [
+        string.Empty,
+        .. Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
+    ];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private static readonly IReadOnlyList<string> ProgressFilterItems = [string.Empty, "not-started", "in-progress", "complete"];
+    private static readonly IReadOnlyList<string> StatusFilterItems = ["ongoing", "ending-soon", "ended"];
     private DashboardModel? model;
     private string searchTerm = string.Empty;
     private string frameworkFilter = string.Empty;
     private string evidenceFilter = string.Empty;
     private string progressFilter = string.Empty;
-    private string quickFilter = string.Empty;
+    private string statusFilter = string.Empty;
     private int page = 1;
     private string sortColumn = "reference";
     private bool sortDescending;
@@ -132,18 +133,29 @@ else
             && (string.IsNullOrWhiteSpace(frameworkFilter) || contract.Framework.ToString() == frameworkFilter)
             && (string.IsNullOrWhiteSpace(evidenceFilter) || (evidenceFilter == "available" && hasEvidence) || (evidenceFilter == "missing" && !hasEvidence))
             && (string.IsNullOrWhiteSpace(progressFilter) || (progressFilter == "not-started" && contract.CompletionRatio == 0) || (progressFilter == "in-progress" && contract.CompletionRatio > 0 && contract.CompletionRatio < 1) || (progressFilter == "complete" && contract.CompletionRatio >= 1))
-            && (string.IsNullOrWhiteSpace(quickFilter) || (quickFilter == "available" && hasEvidence) || (quickFilter == "missing" && !hasEvidence) || (quickFilter == "expiring" && contract.EndDate is not null && contract.EndDate <= today.AddDays(180)) || (quickFilter == "period" && contract.ReportMonth == model?.CurrentReportingMonth));
+            && MatchesStatusFilter(contract, today);
     }
 
-    private void SetQuickFilter(string filter) { quickFilter = quickFilter == filter ? string.Empty : filter; ResetPage(); }
     private void SetFrameworkFilter(string value) { frameworkFilter = value; ResetPage(); }
     private void SetEvidenceFilter(string value) { evidenceFilter = value; ResetPage(); }
     private void SetProgressFilter(string value) { progressFilter = value; ResetPage(); }
+    private void SetStatusFilter(string value) { statusFilter = value; ResetPage(); }
     private static string FrameworkFilterLabel(string value) => string.IsNullOrEmpty(value)
         ? "All frameworks"
         : Enum.TryParse<FrameworkCode>(value, out var framework) ? Frameworks.Get(framework).DisplayName : value;
+    private static string? FrameworkFilterGroup(string value) => !Enum.TryParse<FrameworkCode>(value, out var framework)
+        ? null
+        : Frameworks.Get(framework).IsHistorical ? "Historical" : "Live";
     private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
     private static string ProgressFilterLabel(string value) => value switch { "not-started" => "Not started", "in-progress" => "In progress", "complete" => "Complete", _ => "Any progress" };
+    private static string StatusFilterLabel(string value) => value switch { "ongoing" => "Ongoing", "ending-soon" => "Ending soon", "ended" => "Ended", _ => "All statuses" };
+    private bool MatchesStatusFilter(ContractProgress contract, DateOnly today) => statusFilter switch
+    {
+        "ongoing" => contract.EndDate is null || contract.EndDate > today.AddDays(180),
+        "ending-soon" => contract.EndDate is DateOnly endDate && endDate >= today && endDate <= today.AddDays(180),
+        "ended" => contract.EndDate is DateOnly endDate && endDate < today,
+        _ => true,
+    };
     private void SortBy(string column)
     {
         if (sortColumn == column) sortDescending = !sortDescending;
@@ -158,6 +170,8 @@ else
         ("reference", true) => contracts.OrderByDescending(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
         ("customer", false) => contracts.OrderBy(contract => contract.CustomerName, StringComparer.OrdinalIgnoreCase),
         ("customer", true) => contracts.OrderByDescending(contract => contract.CustomerName, StringComparer.OrdinalIgnoreCase),
+        ("startDate", false) => contracts.OrderBy(contract => contract.StartDate is null).ThenBy(contract => contract.StartDate),
+        ("startDate", true) => contracts.OrderBy(contract => contract.StartDate is null).ThenByDescending(contract => contract.StartDate),
         ("endDate", false) => contracts.OrderBy(contract => contract.EndDate is null).ThenBy(contract => contract.EndDate),
         ("endDate", true) => contracts.OrderBy(contract => contract.EndDate is null).ThenByDescending(contract => contract.EndDate),
         ("value", false) => contracts.OrderBy(contract => contract.TotalContractValueExVat),
@@ -169,12 +183,9 @@ else
         _ => contracts.OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
     };
     private void ResetPage() => page = 1;
-    private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = quickFilter = string.Empty; ResetPage(); }
+    private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = statusFilter = string.Empty; ResetPage(); }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
-    private string QuickButtonClass(string filter) => quickFilter == filter ? "quick-filter active" : "quick-filter";
-    private static string EvidenceStatus(ContractProgress contract) => contract.Evidence.Count > 0 ? "Linked" : "Missing";
-    private static string EvidenceStatusClass(ContractProgress contract) => contract.Evidence.Count > 0 ? "register-status good" : "register-status warning";
     private static bool IsEnded(ContractProgress contract) => contract.EndDate is not null && contract.EndDate < DateOnly.FromDateTime(DateTime.Today);
     private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.UsesInvoicePlan && contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
     private static string LifecycleStatus(ContractProgress contract) => !IsEnded(contract) ? "Live" : HasOutstandingPaymentPositions(contract) ? "Ended · payments open" : "Ended";

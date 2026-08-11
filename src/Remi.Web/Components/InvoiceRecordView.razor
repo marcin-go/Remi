@@ -21,6 +21,13 @@ else
                 @if (!editing)
                 {
                     <button class="button secondary" @onclick="ToggleEditor">Edit</button>
+                    <div class="record-more">
+                        <button type="button" class="button secondary record-more-trigger" aria-label="More" title="More" aria-haspopup="menu" aria-expanded="@moreMenuOpen" @onclick="ToggleMoreMenu"><span class="record-more-icon" aria-hidden="true"></span></button>
+                        @if (moreMenuOpen)
+                        {
+                            <div class="record-more-menu" role="menu"><button type="button" class="record-more-delete" role="menuitem" @onclick="ShowDeleteConfirmationAsync">DELETE</button></div>
+                        }
+                    </div>
                 }
             </div>
         </header>
@@ -53,7 +60,7 @@ else
                         <section class="contract-edit-panel">
                             <div class="panel-heading invoice-overview-header"><h2>Invoice overview</h2><div class="invoice-overview-actions"><button class="button secondary" @onclick="ToggleEditor">Cancel</button><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button></div></div>
                             <div class="invoice-details-grid record-edit-fields">
-                                <label class="floating-field floating-field--static"><select @bind="framework">@foreach (var item in Frameworks.All) { <option value="@item.Code">@item.DisplayName</option> }</select><span class="floating-label">Framework</span></label>
+                                <RemiPicklist Id="invoice-edit-framework-picklist-options" Label="Framework" Items="@FrameworkOptions" Value="@framework.ToString()" ValueChanged="SetFramework" ItemLabel="FrameworkLabel" ItemGroup="FrameworkGroup" />
                                 <label class="floating-field"><input required placeholder=" " @bind="reportMonth" /><span class="floating-label">Reporting month</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="supplierReference" /><span class="floating-label">Supplier reference</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="customerName" /><span class="floating-label">Customer</span></label>
@@ -81,18 +88,7 @@ else
                     {
                     <div class="contract-overview-layout">
                         <article class="contract-content-card">
-                            <header class="contract-card-head invoice-overview-header"><h2>Invoice overview</h2><div class="invoice-overview-actions"><button class="button danger invoice-delete-trigger" @onclick="ShowDeleteConfirmation">Delete</button></div></header>
-                            @if (confirmingDelete)
-                            {
-                                <section class="invoice-delete-confirmation" role="group" aria-labelledby="invoice-delete-heading">
-                                    <div><strong id="invoice-delete-heading">Delete invoice @details.Invoice.InvoiceNumber?</strong><span>This permanently removes the invoice and documents attached only to it. The audit entry is retained.</span></div>
-                                    <div><button class="button secondary" disabled="@deleting" @onclick="CancelDelete">Cancel</button><button class="button danger invoice-delete-confirm" disabled="@deleting" @onclick="DeleteAsync">@(deleting ? "Deleting..." : "Delete invoice")</button></div>
-                                </section>
-                            }
-                            @if (deleteResult is { Succeeded: false })
-                            {
-                                <p class="notice error" role="alert">@deleteResult.Message</p>
-                            }
+                            <header class="contract-card-head invoice-overview-header"><h2>Invoice overview</h2></header>
                             <section class="contract-detail-section">
                                 <h3>Invoice and parties</h3>
                                 <dl class="record-display-grid">
@@ -137,6 +133,18 @@ else
                 <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Record history</h2><p>Material invoice and related contract actions recorded by Remi.</p></div></header><section class="contract-history-list">@if (history.Count == 0) { <div class="contract-empty-inline"><strong>No history events are available</strong><span>The invoice was registered without a matching local audit event.</span></div> } @foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@FriendlyAuditAction(item.Action)</strong><span>@item.Summary</span>@if (!string.IsNullOrWhiteSpace(item.Reason)) { <em>Reason: @item.Reason</em> }</div></article> }</section></article></div>
             }
         </section>
+        @if (confirmingDelete && deletionImpact is not null)
+        {
+            <DeletionConfirmationDialog Title="@($"Delete invoice {details.Invoice.InvoiceNumber}?")"
+                                        Description="This permanently deletes the invoice. This action cannot be undone."
+                                        Impact="@deletionImpact"
+                                        RetainedMessage="The audit history and imported or shared documents are retained."
+                                        ConfirmLabel="Delete invoice"
+                                        Working="@deleting"
+                                        ErrorMessage="@(deleteResult is { Succeeded: false } ? deleteResult.Message : null)"
+                                        OnCancel="CancelDelete"
+                                        OnConfirm="DeleteAsync" />
+        }
     </section>
 }
 
@@ -149,7 +157,9 @@ else
     private bool editing;
     private bool saving;
     private bool confirmingDelete;
+    private bool moreMenuOpen;
     private bool deleting;
+    private DeletionImpact? deletionImpact;
     private ReturnActionResult? submission;
     private ReturnActionResult? deleteResult;
     private FrameworkCode framework;
@@ -161,6 +171,7 @@ else
     private int invoiceClipboardImageCount;
 
     private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
+    private static readonly IReadOnlyList<string> FrameworkOptions = Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()).ToList();
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
     private bool IsVas => framework == FrameworkCode.VerticalApplicationSolutions;
     private bool HasRequiredMiFields => !string.IsNullOrWhiteSpace(customerUrn) && !string.IsNullOrWhiteSpace(lotNumber)
@@ -184,9 +195,19 @@ else
 
     private async void ReportingPeriodChanged() => await InvokeAsync(StateHasChanged);
     private void SetTab(string tab) => activeTab = tab;
-    private void ToggleEditor() { editing = !editing; submission = null; confirmingDelete = false; deleteResult = null; if (editing) PopulateEditor(); }
-    private void ShowDeleteConfirmation() { confirmingDelete = true; deleteResult = null; }
-    private void CancelDelete() { confirmingDelete = false; deleteResult = null; }
+    private void ToggleEditor() { editing = !editing; submission = null; confirmingDelete = false; moreMenuOpen = false; deleteResult = null; if (editing) PopulateEditor(); }
+    private void ToggleMoreMenu() => moreMenuOpen = !moreMenuOpen;
+    private async Task ShowDeleteConfirmationAsync()
+    {
+        moreMenuOpen = false;
+        deleteResult = null;
+        deletionImpact = await Workspace.GetInvoiceDeletionImpactAsync(InvoiceId);
+        confirmingDelete = deletionImpact is not null;
+    }
+    private void CancelDelete() { confirmingDelete = false; deletionImpact = null; deleteResult = null; }
+    private void SetFramework(string value) { if (Enum.TryParse<FrameworkCode>(value, out var selected)) framework = selected; }
+    private static string FrameworkLabel(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).DisplayName : value;
+    private static string? FrameworkGroup(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).IsHistorical ? "Historical" : "Live" : null;
     private void PopulateEditor()
     {
         if (details is null) return;

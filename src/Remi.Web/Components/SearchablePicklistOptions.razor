@@ -11,6 +11,41 @@
     {
         <p>@EmptyMessage</p>
     }
+    else if (Group is not null)
+    {
+        @foreach (var group in Items.GroupBy(Group))
+        {
+            @if (string.IsNullOrWhiteSpace(group.Key))
+            {
+                @foreach (var item in group)
+                {
+                    <button type="button"
+                            role="option"
+                            aria-selected="@IsSelected(item).ToString().ToLowerInvariant()"
+                            @onmousedown:preventDefault
+                            @onclick="@(() => ItemSelected.InvokeAsync(item))">
+                        @ItemTemplate(item)
+                    </button>
+                }
+            }
+            else
+            {
+                <div class="picklist-option-group" role="group" aria-label="@group.Key">
+                    <div class="picklist-group-heading" aria-hidden="true">@group.Key</div>
+                    @foreach (var item in group)
+                    {
+                        <button type="button"
+                                role="option"
+                                aria-selected="@IsSelected(item).ToString().ToLowerInvariant()"
+                                @onmousedown:preventDefault
+                                @onclick="@(() => ItemSelected.InvokeAsync(item))">
+                            @ItemTemplate(item)
+                        </button>
+                    }
+                </div>
+            }
+        }
+    }
     else if (Items.Count > VirtualizationThreshold)
     {
         <Virtualize Items="@VirtualItems" Context="item" ItemSize="40" SpacerElement="div">
@@ -50,8 +85,10 @@
     [Parameter] public string EmptyMessage { get; set; } = "No matching items.";
     [Parameter] public string CssClass { get; set; } = string.Empty;
     [Parameter] public bool ScrollSelectedIntoView { get; set; }
+    [Parameter] public Func<TItem, string?>? Group { get; set; }
 
     private ICollection<TItem> VirtualItems => Items as ICollection<TItem> ?? Items.ToList();
-    private string ListStyle => $"--picklist-visible-rows: {Math.Clamp(Items.Count, 1, 5)}";
+    private int VisibleGroupCount => Group is null ? 0 : Items.Select(Group).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.Ordinal).Count();
+    private string ListStyle => $"--picklist-visible-rows: {Math.Clamp(Items.Count, 1, 5)}; --picklist-visible-groups: {VisibleGroupCount}";
     private bool IsSelected(TItem item) => Selected?.Invoke(item) == true;
 }

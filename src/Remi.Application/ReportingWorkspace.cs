@@ -35,15 +35,17 @@ public sealed class ReportingWorkspace(
         store.ReadAsync(database => (IReadOnlyList<FrameworkConfigurationSummary>)Frameworks.All
             .Select(framework => new FrameworkConfigurationSummary(
                 framework,
-                FrameworkStartDate(database, framework)))
+                FrameworkStartDate(database, framework),
+                FrameworkEndDate(database, framework)))
             .OrderBy(item => item.StartDate is null)
             .ThenBy(item => item.StartDate)
             .ThenBy(item => item.Framework.DisplayName, StringComparer.Ordinal)
             .ToList(), cancellationToken);
 
-    public Task<FrameworkConfigurationUpdateResult> UpdateFrameworkStartDateAsync(
+    public Task<FrameworkConfigurationUpdateResult> UpdateFrameworkDatesAsync(
         FrameworkCode frameworkCode,
         DateOnly startDate,
+        DateOnly endDate,
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
@@ -56,10 +58,18 @@ public sealed class ReportingWorkspace(
                 null));
         }
 
+        if (endDate < startDate)
+        {
+            return Task.FromResult(new FrameworkConfigurationUpdateResult(
+                false,
+                "The framework end date cannot be earlier than its start date.",
+                null));
+        }
+
         return store.UpdateAsync(database =>
         {
             var existing = database.FrameworkConfigurations.SingleOrDefault(item => item.Framework == frameworkCode);
-            var configuration = new FrameworkConfiguration(frameworkCode, startDate);
+            var configuration = new FrameworkConfiguration(frameworkCode, startDate, endDate);
             if (existing is null)
             {
                 database.FrameworkConfigurations.Add(configuration);
@@ -72,16 +82,16 @@ public sealed class ReportingWorkspace(
             RecordAudit(
                 database,
                 timeProvider.GetUtcNow(),
-                "FrameworkStartDateUpdated",
+                "FrameworkDatesUpdated",
                 "FrameworkConfiguration",
                 null,
-                $"Set the reporting start date for {definition.DisplayName} to {startDate:dd MMM yyyy}.",
+                $"Set the operational dates for {definition.DisplayName} to {startDate:dd MMM yyyy} through {endDate:dd MMM yyyy}.",
                 null,
                 actor);
             return new FrameworkConfigurationUpdateResult(
                 true,
-                $"{definition.DisplayName} will be available for reporting from {startDate:dd MMM yyyy}.",
-                new FrameworkConfigurationSummary(definition, startDate));
+                $"{definition.DisplayName} can accept contracts dated from {startDate:dd MMM yyyy} through {endDate:dd MMM yyyy}.",
+                new FrameworkConfigurationSummary(definition, startDate, endDate));
         }, cancellationToken);
     }
 
@@ -258,6 +268,75 @@ public sealed class ReportingWorkspace(
                 .Where(item => item.EntityId == invoice.Id)
                 .ToList();
             return new InvoiceDetailsModel(invoice, contract, change, EvidenceForInvoice(database, invoice), findings);
+        }, cancellationToken);
+
+    public Task<DeletionImpact?> GetInvoiceDeletionImpactAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database =>
+        {
+            var invoice = database.Invoices.SingleOrDefault(item => item.Id == invoiceId);
+            if (invoice is null)
+            {
+                return null;
+            }
+
+            var objects = database.Evidence
+                .Where(item => IsClipboardEvidenceFor(item, "invoice", invoiceId))
+                .OrderBy(item => item.FileName, StringComparer.OrdinalIgnoreCase)
+                .Select(item => new DeletionImpactItem("Supporting document", item.FileName))
+                .ToList();
+            var changeLink = database.InvoiceContractChangeLinks.SingleOrDefault(item => item.InvoiceId == invoiceId);
+            if (changeLink is not null)
+            {
+                var change = database.ContractChanges.SingleOrDefault(item => item.Id == changeLink.ContractChangeId);
+                objects.Add(new DeletionImpactItem(
+                    "Contract change link",
+                    change is null ? "Linked contract change" : $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy}"));
+            }
+
+            return new DeletionImpact(objects);
+        }, cancellationToken);
+
+    public Task<DeletionImpact?> GetContractDeletionImpactAsync(Guid contractId, CancellationToken cancellationToken = default) =>
+        store.ReadAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (contract is null)
+            {
+                return null;
+            }
+
+            var changes = database.ContractChanges
+                .Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.AgreementDate)
+                .ToList();
+            var objects = new List<DeletionImpactItem>();
+            objects.AddRange(changes.Select(item => new DeletionImpactItem("Contract change", $"{item.Kind} agreed {item.AgreementDate:dd MMM yyyy}")));
+            objects.AddRange(database.ChargeScheduleItems
+                .Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.ContractYear)
+                .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
+                .Select(item => new DeletionImpactItem("Payment schedule position", $"Year {item.ContractYear}: {item.Description}")));
+            objects.AddRange(database.InvoicePlanItems
+                .Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
+                .Select(item => new DeletionImpactItem("Invoice plan item", item.Label)));
+            objects.AddRange(database.ContractServiceParts
+                .Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.SortOrder)
+                .Select(item => new DeletionImpactItem("Operational part", item.Name)));
+
+            var changeIds = changes.Select(item => item.Id).ToHashSet();
+            objects.AddRange(database.Evidence
+                .Where(item => IsClipboardEvidenceFor(item, "contract", contractId) ||
+                    changeIds.Any(changeId => IsClipboardEvidenceFor(item, "contract-change", changeId)))
+                .OrderBy(item => item.FileName, StringComparer.OrdinalIgnoreCase)
+                .Select(item => new DeletionImpactItem("Supporting document", item.FileName)));
+            objects.AddRange(database.ContractReportingOccurrences
+                .Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.ReportingMonth, StringComparer.Ordinal)
+                .Select(item => new DeletionImpactItem("Reporting occurrence", item.ReportingMonth)));
+
+            return new DeletionImpact(objects);
         }, cancellationToken);
 
     public Task<IReadOnlyList<InvoiceRegisterItem>> GetInvoiceRegisterAsync(CancellationToken cancellationToken = default) =>
@@ -740,14 +819,6 @@ public sealed class ReportingWorkspace(
         CancellationToken cancellationToken = default)
     {
         ValidateReportingMonth(entry.ReportMonth);
-        if (!Frameworks.AllowsNewContracts(entry.Framework))
-        {
-            return Task.FromResult(new ReturnActionResult(
-                false,
-                $"{Frameworks.Get(entry.Framework).DisplayName} is reporting-only and cannot accept a new contract record.",
-                []));
-        }
-
         var paymentPlanError = ValidatePaymentPlan(entry.PaymentPlan);
         if (paymentPlanError is not null)
         {
@@ -756,6 +827,11 @@ public sealed class ReportingWorkspace(
 
         return store.UpdateAsync(database =>
         {
+            if (ValidateContractFrameworkWindow(database, entry) is { } frameworkDateError)
+            {
+                return new ReturnActionResult(false, frameworkDateError, []);
+            }
+
             var now = timeProvider.GetUtcNow();
             var record = new ContractRecord(
                 Guid.NewGuid(),
@@ -1174,6 +1250,11 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
 
+            if (ValidateContractFrameworkWindow(database, entry) is { } frameworkDateError)
+            {
+                return new ReturnActionResult(false, frameworkDateError, []);
+            }
+
             var updated = new ContractRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.StartDate, entry.EndDate, NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), entry.TotalContractValueExVat, entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Contracts.IndexOf(existing);
             database.Contracts[index] = updated;
@@ -1304,6 +1385,80 @@ public sealed class ReportingWorkspace(
             : deletion.Result with { Message = "The invoice was deleted, but one or more supporting files could not be removed from the archive." };
     }
 
+    public async Task<ReturnActionResult> DeleteContractAsync(
+        Guid contractId,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var deletion = await store.UpdateAsync(database =>
+        {
+            var existing = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (existing is null)
+            {
+                return new ContractDeletionResult(
+                    new ReturnActionResult(false, "The selected contract no longer exists.", []),
+                    []);
+            }
+
+            var changes = database.ContractChanges.Where(item => item.ContractId == contractId).ToList();
+            var changeIds = changes.Select(item => item.Id).ToHashSet();
+            var privateEvidence = database.Evidence
+                .Where(item => IsClipboardEvidenceFor(item, "contract", contractId) ||
+                    changeIds.Any(changeId => IsClipboardEvidenceFor(item, "contract-change", changeId)))
+                .ToList();
+
+            database.Contracts.Remove(existing);
+            database.ContractChanges.RemoveAll(item => changeIds.Contains(item.Id));
+            database.InvoiceContractChangeLinks.RemoveAll(item => changeIds.Contains(item.ContractChangeId));
+            database.InvoicePlanItems.RemoveAll(item => item.ContractId == contractId);
+            database.ChargeScheduleItems.RemoveAll(item => item.ContractId == contractId);
+            database.ContractServiceParts.RemoveAll(item => item.ContractId == contractId);
+            database.ContractReportingOccurrences.RemoveAll(item => item.ContractId == contractId);
+            database.Evidence.RemoveAll(item => privateEvidence.Contains(item));
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "ContractDeleted",
+                "Contract",
+                contractId,
+                $"Deleted contract {existing.SupplierReference} for {existing.CustomerName}.",
+                null,
+                actor);
+
+            var unreferencedEvidence = privateEvidence
+                .Where(item => !database.Evidence.Any(remaining => string.Equals(
+                    remaining.StoredRelativePath,
+                    item.StoredRelativePath,
+                    StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            return new ContractDeletionResult(
+                new ReturnActionResult(true, "The contract and its related objects have been deleted.", [], contractId),
+                unreferencedEvidence);
+        }, cancellationToken);
+
+        if (!deletion.Result.Succeeded)
+        {
+            return deletion.Result;
+        }
+
+        var evidenceCleanupSucceeded = true;
+        foreach (var evidence in deletion.UnreferencedEvidence)
+        {
+            try
+            {
+                await evidenceArchive.DeleteAsync(evidence, cancellationToken);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                evidenceCleanupSucceeded = false;
+            }
+        }
+
+        return evidenceCleanupSucceeded
+            ? deletion.Result
+            : deletion.Result with { Message = "The contract was deleted, but one or more supporting files could not be removed from the archive." };
+    }
+
     public Task<ReturnActionResult> AddChargeScheduleItemAsync(
         ChargeScheduleEntry entry,
         string? actor = null,
@@ -1315,6 +1470,7 @@ public sealed class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
+
             if (entry.ContractServicePartId is Guid partId && !database.ContractServiceParts.Any(part => part.Id == partId && part.ContractId == entry.ContractId))
             {
                 return new ReturnActionResult(false, "The selected contract part no longer exists.", []);
@@ -2314,6 +2470,7 @@ public sealed class ReportingWorkspace(
                 contract.CustomerName,
                 contract.CustomerUrn,
                 contract.ReportMonth,
+                contract.StartDate,
                 contract.EndDate,
                 contract.LotNumber,
                 contract.ServiceGroup,
@@ -2409,6 +2566,32 @@ public sealed class ReportingWorkspace(
             .SingleOrDefault(item => item.Framework == framework.Code)
             ?.StartDate
         ?? framework.DefaultStartDate;
+
+    private static DateOnly? FrameworkEndDate(RemiDatabase database, FrameworkDefinition framework) =>
+        database.FrameworkConfigurations
+            .SingleOrDefault(item => item.Framework == framework.Code)
+            ?.EndDate
+        ?? framework.DefaultEndDate;
+
+    private static string? ValidateContractFrameworkWindow(RemiDatabase database, ContractEntry entry)
+    {
+        if (entry.StartDate is not { } contractStartDate)
+        {
+            return null;
+        }
+
+        var framework = Frameworks.Get(entry.Framework);
+        var frameworkStartDate = FrameworkStartDate(database, framework);
+        var frameworkEndDate = FrameworkEndDate(database, framework);
+        if (frameworkStartDate is null || frameworkEndDate is null)
+        {
+            return $"{framework.DisplayName} does not have a complete operational date range and cannot accept a contract record.";
+        }
+
+        return contractStartDate < frameworkStartDate || contractStartDate > frameworkEndDate
+            ? $"The contract start date must be between {frameworkStartDate:dd MMM yyyy} and {frameworkEndDate:dd MMM yyyy}, while {framework.DisplayName} is in operation. Existing contracts remain reportable after the framework ends."
+            : null;
+    }
 
     private static ReportLifecycleStatus ReportLifecycleFor(ReturnStatus? status) => status switch
     {
@@ -2924,6 +3107,10 @@ public sealed class ReportingWorkspace(
         IReadOnlyList<InvoiceRecord> Invoices);
 
     private sealed record InvoiceDeletionResult(
+        ReturnActionResult Result,
+        IReadOnlyList<EvidenceRecord> UnreferencedEvidence);
+
+    private sealed record ContractDeletionResult(
         ReturnActionResult Result,
         IReadOnlyList<EvidenceRecord> UnreferencedEvidence);
 

@@ -292,11 +292,24 @@ else
             </div>
             @if (registerView == "month")
             {
-                <label class="return-register-filter floating-field floating-field--static"><select @bind="registerMonth">@foreach (var month in returnRegister?.ReportingMonths ?? []) { <option value="@month">@DisplayReportingMonth(month)</option> }</select><span class="floating-label">Reporting month</span></label>
+                <RemiPicklist Id="return-register-month-picklist-options"
+                              Label="Reporting month"
+                              Items="@(returnRegister?.ReportingMonths ?? [])"
+                              Value="@registerMonth"
+                              ValueChanged="SetRegisterMonth"
+                              ItemLabel="DisplayReportingMonth"
+                              CssClass="return-register-filter" />
             }
             else
             {
-                <label class="return-register-filter floating-field floating-field--static"><select @bind="registerFramework">@foreach (var definition in RegisterFrameworks) { <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option> }</select><span class="floating-label">Framework</span></label>
+                <RemiPicklist Id="return-register-framework-picklist-options"
+                              Label="Framework"
+                              Items="@RegisterFrameworkOptions"
+                              Value="@registerFramework.ToString()"
+                              ValueChanged="SetRegisterFramework"
+                              ItemLabel="RegisterFrameworkLabel"
+                              ItemGroup="RegisterFrameworkGroup"
+                              CssClass="return-register-filter" />
             }
         </div>
         @if (returnRegister is null)
@@ -676,7 +689,25 @@ else
     private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => (returnRegister?.Entries ?? [])
         .Where(item => registerView == "month" ? item.ReportingMonth == registerMonth : item.Framework.Code == registerFramework)
         .OrderBy(item => registerView == "month" ? item.Framework.DisplayName : item.ReportingMonth, StringComparer.OrdinalIgnoreCase);
-    private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? []).Select(item => item.Framework).DistinctBy(item => item.Code).OrderBy(item => item.DisplayName, StringComparer.Ordinal).ToList();
+    private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? [])
+        .Select(item => item.Framework)
+        .DistinctBy(item => item.Code)
+        .OrderBy(item => item.IsHistorical)
+        .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    private IReadOnlyList<string> RegisterFrameworkOptions => RegisterFrameworks.Select(item => item.Code.ToString()).ToList();
+    private void SetRegisterMonth(string value) => registerMonth = value;
+    private void SetRegisterFramework(string value)
+    {
+        if (Enum.TryParse<FrameworkCode>(value, out var selectedFramework)) registerFramework = selectedFramework;
+    }
+    private string RegisterFrameworkLabel(string value)
+    {
+        var definition = RegisterFrameworks.First(item => item.Code == Enum.Parse<FrameworkCode>(value));
+        return $"{definition.DisplayName} ({definition.AgreementNumber})";
+    }
+    private string? RegisterFrameworkGroup(string value) =>
+        RegisterFrameworks.First(item => item.Code == Enum.Parse<FrameworkCode>(value)).IsHistorical ? "Historical" : "Live";
     private void EnsureRegisterFrameworkSelection() { if (RegisterFrameworks.All(item => item.Code != registerFramework)) registerFramework = RegisterFrameworks.FirstOrDefault()?.Code ?? registerFramework; }
     private string WorkspaceRoute(MonthlyReturnRegisterEntry item) => $"/reports/{(int)item.Framework.Code}/{item.ReportingMonth}?period={item.ReportingMonth}";
     private int RecommendedWorkflowStage => IsSubmitted ? 4 : IsCorrectionRequired ? 2 : IsNilReturnDraft || HasEvidence ? 3 : 1;
@@ -684,7 +715,7 @@ else
     private string WorkflowTabClass(int stage) => activeWorkflowStage == stage
         ? "return-workflow-tab is-current"
         : IsWorkflowStageComplete(stage) ? "return-workflow-tab is-complete" : "return-workflow-tab";
-    private string? WorkflowStageMark(int stage) => activeWorkflowStage != stage && IsWorkflowStageComplete(stage) ? "✓" : null;
+    private string? WorkflowStageMark(int stage) => IsWorkflowStageComplete(stage) ? "✓" : null;
     private void SelectWorkflowStage(int stage) => activeWorkflowStage = Math.Clamp(stage, 1, 4);
     private static string LifecycleLabel(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "Submitted", ReportLifecycleStatus.CorrectionRequired => "Correction required", _ => "Draft" };
     private static string LifecycleClass(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "readiness-status complete", ReportLifecycleStatus.CorrectionRequired => "readiness-status warning", _ => "readiness-status neutral" };

@@ -34,11 +34,12 @@ public sealed record FrameworkReadiness(
     int ReviewFindingCount);
 
 /// <summary>
-/// The reporting start date configured for a framework Remi currently supports.
+/// The operational dates configured for a framework Remi currently supports.
 /// </summary>
 public sealed record FrameworkConfigurationSummary(
     FrameworkDefinition Framework,
-    DateOnly? StartDate);
+    DateOnly? StartDate,
+    DateOnly? EndDate);
 
 public sealed record FrameworkConfigurationUpdateResult(
     bool Succeeded,
@@ -98,6 +99,7 @@ public sealed record ContractProgress(
     string CustomerName,
     string? CustomerUrn,
     string ReportMonth,
+    DateOnly? StartDate,
     DateOnly? EndDate,
     string? LotNumber,
     string? ServiceGroup,
@@ -370,6 +372,16 @@ public sealed record InvoiceDetailsModel(
     ContractChangeRecord? ContractChange,
     IReadOnlyList<EvidenceLink> Evidence,
     IReadOnlyList<ValidationFinding> Findings);
+
+/// <summary>
+/// An object that will be removed as part of deleting a contract or invoice.
+/// </summary>
+public sealed record DeletionImpactItem(string ObjectType, string Description);
+
+/// <summary>
+/// The related objects included in a destructive register operation.
+/// </summary>
+public sealed record DeletionImpact(IReadOnlyList<DeletionImpactItem> Objects);
 
 /// <summary>
 /// A concise invoice row for the reporting register.

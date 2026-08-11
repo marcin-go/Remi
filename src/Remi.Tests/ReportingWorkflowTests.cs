@@ -482,7 +482,7 @@ public sealed class ReportingWorkflowTests
     }
 
     [Fact]
-    public async Task Framework_start_dates_use_official_defaults_and_can_be_configured_locally()
+    public async Task Framework_dates_use_official_defaults_and_can_be_configured_locally()
     {
         var database = new RemiDatabase
         {
@@ -493,18 +493,38 @@ public sealed class ReportingWorkflowTests
         var defaults = await workspace.GetFrameworkConfigurationsAsync();
 
         Assert.Equal(new DateOnly(2022, 11, 9), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud13).StartDate);
+        Assert.Equal(new DateOnly(2024, 11, 8), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud13).EndDate);
         Assert.Equal(new DateOnly(2024, 10, 29), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud14).StartDate);
+        Assert.Equal(new DateOnly(2026, 10, 28), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud14).EndDate);
         Assert.Equal(new DateOnly(2023, 3, 7), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.VerticalApplicationSolutions).StartDate);
+        Assert.Equal(new DateOnly(2027, 3, 6), Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.VerticalApplicationSolutions).EndDate);
         Assert.Null(Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud15).StartDate);
+        Assert.Null(Assert.Single(defaults, item => item.Framework.Code == FrameworkCode.GCloud15).EndDate);
 
-        var saved = await workspace.UpdateFrameworkStartDateAsync(FrameworkCode.GCloud15, new DateOnly(2026, 7, 15));
+        var saved = await workspace.UpdateFrameworkDatesAsync(FrameworkCode.GCloud15, new DateOnly(2026, 7, 15), new DateOnly(2028, 7, 14));
         var configurations = await workspace.GetFrameworkConfigurationsAsync();
         var register = await workspace.GetMonthlyReturnRegisterAsync();
 
         Assert.True(saved.Succeeded);
         Assert.Equal(new DateOnly(2026, 7, 15), Assert.Single(configurations, item => item.Framework.Code == FrameworkCode.GCloud15).StartDate);
+        Assert.Equal(new DateOnly(2028, 7, 14), Assert.Single(configurations, item => item.Framework.Code == FrameworkCode.GCloud15).EndDate);
         Assert.Contains(register.Entries, item => item.Framework.Code == FrameworkCode.GCloud15 && item.ReportingMonth == "2026-07");
-        Assert.Contains(database.AuditEvents, item => item.Action == "FrameworkStartDateUpdated");
+        Assert.Contains(database.AuditEvents, item => item.Action == "FrameworkDatesUpdated");
+    }
+
+    [Fact]
+    public async Task Contract_start_must_fall_within_framework_dates_but_reporting_continues_after_framework_end()
+    {
+        var database = new RemiDatabase();
+        var workspace = Workspace(database, new FixedTimeProvider(new DateTimeOffset(2026, 11, 5, 0, 0, 0, TimeSpan.Zero)));
+        var outsideWindow = await workspace.CreateContractAsync(GCloudContractEntry("AFTER-END", new DateOnly(2026, 10, 29), "2026-11"));
+        var valid = await workspace.CreateContractAsync(GCloudContractEntry("SIGNED-IN-WINDOW", new DateOnly(2026, 10, 28), "2026-11"));
+        var register = await workspace.GetMonthlyReturnRegisterAsync();
+
+        Assert.False(outsideWindow.Succeeded);
+        Assert.Contains("between 29 Oct 2024 and 28 Oct 2026", outsideWindow.Message);
+        Assert.True(valid.Succeeded, valid.Message);
+        Assert.Contains(register.Entries, item => item.Framework.Code == FrameworkCode.GCloud14 && item.ReportingMonth == "2026-11");
     }
 
     [Fact]
@@ -638,6 +658,66 @@ public sealed class ReportingWorkflowTests
         Assert.Equal(sharedEvidence, Assert.Single(database.Evidence));
         Assert.Equal(privateEvidence.Id, Assert.Single(archive.DeletedEvidence).Id);
         Assert.Contains(database.AuditEvents, item => item.Action == "InvoiceDeleted" && item.EntityId == invoiceId);
+    }
+
+    [Fact]
+    public async Task Contract_deletion_removes_explicit_children_and_private_evidence_but_retains_invoices_and_shared_evidence()
+    {
+        var contractId = Guid.NewGuid();
+        var invoiceId = Guid.NewGuid();
+        var changeId = Guid.NewGuid();
+        var partId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var contractEvidence = new EvidenceRecord(
+            Guid.NewGuid(), EvidenceKind.SupportingDocument, FrameworkCode.GCloud14, "2026-07", "contract.pdf",
+            $"clipboard/contract/{contractId:D}/contract.pdf", "contract-private.pdf", "application/pdf", 100,
+            "contract-hash", "RM-001", now);
+        var changeEvidence = contractEvidence with
+        {
+            Id = Guid.NewGuid(), FileName = "extension.pdf",
+            OriginalRelativePath = $"clipboard/contract-change/{changeId:D}/extension.pdf",
+            StoredRelativePath = "change-private.pdf", Sha256 = "change-hash",
+        };
+        var sharedEvidence = contractEvidence with
+        {
+            Id = Guid.NewGuid(), FileName = "return.xlsx", OriginalRelativePath = "imports/2026-07/return.xlsx",
+            StoredRelativePath = "shared-return.xlsx", Sha256 = "shared-hash",
+        };
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            Invoices = [Invoice(invoiceId, FrameworkCode.GCloud14, "RM-001", "INV-001", 250, "2026-07")],
+            ContractChanges = [new ContractChangeRecord(changeId, contractId, ContractChangeKind.Extension, new DateOnly(2026, 7, 14), null, null, 500, true, true, null, now)],
+            InvoiceContractChangeLinks = [new InvoiceContractChangeLink(invoiceId, changeId)],
+            InvoicePlanItems = [new InvoicePlanItem(Guid.NewGuid(), contractId, "Annual invoice", new DateOnly(2026, 9, 1), 500)],
+            ContractServiceParts = [new ContractServicePart(partId, contractId, "Implementation", null, 0, now)],
+            ChargeScheduleItems = [new ChargeScheduleItem(Guid.NewGuid(), contractId, partId, 1, "Implementation", new DateOnly(2026, 9, 1), 500, false, now)],
+            ContractReportingOccurrences = [new ContractReportingOccurrence(Guid.NewGuid(), contractId, Guid.NewGuid(), "2026-07", now)],
+            Evidence = [contractEvidence, changeEvidence, sharedEvidence],
+        };
+        var archive = new RecordingEvidenceArchive();
+        var workspace = Workspace(database, evidenceArchive: archive);
+
+        var impact = await workspace.GetContractDeletionImpactAsync(contractId);
+        var result = await workspace.DeleteContractAsync(contractId);
+
+        Assert.NotNull(impact);
+        Assert.Contains(impact.Objects, item => item.ObjectType == "Contract change");
+        Assert.Contains(impact.Objects, item => item.ObjectType == "Payment schedule position");
+        Assert.Contains(impact.Objects, item => item.ObjectType == "Operational part");
+        Assert.Equal(2, impact.Objects.Count(item => item.ObjectType == "Supporting document"));
+        Assert.True(result.Succeeded);
+        Assert.Empty(database.Contracts);
+        Assert.Equal(invoiceId, Assert.Single(database.Invoices).Id);
+        Assert.Empty(database.ContractChanges);
+        Assert.Empty(database.InvoiceContractChangeLinks);
+        Assert.Empty(database.InvoicePlanItems);
+        Assert.Empty(database.ContractServiceParts);
+        Assert.Empty(database.ChargeScheduleItems);
+        Assert.Empty(database.ContractReportingOccurrences);
+        Assert.Equal(sharedEvidence, Assert.Single(database.Evidence));
+        Assert.Equal([contractEvidence.Id, changeEvidence.Id], archive.DeletedEvidence.Select(item => item.Id));
+        Assert.Contains(database.AuditEvents, item => item.Action == "ContractDeleted" && item.EntityId == contractId);
     }
 
     [Fact]
@@ -802,6 +882,24 @@ public sealed class ReportingWorkflowTests
 
     private static ContractRecord Contract(Guid id, FrameworkCode framework, string reference, string reportMonth) =>
         new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), framework == FrameworkCode.VerticalApplicationSolutions ? "3" : "2", framework == FrameworkCode.VerticalApplicationSolutions ? null : "Information and Communication Technology (ICT)", null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "Direct Award" : null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", 1000, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);
+
+    private static ContractEntry GCloudContractEntry(string reference, DateOnly startDate, string reportMonth) =>
+        new(
+            FrameworkCode.GCloud14,
+            reference,
+            "Example customer",
+            "URN-001",
+            startDate,
+            startDate.AddYears(3),
+            "2",
+            "Information and Communication Technology (ICT)",
+            null,
+            null,
+            null,
+            "123456",
+            1000,
+            reportMonth,
+            "test");
 
     private static InvoiceRecord Invoice(Guid id, FrameworkCode framework, string reference, string number, decimal value, string reportMonth) =>
         new(id, framework, reference, "Example customer", "URN-001", new DateOnly(2026, 7, 1), number, framework == FrameworkCode.VerticalApplicationSolutions ? "3" : "2", framework == FrameworkCode.VerticalApplicationSolutions ? "Geographic Information System (GIS)" : "Information and Communication Technology (ICT)", framework == FrameworkCode.VerticalApplicationSolutions ? "Software" : null, framework == FrameworkCode.VerticalApplicationSolutions ? "StatMap GIS system" : null, null, framework == FrameworkCode.VerticalApplicationSolutions ? null : "123456", "Per Unit", 1, value, value, InvoiceReportingDefaults.OriginalVendor, InvoiceReportingDefaults.SubcontractorName, reportMonth, "test.xlsx", DateTimeOffset.UtcNow);

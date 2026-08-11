@@ -55,6 +55,7 @@
                                    Items="@filteredItems"
                                    ItemSelected="@SelectAsync"
                                    Selected="@IsSelected"
+                                   Group="@ItemGroup"
                                    ScrollSelectedIntoView="@(!filterActive)"
                                    EmptyMessage="@EmptyMessage"
                                    CssClass="remi-picklist-options">
@@ -70,6 +71,7 @@
     [Parameter] public string Value { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public Func<string, string> ItemLabel { get; set; } = static item => item;
+    [Parameter] public Func<string, string?>? ItemGroup { get; set; }
     [Parameter] public string Placeholder { get; set; } = "Choose an option";
     [Parameter] public string EmptyMessage { get; set; } = "No matching options.";
     [Parameter] public string? DescribedBy { get; set; }
@@ -139,9 +141,14 @@
         var search = value.Trim();
         if (string.IsNullOrWhiteSpace(search)) return Items;
 
-        return Items
-            .Where(item => item.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || ItemLabel(item).Contains(search, StringComparison.OrdinalIgnoreCase))
+        var matches = Items.Where(item => item.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || ItemLabel(item).Contains(search, StringComparison.OrdinalIgnoreCase));
+        if (ItemGroup is not null)
+        {
+            return matches.ToList();
+        }
+
+        return matches
             .OrderBy(item => ItemLabel(item).StartsWith(search, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ThenBy(ItemLabel, StringComparer.OrdinalIgnoreCase)
             .ToList();

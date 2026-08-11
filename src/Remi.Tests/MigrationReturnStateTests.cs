@@ -37,6 +37,36 @@ public sealed class MigrationReturnStateTests
         }
     }
 
+    [Fact]
+    public async Task Suffixed_contract_document_names_keep_their_contract_reference()
+    {
+        var sourceDirectory = TemporaryDirectory();
+        try
+        {
+            var directory = Path.Combine(sourceDirectory, "RM6259 - Vertical Application Solutions", "202410");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(Path.Combine(directory, "MVA_202410_PMA.pdf"), "contract");
+            await File.WriteAllTextAsync(Path.Combine(directory, "MVA_202410_PMA_contract_dates.png"), "dates");
+            await File.WriteAllTextAsync(Path.Combine(directory, "MVA_202410_PMA_pricing.png"), "pricing");
+
+            var database = new RemiDatabase();
+            var runner = new MigrationRunner(new EmptyWorkbookImporter(), null!, new FixedTimeProvider());
+
+            await runner.ImportAsync(sourceDirectory, new InMemoryStore(database), new DiscardEvidenceArchive());
+
+            Assert.Equal(3, database.Evidence.Count);
+            Assert.All(database.Evidence, item =>
+            {
+                Assert.Equal(EvidenceKind.ContractDocument, item.Kind);
+                Assert.Equal("MVA_202410_PMA", item.ContractReference);
+            });
+        }
+        finally
+        {
+            Directory.Delete(sourceDirectory, recursive: true);
+        }
+    }
+
     private static MonthlyReturn ReturnFor(RemiDatabase database, FrameworkCode framework, string reportingMonth) =>
         Assert.Single(database.MonthlyReturns.Where(item => item.Framework == framework && item.ReportMonth == reportingMonth));
 

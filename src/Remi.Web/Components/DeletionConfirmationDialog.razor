@@ -1,0 +1,72 @@
+@using Remi.Application
+
+<div class="deletion-dialog-backdrop">
+    <section class="deletion-dialog" role="dialog" aria-modal="true" aria-labelledby="deletion-dialog-title" aria-describedby="deletion-dialog-description">
+        <header>
+            <div>
+                <span>Permanent deletion</span>
+                <h2 id="deletion-dialog-title">@Title</h2>
+            </div>
+            <button type="button" class="deletion-dialog-close" aria-label="Close deletion confirmation" disabled="@Working" @onclick="OnCancel">&times;</button>
+        </header>
+        <div class="deletion-dialog-body">
+            <p id="deletion-dialog-description">@Description</p>
+            <section class="deletion-impact" aria-labelledby="deletion-impact-title">
+                <h3 id="deletion-impact-title">Objects deleted alongside this record</h3>
+                @if (Impact.Objects.Count == 0)
+                {
+                    <p class="deletion-impact-empty">No other objects will be deleted.</p>
+                }
+                else
+                {
+                    <ul>
+                        @foreach (var item in Impact.Objects)
+                        {
+                            <li><strong>@item.ObjectType</strong><span>@item.Description</span></li>
+                        }
+                    </ul>
+                }
+            </section>
+            @if (!string.IsNullOrWhiteSpace(RetainedMessage))
+            {
+                <p class="deletion-retained-note">@RetainedMessage</p>
+            }
+            <label class="deletion-confirmation-field">
+                <span>To proceed type: <strong>DELETE</strong></span>
+                <input aria-label="Type DELETE to confirm" autocomplete="off" spellcheck="false" value="@confirmationText" @oninput="UpdateConfirmation" />
+            </label>
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <p class="notice error" role="alert">@ErrorMessage</p>
+            }
+        </div>
+        <footer>
+            <button type="button" class="button secondary" disabled="@Working" @onclick="OnCancel">Cancel</button>
+            <button type="button" class="button danger deletion-confirm" disabled="@(confirmationText != "DELETE" || Working)" @onclick="ConfirmAsync">@(Working ? "Deleting…" : ConfirmLabel)</button>
+        </footer>
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public DeletionImpact Impact { get; set; } = new([]);
+    [Parameter, EditorRequired] public string ConfirmLabel { get; set; } = string.Empty;
+    [Parameter] public string? RetainedMessage { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public bool Working { get; set; }
+    [Parameter, EditorRequired] public EventCallback OnCancel { get; set; }
+    [Parameter, EditorRequired] public EventCallback OnConfirm { get; set; }
+
+    private string confirmationText = string.Empty;
+
+    private void UpdateConfirmation(ChangeEventArgs args) => confirmationText = args.Value?.ToString() ?? string.Empty;
+
+    private async Task ConfirmAsync()
+    {
+        if (confirmationText == "DELETE" && !Working)
+        {
+            await OnConfirm.InvokeAsync();
+        }
+    }
+}

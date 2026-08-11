@@ -11,7 +11,7 @@ namespace Remi.Infrastructure;
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 5;
+    internal const int CurrentSchemaVersion = 8;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -287,7 +287,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
             CREATE TABLE IF NOT EXISTS framework_configurations (
                 framework INTEGER PRIMARY KEY,
-                start_date TEXT NOT NULL
+                start_date TEXT NOT NULL,
+                end_date TEXT NULL
             );
 
             CREATE TABLE IF NOT EXISTS digital_marketplace_services (
@@ -664,14 +665,15 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<FrameworkConfiguration>> LoadFrameworkConfigurationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT framework, start_date FROM framework_configurations ORDER BY framework;");
+        await using var command = CreateCommand(connection, "SELECT framework, start_date, end_date FROM framework_configurations ORDER BY framework;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var configurations = new List<FrameworkConfiguration>();
         while (await reader.ReadAsync(cancellationToken))
         {
             configurations.Add(new FrameworkConfiguration(
                 (FrameworkCode)reader.GetInt32(0),
-                DateOnly.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture)));
+                DateOnly.ParseExact(reader.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                reader.IsDBNull(2) ? null : DateOnly.ParseExact(reader.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture)));
         }
 
         return configurations;
@@ -975,9 +977,10 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertFrameworkConfigurationAsync(SqliteConnection connection, SqliteTransaction transaction, FrameworkConfiguration item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO framework_configurations (framework, start_date) VALUES ($framework, $startDate);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO framework_configurations (framework, start_date, end_date) VALUES ($framework, $startDate, $endDate);");
         AddParameter(command, "$framework", (int)item.Framework);
         AddParameter(command, "$startDate", Date(item.StartDate));
+        AddParameter(command, "$endDate", Date(item.EndDate));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -1363,6 +1366,69 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 cancellationToken);
             transaction.Commit();
             applied.Add(6);
+        }
+
+        if (!applied.Contains(7))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 7, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            if (!await ColumnExistsAsync(connection, transaction, "framework_configurations", "end_date", cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, "ALTER TABLE framework_configurations ADD COLUMN end_date TEXT NULL;", cancellationToken);
+            }
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                7,
+                "Framework operational end dates",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(7);
+        }
+
+        if (!applied.Contains(8))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 8, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, $"""
+                UPDATE evidence
+                SET contract_reference = (
+                        SELECT contracts.supplier_reference
+                        FROM contracts
+                        WHERE contracts.framework = evidence.framework
+                          AND lower(substr(evidence.file_name, 1, length(contracts.supplier_reference) + 1)) =
+                              lower(contracts.supplier_reference || '_')
+                        ORDER BY length(contracts.supplier_reference) DESC
+                        LIMIT 1
+                    ),
+                    kind = {(int)EvidenceKind.ContractDocument}
+                WHERE evidence.kind = {(int)EvidenceKind.SupportingDocument}
+                  AND evidence.contract_reference IS NULL
+                  AND lower(evidence.original_relative_path) NOT LIKE 'clipboard/%'
+                  AND EXISTS (
+                        SELECT 1
+                        FROM contracts
+                        WHERE contracts.framework = evidence.framework
+                          AND lower(substr(evidence.file_name, 1, length(contracts.supplier_reference) + 1)) =
+                              lower(contracts.supplier_reference || '_')
+                    );
+                """, cancellationToken);
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                8,
+                "Associate suffixed migrated contract documents",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(8);
         }
     }
 

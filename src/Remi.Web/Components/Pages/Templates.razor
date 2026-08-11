@@ -12,15 +12,14 @@
     </div>
     <div class="template-registration-fields">
         <div class="form-grid">
-            <label class="floating-field floating-field--static">
-                <select @bind="templateFramework">
-                    @foreach (var definition in Frameworks.All)
-                    {
-                        <option value="@definition.Code">@definition.DisplayName (@definition.AgreementNumber)</option>
-                    }
-                </select>
-                <span class="floating-label">Framework</span>
-            </label>
+            <RemiPicklist Id="template-framework-picklist-options"
+                          Label="Framework"
+                          Items="@TemplateFrameworkOptions"
+                          Value="@templateFramework.ToString()"
+                          ValueChanged="SetTemplateFramework"
+                          ItemLabel="TemplateFrameworkLabel"
+                          ItemGroup="TemplateFrameworkGroup"
+                          Required="true" />
         </div>
     </div>
     <label class="template-file-dropzone @(selectedTemplateFile is null ? null : "has-selection")">
@@ -104,16 +103,12 @@
     else
     {
         <div class="audit-controls">
-            <label class="floating-field floating-field--static">
-                <select @bind="auditActionFilter">
-                    <option value="">All activity</option>
-                    @foreach (var action in auditEvents.Select(item => item.Action).Distinct().OrderBy(item => item))
-                    {
-                        <option value="@action">@FriendlyAuditAction(action)</option>
-                    }
-                </select>
-                <span class="floating-label">Event type</span>
-            </label>
+            <RemiPicklist Id="audit-action-picklist-options"
+                          Label="Event type"
+                          Items="@AuditActionOptions"
+                          Value="@auditActionFilter"
+                          ValueChanged="SetAuditActionFilter"
+                          ItemLabel="AuditActionLabel" />
             <span class="muted">Showing @VisibleAuditEvents.Count of @auditEvents.Count events</span>
         </div>
         <ol class="audit-list">
@@ -154,11 +149,42 @@
 
     private bool CanRegisterTemplate => selectedTemplateFile is not null;
 
+    private static IReadOnlyList<string> TemplateFrameworkOptions => Frameworks.All
+        .OrderBy(definition => definition.IsHistorical)
+        .ThenBy(definition => definition.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .Select(definition => definition.Code.ToString())
+        .ToList();
+
+    private IReadOnlyList<string> AuditActionOptions =>
+        [string.Empty, .. auditEvents.Select(item => item.Action).Distinct().OrderBy(FriendlyAuditAction, StringComparer.OrdinalIgnoreCase)];
+
     private IReadOnlyList<AuditEventSummary> VisibleAuditEvents => auditEvents
         .Where(item => string.IsNullOrWhiteSpace(auditActionFilter) || item.Action == auditActionFilter)
         .ToList();
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private void SetTemplateFramework(string value)
+    {
+        if (Enum.TryParse<FrameworkCode>(value, out var framework))
+        {
+            templateFramework = framework;
+        }
+    }
+
+    private void SetAuditActionFilter(string value) => auditActionFilter = value;
+
+    private static string TemplateFrameworkLabel(string value)
+    {
+        var definition = Frameworks.Get(Enum.Parse<FrameworkCode>(value));
+        return $"{definition.DisplayName} ({definition.AgreementNumber})";
+    }
+
+    private static string? TemplateFrameworkGroup(string value) =>
+        Frameworks.Get(Enum.Parse<FrameworkCode>(value)).IsHistorical ? "Historical" : "Live";
+
+    private static string AuditActionLabel(string value) =>
+        string.IsNullOrEmpty(value) ? "All activity" : FriendlyAuditAction(value);
 
     private void SelectTemplateFile(InputFileChangeEventArgs args)
     {

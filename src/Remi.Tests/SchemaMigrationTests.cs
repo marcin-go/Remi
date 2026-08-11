@@ -66,6 +66,54 @@ public sealed class SchemaMigrationTests
     }
 
     [Fact]
+    public async Task Evidence_association_upgrade_repairs_suffixed_migrated_contract_documents()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "remi-data.db");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var initialStore = new SqliteRemiStore(databasePath);
+            await initialStore.ReadAsync(database => database.Contracts.Count);
+
+            await using (var connection = await OpenAsync(databasePath))
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = """
+                    INSERT INTO contracts VALUES (
+                        '11111111-1111-1111-1111-111111111111', 2, 'MVA_202410_PMA', 'Mole Valley District Council',
+                        NULL, '2024-10-01', '2027-09-30', NULL, NULL, NULL, NULL, NULL, NULL,
+                        '120000.00', '2024-10', 'RM6259 - 202410.xlsx', '2024-10-01T09:00:00.0000000+00:00');
+                    INSERT INTO evidence VALUES (
+                        '22222222-2222-2222-2222-222222222222', 4, 2, '2024-10',
+                        'MVA_202410_PMA_contract_dates.png',
+                        'RM6259 - Vertical Application Solutions\\202410\\MVA_202410_PMA_contract_dates.png',
+                        '48b8e7b11542-MVA_202410_PMA_contract_dates.png', 'image/png', 134576,
+                        '48b8e7b115420000000000000000000000000000000000000000000000000000', NULL,
+                        '2026-08-06T08:47:59.0000000+00:00');
+                    DELETE FROM remi_schema_migrations WHERE version = 8;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var upgradedStore = new SqliteRemiStore(databasePath);
+            var repaired = await upgradedStore.ReadAsync(database =>
+                Assert.Single(database.Evidence, item => item.Id == Guid.Parse("22222222-2222-2222-2222-222222222222")));
+
+            Assert.Equal(EvidenceKind.ContractDocument, repaired.Kind);
+            Assert.Equal("MVA_202410_PMA", repaired.ContractReference);
+            Assert.Equal("48b8e7b11542-MVA_202410_PMA_contract_dates.png", repaired.StoredRelativePath);
+            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v8-*.db"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Current_operational_schema_is_upgraded_additively_without_losing_register_data()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
@@ -115,10 +163,11 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3, 4, 5, 6], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
             Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
             Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));
+            Assert.True(await ColumnExistsAsync(verification, "framework_configurations", "end_date"));
 
             var automaticBackup = Assert.Single(Directory.GetFiles(
                 Path.Combine(root, "migration-backups"),
@@ -159,6 +208,22 @@ public sealed class SchemaMigrationTests
             await using var versionSixIntegrity = versionSixBackup.CreateCommand();
             versionSixIntegrity.CommandText = "PRAGMA integrity_check;";
             Assert.Equal("ok", await versionSixIntegrity.ExecuteScalarAsync());
+
+            var frameworkDatesBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v7-*.db"));
+            await using var versionSevenBackup = await OpenAsync(frameworkDatesBackup, readOnly: true);
+            await using var versionSevenIntegrity = versionSevenBackup.CreateCommand();
+            versionSevenIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionSevenIntegrity.ExecuteScalarAsync());
+
+            var evidenceAssociationBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v8-*.db"));
+            await using var versionEightBackup = await OpenAsync(evidenceAssociationBackup, readOnly: true);
+            await using var versionEightIntegrity = versionEightBackup.CreateCommand();
+            versionEightIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionEightIntegrity.ExecuteScalarAsync());
         }
         finally
         {

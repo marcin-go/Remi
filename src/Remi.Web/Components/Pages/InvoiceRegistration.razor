@@ -23,10 +23,7 @@
         <section class="invoice-intake-surface">
             <section class="invoice-contract-section">
                 <h2>Contract</h2>
-                <label class="floating-field floating-field--static">
-                    <select disabled aria-label="Contract"><option>No contracts available</option></select>
-                    <span class="floating-label">Contract</span>
-                </label>
+                <RemiPicklist Id="empty-contract-picklist-options" Label="Contract" Items="@(Array.Empty<string>())" Value="" Placeholder="No contracts available" Disabled="true" />
                 <p class="invoice-empty-contracts">No registered contracts are available yet.</p>
             </section>
         </section>
@@ -84,16 +81,12 @@
                 @if (SelectedContract.AgreedChanges.Count != 0)
                 {
                     <section class="invoice-details-section invoice-contract-change-section">
-                        <label class="floating-field floating-field--static">
-                            <select @bind="contractChangeId">
-                                <option value="">Original contract</option>
-                                @foreach (var change in SelectedContract.AgreedChanges)
-                                {
-                                    <option value="@change.Id">@ChangeDescription(change)</option>
-                                }
-                            </select>
-                            <span class="floating-label">Contract segment</span>
-                        </label>
+                        <RemiPicklist Id="invoice-contract-change-picklist-options"
+                                      Label="Contract segment"
+                                      Items="@ContractChangeOptions"
+                                      Value="@(contractChangeId?.ToString("D") ?? string.Empty)"
+                                      ValueChanged="SetContractChange"
+                                      ItemLabel="ContractChangeLabel" />
                         <p class="invoice-field-help">Choose the agreed extension or variation when this invoice relates to it. The MI invoice remains a separate invoice record.</p>
                     </section>
                 }
@@ -103,15 +96,7 @@
                     <div class="invoice-details-grid">
                         <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" @bind:event="oninput" /><span class="floating-label">Invoice or credit note number</span></label>
                         <label class="floating-field floating-field--static"><input required type="date" @bind="invoiceDate" /><span class="floating-label">Invoice or credit note date</span></label>
-                        <label class="floating-field floating-field--static">
-                            <select required @bind="reportingMonth">
-                                @foreach (var month in ReportingMonthOptions)
-                                {
-                                    <option value="@month">@DisplayReportingMonth(month)</option>
-                                }
-                            </select>
-                            <span class="floating-label">Reporting month</span>
-                        </label>
+                        <RemiPicklist Id="invoice-reporting-month-picklist-options" Label="Reporting month" Items="@ReportingMonthOptions" Value="@reportingMonth" ValueChanged="@(value => reportingMonth = value)" ItemLabel="DisplayReportingMonth" Required="true" />
                         <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="totalCostExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
                     </div>
                     <p class="invoice-field-help">Use a negative total for a credit note.</p>
@@ -133,65 +118,20 @@
                         <div class="invoice-details-grid">
                             <label class="floating-field"><input required placeholder=" " @bind="customerName" @bind:event="oninput" /><span class="floating-label">Customer organisation name</span></label>
                             <label class="floating-field"><input required placeholder=" " @bind="customerUrn" @bind:event="oninput" /><span class="floating-label">Customer URN</span></label>
-                            <label class="floating-field floating-field--static">
-                                <select required aria-label="Lot number" @bind="lotNumber" @bind:after="OnLotChanged">
-                                    <option value="">Select a lot</option>
-                                    @foreach (var lot in form.Lots)
-                                    {
-                                        <option value="@lot">@lot</option>
-                                    }
-                                </select>
-                                <span class="floating-label">Lot number</span>
-                            </label>
+                            <RemiPicklist Id="invoice-lot-picklist-options" Label="Lot number" Items="@LotOptions" Value="@lotNumber" ValueChanged="SetLot" ItemLabel="LotLabel" Required="true" />
                             @if (form.IsVas)
                             {
-                                <label class="floating-field floating-field--static">
-                                    <select required aria-label="Product/service group level 1" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
-                                        <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a product/service group")</option>
-                                        @foreach (var group in ServiceGroupOptions)
-                                        {
-                                            <option value="@group">@group</option>
-                                        }
-                                    </select>
-                                    <span class="floating-label">Product/service group level 1</span>
-                                </label>
-                                <label class="floating-field floating-field--static">
-                                    <select required aria-label="Product/service group level 2" @bind="serviceGroupLevel2">
-                                        <option value="">Select a classification</option>
-                                        @foreach (var classification in form.ServiceGroupLevel2Options)
-                                        {
-                                            <option value="@classification">@classification</option>
-                                        }
-                                    </select>
-                                    <span class="floating-label">Product/service group level 2</span>
-                                </label>
+                                <RemiPicklist Id="invoice-product-group-picklist-options" Label="Product/service group level 1" Items="@ServiceGroupPicklistOptions" Value="@serviceGroup" ValueChanged="@(value => serviceGroup = value)" ItemLabel="ServiceGroupLabel" Required="true" Disabled="@(ServiceGroupOptions.Count == 0)" />
+                                <RemiPicklist Id="invoice-product-classification-picklist-options" Label="Product/service group level 2" Items="@ServiceGroupLevel2PicklistOptions" Value="@serviceGroupLevel2" ValueChanged="@(value => serviceGroupLevel2 = value)" ItemLabel="ClassificationLabel" Required="true" />
                                 <label class="floating-field"><input required placeholder=" " @bind="serviceDescription" @bind:event="oninput" /><span class="floating-label">Product/service description</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="originalVendor" @bind:event="oninput" /><span class="floating-label">Original vendor</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="subcontractorName" @bind:event="oninput" /><span class="floating-label">Subcontractor name</span></label>
                             }
                             else
                             {
-                                <label class="floating-field floating-field--static">
-                                    <select required aria-label="Service group" disabled="@(ServiceGroupOptions.Count == 0)" @bind="serviceGroup">
-                                        <option value="">@(ServiceGroupOptions.Count == 0 ? "Select a lot first" : "Select a service group")</option>
-                                        @foreach (var group in ServiceGroupOptions)
-                                        {
-                                            <option value="@group">@group</option>
-                                        }
-                                    </select>
-                                    <span class="floating-label">Service group</span>
-                                </label>
+                                <RemiPicklist Id="invoice-service-group-picklist-options" Label="Service group" Items="@ServiceGroupPicklistOptions" Value="@serviceGroup" ValueChanged="@(value => serviceGroup = value)" ItemLabel="ServiceGroupLabel" Required="true" Disabled="@(ServiceGroupOptions.Count == 0)" />
                                 <label class="floating-field"><input required placeholder=" " @bind="digitalMarketplaceServiceId" @bind:event="oninput" /><span class="floating-label">Digital Marketplace service ID</span></label>
-                                <label class="floating-field floating-field--static">
-                                    <select required aria-label="Unit of measure" @bind="unitOfMeasure">
-                                        <option value="">Select a unit of measure</option>
-                                        @foreach (var unit in form.UnitOfMeasureOptions)
-                                        {
-                                            <option value="@unit">@unit</option>
-                                        }
-                                    </select>
-                                    <span class="floating-label">Unit of measure</span>
-                                </label>
+                                <RemiPicklist Id="invoice-unit-picklist-options" Label="Unit of measure" Items="@UnitOfMeasurePicklistOptions" Value="@unitOfMeasure" ValueChanged="@(value => unitOfMeasure = value)" ItemLabel="UnitOfMeasureLabel" Required="true" />
                                 @if (SelectedContract.Framework == FrameworkCode.GCloud13)
                                 {
                                     <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="pricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
@@ -254,6 +194,11 @@
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
     private MiInvoiceIntakeForm? IntakeForm => SelectedContract is { } contract ? MiInvoiceIntakeForms.For(contract.Framework) : null;
     private IReadOnlyList<string> ServiceGroupOptions => IntakeForm?.ServiceGroupsFor(lotNumber) ?? [];
+    private IReadOnlyList<string> ContractChangeOptions => [string.Empty, .. (SelectedContract?.AgreedChanges.Select(change => change.Id.ToString("D")) ?? [])];
+    private IReadOnlyList<string> LotOptions => [string.Empty, .. (IntakeForm?.Lots ?? [])];
+    private IReadOnlyList<string> ServiceGroupPicklistOptions => [string.Empty, .. ServiceGroupOptions];
+    private IReadOnlyList<string> ServiceGroupLevel2PicklistOptions => [string.Empty, .. (IntakeForm?.ServiceGroupLevel2Options ?? [])];
+    private IReadOnlyList<string> UnitOfMeasurePicklistOptions => [string.Empty, .. (IntakeForm?.UnitOfMeasureOptions ?? [])];
     private decimal totalCostExVat { get => totalCostValue; set { totalCostValue = value; if (!pricePerUnitManuallySet) pricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value); } }
     private decimal? pricePerUnitExVat { get => pricePerUnitExVatValue; set { pricePerUnitManuallySet = true; pricePerUnitExVatValue = value; } }
     private bool HasRequiredMiFields => IntakeForm is { IsAvailable: true } form
@@ -414,6 +359,19 @@
     {
         serviceGroup = string.Empty;
     }
+
+    private void SetLot(string value)
+    {
+        lotNumber = value;
+        OnLotChanged();
+    }
+
+    private void SetContractChange(string value) => contractChangeId = Guid.TryParse(value, out var id) ? id : null;
+    private string ContractChangeLabel(string value) => Guid.TryParse(value, out var id) && SelectedContract?.AgreedChanges.SingleOrDefault(change => change.Id == id) is { } change ? ChangeDescription(change) : "Original contract";
+    private static string LotLabel(string value) => string.IsNullOrEmpty(value) ? "Select a lot" : value;
+    private string ServiceGroupLabel(string value) => string.IsNullOrEmpty(value) ? ServiceGroupOptions.Count == 0 ? "Select a lot first" : IntakeForm?.IsVas == true ? "Select a product/service group" : "Select a service group" : value;
+    private static string ClassificationLabel(string value) => string.IsNullOrEmpty(value) ? "Select a classification" : value;
+    private static string UnitOfMeasureLabel(string value) => string.IsNullOrEmpty(value) ? "Select a unit of measure" : value;
 
     private void ReconcileTemplateSelections()
     {

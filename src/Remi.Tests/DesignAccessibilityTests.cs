@@ -61,6 +61,9 @@ public sealed class DesignAccessibilityTests
         Assert.Contains(".remi-action--table { min-height: 24px; padding-inline: 3px; font-size: 12px; letter-spacing: 0.055em; }", css, StringComparison.Ordinal);
         Assert.Contains(".remi-action--section { min-height: 26px; padding-inline: 3px; font-size: 13px; }", css, StringComparison.Ordinal);
         Assert.Contains(".remi-action:hover:not(:disabled), .button:hover:not(:disabled) { color: #087f7d; background: rgb(11 145 143 / 7%); }", css, StringComparison.Ordinal);
+        Assert.Contains("--color-danger-hover: #9B3F36;", css, StringComparison.Ordinal);
+        Assert.Contains(".button.danger:hover:not(:disabled), .button.danger:focus-visible { color: #fff; background: var(--color-danger-hover); }", css, StringComparison.Ordinal);
+        Assert.Contains(".record-more-menu .record-more-delete:hover, .record-more-menu .record-more-delete:focus-visible { color: #fff; background: var(--color-danger-hover);", css, StringComparison.Ordinal);
         Assert.Contains(".table-action-cell { width: 70px; text-align: right !important; white-space: nowrap; }", css, StringComparison.Ordinal);
         Assert.Contains(".filter-actions { display: flex; align-items: center; align-self: end; height: 1.875rem; margin-left: 6px; }", css, StringComparison.Ordinal);
         Assert.Contains(".register-filters input, .register-filters select { height: 1.875rem; min-height: 1.875rem; padding: 0.25rem 0.55rem;", css, StringComparison.Ordinal);
@@ -96,6 +99,8 @@ public sealed class DesignAccessibilityTests
         var contracts = File.ReadAllText(Path.Combine(componentRoot, "Pages", "Contracts.razor"));
         var invoices = File.ReadAllText(Path.Combine(componentRoot, "Pages", "Invoices.razor"));
 
+        Assert.DoesNotContain("<select", razor, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<InputSelect", razor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("class=\"eyebrow\"", razor, StringComparison.Ordinal);
         Assert.DoesNotContain("→", razor, StringComparison.Ordinal);
         Assert.DoesNotContain("←", razor, StringComparison.Ordinal);
@@ -109,8 +114,9 @@ public sealed class DesignAccessibilityTests
         Assert.Contains("register-search floating-field floating-field--static", invoices, StringComparison.Ordinal);
         Assert.DoesNotContain("<select", contracts, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("<select", invoices, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(3, contracts.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, contracts.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
         Assert.Equal(3, invoices.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("quick-filters", contracts, StringComparison.Ordinal);
         Assert.DoesNotContain("<datalist", razor, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("<SearchablePicklistOptions", razor, StringComparison.Ordinal);
 
@@ -144,6 +150,13 @@ public sealed class DesignAccessibilityTests
         Assert.DoesNotContain("<select", contractRegistration, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(5, contractRegistration.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
 
+        var maintenance = File.ReadAllText(Path.Combine(componentRoot, "Pages", "Maintenance.razor"));
+        Assert.Contains("To restore backup type: <strong>RESTORE</strong>", maintenance, StringComparison.Ordinal);
+        Assert.Contains("data-remi-restore-submit>RESTORE</button>", maintenance, StringComparison.Ordinal);
+        Assert.DoesNotContain("REPLACE", maintenance, StringComparison.Ordinal);
+        var program = File.ReadAllText(FindFromRepository("src", "Remi.Web", "Program.cs"));
+        Assert.Contains("form[\"replacementPhrase\"], \"RESTORE\"", program, StringComparison.Ordinal);
+
         var mailSettings = File.ReadAllText(Path.Combine(componentRoot, "MailSettings.razor"));
         Assert.Equal(1, mailSettings.Split("mail-message-field", StringSplitOptions.None).Length - 1);
         Assert.Contains("Insert into message", mailSettings, StringComparison.Ordinal);
@@ -165,7 +178,8 @@ public sealed class DesignAccessibilityTests
         Assert.DoesNotContain("MonthlyActiveContractsCaptureWorker", File.ReadAllText(Path.Combine(webRoot, "Program.cs")), StringComparison.Ordinal);
 
         var css = File.ReadAllText(AppCssPath());
-        Assert.Contains("height: calc((var(--picklist-visible-rows) * 2.5rem) + 2px);", css, StringComparison.Ordinal);
+        Assert.Contains("height: calc((var(--picklist-visible-rows) * 2.5rem) + (var(--picklist-visible-groups, 0) * 1.55rem) + 2px);", css, StringComparison.Ordinal);
+        Assert.Contains(".picklist-group-heading", css, StringComparison.Ordinal);
         Assert.Contains(".customer-address-verification", css, StringComparison.Ordinal);
         Assert.Contains(".remi-picklist-trigger", css, StringComparison.Ordinal);
         Assert.Contains("min-height: 46px;", css, StringComparison.Ordinal);

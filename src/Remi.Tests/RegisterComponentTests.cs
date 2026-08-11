@@ -73,11 +73,11 @@ public sealed class RegisterComponentTests
             Assert.Single(contracts.FindAll(".contract-register-table tbody tr"));
             Assert.Empty(contracts.FindAll(".contract-register-table input[type='checkbox']"));
             Assert.Empty(contracts.FindAll(".register-table-toolbar, .register-selection-bar, .register-selection-drawer"));
-            Assert.DoesNotContain(contracts.FindAll(".quick-filter"), button => button.TextContent.Trim() == "Selected");
-            Assert.Equal(4, contracts.FindAll(".register-filters .floating-field").Count);
+            Assert.Empty(contracts.FindAll(".quick-filters, .quick-filter"));
+            Assert.Equal(5, contracts.FindAll(".register-filters .floating-field").Count);
             Assert.Empty(contracts.FindAll(".register-filters select"));
-            Assert.Equal(3, contracts.FindAll(".register-filters button[role='combobox']").Count);
-            Assert.Equal(["All frameworks", "All documents", "Any progress"], contracts.FindAll(".register-filters button[role='combobox']").Select(button => button.TextContent.Trim()).ToList());
+            Assert.Equal(4, contracts.FindAll(".register-filters button[role='combobox']").Count);
+            Assert.Equal(["All frameworks", "All documents", "Any progress", "All statuses"], contracts.FindAll(".register-filters button[role='combobox']").Select(button => button.TextContent.Trim()).ToList());
         });
 
         var invoices = context.Render<InvoicesRegister>();
@@ -138,7 +138,8 @@ public sealed class RegisterComponentTests
 
         var registration = context.Render<InvoiceRegistrationPage>();
         registration.WaitForAssertion(() => Assert.Equal("Register invoice", registration.Find("h1").TextContent.Trim()));
-        Assert.Empty(registration.FindAll("select[aria-label='Contract']"));
+        Assert.Single(registration.FindAll("input[role='combobox'][aria-label='Contract']"));
+        Assert.Empty(registration.FindAll("select"));
         Assert.Contains("Choose a contract and enter the invoice details.", registration.Markup);
         Assert.Empty(registration.FindAll(".register-breadcrumbs"));
         Assert.DoesNotContain("Step 1 of 2", registration.Markup);
@@ -158,6 +159,42 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Framework_filters_group_alphabetical_live_and_historical_options()
+    {
+        using var context = CreateContext();
+        var contracts = context.Render<ContractsRegister>();
+
+        contracts.WaitForAssertion(() => Assert.Single(contracts.FindAll("button[role='combobox'][aria-label='Framework']")));
+        contracts.Find("button[role='combobox'][aria-label='Framework']").Click();
+
+        var groups = contracts.FindAll("#contract-framework-filter-options .picklist-option-group");
+        Assert.Equal(["Live", "Historical"], groups.Select(group => group.GetAttribute("aria-label")).ToList());
+        Assert.Equal(
+            ["G-Cloud 14", "G-Cloud 15", "Vertical Application Solutions"],
+            groups[0].QuerySelectorAll("[role='option']").Select(option => option.TextContent.Trim()).ToList());
+        Assert.Equal(
+            ["G-Cloud 13"],
+            groups[1].QuerySelectorAll("[role='option']").Select(option => option.TextContent.Trim()).ToList());
+        Assert.Equal(
+            "All frameworks",
+            contracts.Find("#contract-framework-filter-options > [role='option']").TextContent.Trim());
+    }
+
+    [Fact]
+    public void Contract_status_filter_offers_only_the_three_requested_statuses()
+    {
+        using var context = CreateContext();
+        var contracts = context.Render<ContractsRegister>();
+
+        contracts.WaitForAssertion(() => Assert.Single(contracts.FindAll("button[role='combobox'][aria-label='Contract status']")));
+        contracts.Find("button[role='combobox'][aria-label='Contract status']").Click();
+
+        Assert.Equal(
+            ["Ongoing", "Ending soon", "Ended"],
+            contracts.FindAll("#contract-status-filter-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
+    }
+
+    [Fact]
     public void Settings_opens_frameworks_by_default_and_preserves_explicit_sections()
     {
         using var context = CreateContext();
@@ -167,7 +204,9 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Equal("Frameworks", cut.Find(".settings-side-nav a.active").TextContent.Trim());
-            Assert.Equal("Framework reporting start dates", cut.Find(".settings-content h2").TextContent.Trim());
+            Assert.Equal("Framework dates", cut.Find(".settings-content h2").TextContent.Trim());
+            Assert.Equal(["Framework", "Agreement", "Start date", "End date"], cut.FindAll(".maintenance-table th").Select(item => item.TextContent.Trim()).ToList());
+            Assert.DoesNotContain("Reporting start date", cut.Markup);
             Assert.DoesNotContain("Customer URN list", cut.Markup);
         });
 
@@ -192,11 +231,15 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Equal("G-Cloud 14 Digital Marketplace services", cut.Find(".settings-content h2").TextContent.Trim());
-            Assert.Equal(2, cut.FindAll("select[aria-label='Digital Marketplace framework'] option").Count);
+            Assert.Equal("G-Cloud 14", cut.Find("button[role='combobox'][aria-label='Digital Marketplace framework']").TextContent.Trim());
             Assert.Contains("StatMap Cluster", cut.Markup);
         });
 
-        cut.Find("select[aria-label='Digital Marketplace framework']").Change(FrameworkCode.GCloud13.ToString());
+        cut.Find("button[role='combobox'][aria-label='Digital Marketplace framework']").Click();
+        Assert.Equal(2, cut.FindAll("#digital-marketplace-framework-picklist-options [role='option']").Count);
+        cut.FindAll("#digital-marketplace-framework-picklist-options [role='option']")
+            .Single(option => option.TextContent.Contains("G-Cloud 13"))
+            .Click();
         cut.WaitForAssertion(() =>
         {
             Assert.Equal("G-Cloud 13 Digital Marketplace services", cut.Find(".settings-content h2").TextContent.Trim());
@@ -265,23 +308,26 @@ public sealed class RegisterComponentTests
 
         registration.WaitForAssertion(() =>
         {
-            var lot = registration.Find("select[aria-label='Lot number']");
-            Assert.Equal(["", "1", "2", "3"], lot.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
-            Assert.False(registration.Find("select[aria-label='Service group']").HasAttribute("disabled"));
-            Assert.Equal("Information and Communication Technology (ICT)", registration.Find("select[aria-label='Service group']").GetAttribute("value"));
-            Assert.Equal(["", "Per Unit", "Per User"], registration.Find("select[aria-label='Unit of measure']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+            Assert.Equal("2", registration.Find("button[role='combobox'][aria-label='Lot number']").TextContent.Trim());
+            Assert.False(registration.Find("button[role='combobox'][aria-label='Service group']").HasAttribute("disabled"));
+            Assert.Equal("Information and Communication Technology (ICT)", registration.Find("button[role='combobox'][aria-label='Service group']").TextContent.Trim());
         });
 
-        registration.Find("select[aria-label='Lot number']").Change("3");
+        registration.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        Assert.Equal(["Select a lot", "1", "2", "3"], registration.FindAll("#invoice-lot-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
+        registration.FindAll("#invoice-lot-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "3").Click();
 
         registration.WaitForAssertion(() =>
         {
-            var serviceGroup = registration.Find("select[aria-label='Service group']");
+            var serviceGroup = registration.Find("button[role='combobox'][aria-label='Service group']");
             Assert.False(serviceGroup.HasAttribute("disabled"));
-            Assert.Equal(
-                ["", "Ongoing Support", "Planning", "Security Services", "Setup and Migration", "Testing", "Training"],
-                serviceGroup.QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
         });
+        registration.Find("button[role='combobox'][aria-label='Service group']").Click();
+        Assert.Equal(
+            ["Select a service group", "Ongoing Support", "Planning", "Security Services", "Setup and Migration", "Testing", "Training"],
+            registration.FindAll("#invoice-service-group-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
+        registration.Find("button[role='combobox'][aria-label='Unit of measure']").Click();
+        Assert.Equal(["Select a unit of measure", "Per Unit", "Per User"], registration.FindAll("#invoice-unit-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
     [Fact]
@@ -295,6 +341,7 @@ public sealed class RegisterComponentTests
         Assert.Equal(
             ["G-Cloud 14 (RM1557.14)", "Vertical Application Solutions (RM6259)"],
             registration.FindAll("#framework-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
+        Assert.Equal("Live", registration.Find("#framework-picklist-options .picklist-group-heading").TextContent.Trim());
         registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
 
         registration.WaitForAssertion(() =>
@@ -546,21 +593,27 @@ public sealed class RegisterComponentTests
         registration.WaitForAssertion(() =>
         {
             Assert.Contains("Vertical Application Solutions invoice report fields", registration.Markup);
-            Assert.Empty(registration.FindAll("select[aria-label='Unit of measure']"));
+            Assert.Empty(registration.FindAll("[role='combobox'][aria-label='Unit of measure']"));
             Assert.DoesNotContain("Digital Marketplace service ID", registration.Markup);
         });
 
-        registration.Find("select[aria-label='Lot number']").Change("3");
+        registration.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        registration.FindAll("#invoice-lot-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "3").Click();
 
         registration.WaitForAssertion(() =>
         {
-            var productGroup = registration.Find("select[aria-label='Product/service group level 1']");
+            var productGroup = registration.Find("button[role='combobox'][aria-label='Product/service group level 1']");
             Assert.False(productGroup.HasAttribute("disabled"));
-            Assert.Contains("Geographic Information System (GIS)", productGroup.TextContent);
-            Assert.Equal(
-                ["", "Software", "Hardware", "Associated Service"],
-                registration.Find("select[aria-label='Product/service group level 2']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+            Assert.Equal("Select a product/service group", productGroup.TextContent.Trim());
         });
+        registration.Find("button[role='combobox'][aria-label='Product/service group level 1']").Click();
+        Assert.Contains(
+            registration.FindAll("#invoice-product-group-picklist-options [role='option']"),
+            option => option.TextContent.Trim() == "Geographic Information System (GIS)");
+        registration.Find("button[role='combobox'][aria-label='Product/service group level 2']").Click();
+        Assert.Equal(
+            ["Select a classification", "Software", "Hardware", "Associated Service"],
+            registration.FindAll("#invoice-product-classification-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
     [Fact]
@@ -577,19 +630,25 @@ public sealed class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Choose a lot before its dependent product or service group.", cut.Markup);
-            Assert.False(cut.Find("select[aria-label='Product/service group level 1']").HasAttribute("disabled"));
+            Assert.False(cut.Find("button[role='combobox'][aria-label='Product/service group level 1']").HasAttribute("disabled"));
         });
 
-        cut.Find("select[aria-label='Lot number']").Change("3");
+        cut.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        cut.FindAll("#contract-invoice-lot-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "3").Click();
 
         cut.WaitForAssertion(() =>
         {
-            var productGroup = cut.Find("select[aria-label='Product/service group level 1']");
-            Assert.Contains("Geographic Information System (GIS)", productGroup.TextContent);
-            Assert.Equal(
-                ["", "Software", "Hardware", "Associated Service"],
-                cut.Find("select[aria-label='Product/service group level 2']").QuerySelectorAll("option").Select(option => option.GetAttribute("value")).ToList());
+            var productGroup = cut.Find("button[role='combobox'][aria-label='Product/service group level 1']");
+            Assert.Equal("Select a product/service group", productGroup.TextContent.Trim());
         });
+        cut.Find("button[role='combobox'][aria-label='Product/service group level 1']").Click();
+        Assert.Contains(
+            cut.FindAll("#contract-invoice-product-group-picklist-options [role='option']"),
+            option => option.TextContent.Trim() == "Geographic Information System (GIS)");
+        cut.Find("button[role='combobox'][aria-label='Product/service group level 2']").Click();
+        Assert.Equal(
+            ["Select a classification", "Software", "Hardware", "Associated Service"],
+            cut.FindAll("#contract-invoice-classification-picklist-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
     [Fact]
@@ -683,6 +742,20 @@ public sealed class RegisterComponentTests
         Assert.Empty(row.QuerySelectorAll(".remi-action"));
         Assert.DoesNotContain("Lot", row.TextContent);
         Assert.DoesNotContain("excl. VAT", row.TextContent);
+
+        var headers = cut.FindAll(".contract-register-table thead th").Select(header => header.TextContent.Trim()).ToList();
+        Assert.Equal(7, headers.Count);
+        Assert.StartsWith("Start date", headers[2], StringComparison.Ordinal);
+        Assert.StartsWith("End date", headers[3], StringComparison.Ordinal);
+        Assert.Equal("Contract status", headers[4]);
+        Assert.DoesNotContain(headers, header => header.StartsWith("Documents", StringComparison.Ordinal));
+
+        var cells = row.QuerySelectorAll("td");
+        Assert.Equal(7, cells.Length);
+        Assert.Contains("01 Jan 2026", cells[2].TextContent);
+        Assert.Contains("31 Dec 2026", cells[3].TextContent);
+        Assert.NotNull(cells[4].QuerySelector(".register-status"));
+        Assert.Empty(cells.Where((_, index) => index != 4).SelectMany(cell => cell.QuerySelectorAll(".register-status")));
     }
 
     [Fact]
@@ -964,19 +1037,52 @@ public sealed class RegisterComponentTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal("Delete", cut.Find("button.invoice-delete-trigger").TextContent.Trim());
-            Assert.Empty(cut.FindAll("button.invoice-delete-confirm"));
+            Assert.Equal("More", cut.Find("button.record-more-trigger").GetAttribute("aria-label"));
+            Assert.Empty(cut.FindAll(".deletion-dialog"));
         });
 
-        cut.Find("button.invoice-delete-trigger").Click();
-        Assert.Contains("permanently removes the invoice", cut.Find(".invoice-delete-confirmation").TextContent);
-        cut.Find("button.invoice-delete-confirm").Click();
+        cut.Find("button.record-more-trigger").Click();
+        cut.Find("button.record-more-delete").Click();
+        cut.WaitForAssertion(() => Assert.Contains("To proceed type: DELETE", cut.Find(".deletion-dialog").TextContent));
+        Assert.True(cut.Find("button.deletion-confirm").HasAttribute("disabled"));
+        cut.Find("input[aria-label='Type DELETE to confirm']").Input("delete");
+        Assert.True(cut.Find("button.deletion-confirm").HasAttribute("disabled"));
+        cut.Find("input[aria-label='Type DELETE to confirm']").Input("DELETE");
+        Assert.False(cut.Find("button.deletion-confirm").HasAttribute("disabled"));
+        cut.Find("button.deletion-confirm").Click();
 
         cut.WaitForAssertion(() => Assert.EndsWith(
             "/invoices?period=2026-07",
             context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri,
             StringComparison.Ordinal));
         Assert.Null(await context.Services.GetRequiredService<ReportingWorkspace>().GetInvoiceDetailsAsync(SampleInvoiceId));
+    }
+
+    [Fact]
+    public async Task Contract_deletion_requires_confirmation_and_retains_related_invoices()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() => Assert.Equal("More", cut.Find("button.record-more-trigger").GetAttribute("aria-label")));
+        cut.Find("button.record-more-trigger").Click();
+        cut.Find("button.record-more-delete").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Objects deleted alongside this record", cut.Find(".deletion-dialog").TextContent);
+            Assert.Contains("Related invoices", cut.Find(".deletion-retained-note").TextContent);
+        });
+        cut.Find("input[aria-label='Type DELETE to confirm']").Input("DELETE");
+        cut.Find("button.deletion-confirm").Click();
+
+        cut.WaitForAssertion(() => Assert.EndsWith(
+            "/contracts?period=2026-07",
+            context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri,
+            StringComparison.Ordinal));
+        var workspace = context.Services.GetRequiredService<ReportingWorkspace>();
+        Assert.Null(await workspace.GetContractDetailsAsync(SampleContractId));
+        Assert.NotNull(await workspace.GetInvoiceDetailsAsync(SampleInvoiceId));
     }
 
     [Fact]
@@ -1101,8 +1207,9 @@ public sealed class RegisterComponentTests
             Assert.Contains("GCA_G13_202607", workspace.Find(".gca-return-summary").TextContent);
             Assert.NotNull(workspace.Find(".return-submission-evidence-view").QuerySelector("img[src^='/evidence/']"));
             Assert.Empty(workspace.FindAll(".return-workflow-tab-mark"));
-            Assert.Equal(3, workspace.FindAll(".return-workflow-tab-status").Count);
+            Assert.Equal(4, workspace.FindAll(".return-workflow-tab-status").Count);
             Assert.Equal("true", workspace.Find("button[data-stage='4']").GetAttribute("aria-selected"));
+            Assert.NotNull(workspace.Find("button[data-stage='4']").QuerySelector(".return-workflow-tab-status"));
             var metadata = workspace.Find(".return-submission-metadata");
             Assert.Contains("e0303f95-3441-4d48-bd32-e028a66f87db", metadata.TextContent);
             Assert.Contains("6 August 2026 13:45 UTC", metadata.TextContent);
