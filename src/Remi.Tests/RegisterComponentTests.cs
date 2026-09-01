@@ -347,7 +347,8 @@ public sealed class RegisterComponentTests
         registration.WaitForAssertion(() =>
         {
             var labels = registration.FindAll(".floating-label").Select(label => label.TextContent.Trim()).ToList();
-            Assert.Contains("Supplier reference number", labels);
+            Assert.Contains("StatMap contract reference", labels);
+            Assert.DoesNotContain("Supplier reference number", labels);
             Assert.Contains("Customer Unique Reference Number (URN)", labels);
             Assert.Contains("Customer organisation name", labels);
             Assert.Contains("Contract start date", labels);
@@ -355,7 +356,7 @@ public sealed class RegisterComponentTests
             Assert.Contains("Lot number", labels);
             Assert.Contains("Service Group", labels);
             Assert.Contains("Digital Marketplace Service ID", labels);
-            Assert.Contains("Total contract value", labels);
+            Assert.DoesNotContain("Total contract value", labels);
             Assert.DoesNotContain("Product/Service Description", labels);
             Assert.DoesNotContain("Order Channel", labels);
 
@@ -368,6 +369,30 @@ public sealed class RegisterComponentTests
             Assert.Equal("marketplace-service-suggestions", servicePicker.GetAttribute("aria-controls"));
             Assert.Null(servicePicker.GetAttribute("list"));
             Assert.Empty(registration.FindAll("select"));
+
+            Assert.Equal("Contract dates and payment schedule", registration.FindAll(".invoice-details-section h2").Last().TextContent.Trim());
+            Assert.Single(registration.FindAll(".registration-payment-schedule .payment-position-row"));
+            Assert.Equal("£0.00", registration.Find(".contract-registration-value-summary strong").TextContent.Trim());
+        });
+
+        var firstValue = registration.Find("input[aria-label='Value excluding VAT, payment position 1']");
+        firstValue.Input("0");
+        Assert.Equal("0", firstValue.GetAttribute("value"));
+        firstValue.Focus();
+        registration.WaitForAssertion(() => Assert.Equal(string.Empty, registration.Find("input[aria-label='Value excluding VAT, payment position 1']").GetAttribute("value")));
+
+        registration.Find("input[aria-label='Value excluding VAT, payment position 1']").Input("21600");
+        registration.Find(".registration-payment-schedule button.secondary").Click();
+        registration.Find("input[aria-label='Value excluding VAT, payment position 2']").Input("18000");
+        registration.Find(".registration-payment-schedule button.secondary").Click();
+        registration.Find("input[aria-label='Value excluding VAT, payment position 3']").Input("18000");
+        registration.Find(".registration-payment-schedule button.secondary").Click();
+        registration.Find("input[aria-label='Value excluding VAT, payment position 4']").Input("18000");
+        registration.Find("input[aria-label='Optional year, payment position 4']").Change(true);
+        registration.WaitForAssertion(() =>
+        {
+            Assert.Equal(["1", "2", "3", "4"], registration.FindAll(".registration-payment-schedule input[aria-label^='Year,']").Select(input => input.GetAttribute("value")).ToList());
+            Assert.Equal("£57,600.00", registration.Find(".contract-registration-value-summary strong").TextContent.Trim());
         });
 
         registration.Find("input[aria-label='Digital Marketplace Service ID']").Focus();
@@ -415,7 +440,7 @@ public sealed class RegisterComponentTests
             Assert.Contains("Complete the highlighted fields", registration.Find(".contract-registration-validation").TextContent);
             Assert.Equal(8, registration.FindAll("[aria-invalid='true']").Count);
             Assert.Equal(8, registration.FindAll(".field-validation-message").Count);
-            Assert.Equal("Enter the supplier reference number.", registration.Find("#supplier-reference-error").TextContent.Trim());
+            Assert.Equal("Enter the StatMap contract reference.", registration.Find("#supplier-reference-error").TextContent.Trim());
         });
     }
 
@@ -560,7 +585,8 @@ public sealed class RegisterComponentTests
         registration.WaitForAssertion(() =>
         {
             var labels = registration.FindAll(".floating-label").Select(label => label.TextContent.Trim()).ToList();
-            Assert.Contains("Supplier Reference Number", labels);
+            Assert.Contains("StatMap contract reference", labels);
+            Assert.DoesNotContain("Supplier Reference Number", labels);
             Assert.Contains("Customer Organisation Name", labels);
             Assert.Contains("Customer Unique Reference Number (URN)", labels);
             Assert.Contains("Lot Number", labels);
@@ -568,9 +594,10 @@ public sealed class RegisterComponentTests
             Assert.Contains("Order Channel", labels);
             Assert.Contains("Contract Start Date", labels);
             Assert.Contains("Contract End Date", labels);
-            Assert.Contains("Total Contract Value", labels);
+            Assert.DoesNotContain("Total Contract Value", labels);
             Assert.DoesNotContain("Service Group", labels);
             Assert.DoesNotContain("Digital Marketplace Service ID", labels);
+            Assert.Single(registration.FindAll(".registration-payment-schedule .payment-position-row"));
             Assert.Empty(registration.FindAll("select"));
         });
 
@@ -756,6 +783,22 @@ public sealed class RegisterComponentTests
         Assert.Contains("31 Dec 2026", cells[3].TextContent);
         Assert.NotNull(cells[4].QuerySelector(".register-status"));
         Assert.Empty(cells.Where((_, index) => index != 4).SelectMany(cell => cell.QuerySelectorAll(".register-status")));
+    }
+
+    [Fact]
+    public void Contract_register_uses_the_current_end_date_and_value_after_an_extension()
+    {
+        using var context = CreateContext(includeContractExtension: true);
+        var cut = context.Render<ContractsRegister>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll(".contract-register-table tbody tr")));
+        var cells = cut.Find(".contract-register-table tbody tr").QuerySelectorAll("td");
+        var originalEndDate = DateOnly.FromDateTime(DateTime.Today).AddMonths(-3);
+        var extendedEndDate = originalEndDate.AddYears(1);
+
+        Assert.Contains(extendedEndDate.ToString("dd MMM yyyy"), cells[3].TextContent);
+        Assert.Equal("Live", cells[4].TextContent.Trim());
+        Assert.Equal("£23,000", cells[5].TextContent.Trim());
     }
 
     [Fact]
@@ -1278,7 +1321,8 @@ public sealed class RegisterComponentTests
         bool includePaymentSchedule = false,
         int additionalContracts = 0,
         int additionalMarketplaceServices = 0,
-        bool includeSubmittedReturn = false)
+        bool includeSubmittedReturn = false,
+        bool includeContractExtension = false)
     {
         var database = new RemiDatabase
         {
@@ -1331,6 +1375,27 @@ public sealed class RegisterComponentTests
                     DateTimeOffset.UtcNow),
             ],
         };
+        if (includeContractExtension)
+        {
+            var originalEndDate = DateOnly.FromDateTime(DateTime.Today).AddMonths(-3);
+            database.Contracts[0] = database.Contracts[0] with
+            {
+                EndDate = originalEndDate,
+                TotalContractValueExVat = 11500,
+            };
+            database.ContractChanges.Add(new ContractChangeRecord(
+                Guid.NewGuid(),
+                SampleContractId,
+                ContractChangeKind.Extension,
+                originalEndDate,
+                originalEndDate.AddDays(1),
+                originalEndDate.AddYears(1),
+                11500,
+                true,
+                true,
+                "EXT-01",
+                DateTimeOffset.UtcNow));
+        }
         if (includeSubmittedReturn)
         {
             var returnId = Guid.NewGuid();

@@ -73,8 +73,8 @@
                     <header><h2>Customer and reference</h2></header>
                     <div class="invoice-details-grid">
                         <div class="registration-field">
-                            <label class="floating-field"><input required @ref="supplierReferenceField" @bind="supplierReference" @bind:event="oninput" placeholder=" " autocapitalize="characters" autocorrect="off" spellcheck="false" aria-invalid="@(ShowError(SupplierReferenceInvalid) ? "true" : null)" aria-describedby="@(ShowError(SupplierReferenceInvalid) ? "supplier-reference-error" : null)" /><span class="floating-label">@FieldNames.SupplierReferenceNumber</span></label>
-                            @if (ShowError(SupplierReferenceInvalid)) { <span id="supplier-reference-error" class="field-validation-message">Enter the supplier reference number.</span> }
+                            <label class="floating-field"><input required @ref="supplierReferenceField" @bind="supplierReference" @bind:event="oninput" placeholder=" " autocapitalize="characters" autocorrect="off" spellcheck="false" aria-invalid="@(ShowError(SupplierReferenceInvalid) ? "true" : null)" aria-describedby="@(ShowError(SupplierReferenceInvalid) ? "supplier-reference-error" : null)" /><span class="floating-label">StatMap contract reference</span></label>
+                            @if (ShowError(SupplierReferenceInvalid)) { <span id="supplier-reference-error" class="field-validation-message">Enter the StatMap contract reference.</span> }
                         </div>
                         <div class="searchable-picklist customer-directory-picker registration-field">
                             <label class="floating-field"><input id="customer-name-search" required @ref="customerNameField" role="combobox" aria-label="@FieldNames.CustomerOrganisationName" aria-autocomplete="list" aria-controls="customer-name-suggestions" aria-expanded="@(ActiveCustomerPicker == CustomerNamePicker ? "true" : "false")" autocomplete="off" placeholder=" " value="@customerName" @oninput="SearchCustomerNames" @onfocus="@(() => OpenCustomerPicker(CustomerNamePicker))" @onblur="CloseCustomerPicker" @onkeydown="HandleCustomerPickerKeyDown" aria-invalid="@(ShowError(CustomerNameInvalid) ? "true" : null)" aria-describedby="@(ShowError(CustomerNameInvalid) ? "customer-name-error" : null)" /><span class="floating-label">@FieldNames.CustomerOrganisationName</span></label>
@@ -205,7 +205,7 @@
                 </section>
 
                 <section class="invoice-details-section">
-                    <header><h2>Contract dates and value</h2></header>
+                    <header><h2>Contract dates and payment schedule</h2></header>
                     <div class="invoice-details-grid">
                         <div class="registration-field">
                             <label class="floating-field floating-field--static"><input required @ref="startDateField" type="date" @bind="startDate" aria-invalid="@(ShowError(StartDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(StartDateInvalid) ? "start-date-error" : null)" /><span class="floating-label">@FieldNames.ContractStartDate</span></label>
@@ -215,9 +215,45 @@
                             <label class="floating-field floating-field--static"><input required @ref="endDateField" type="date" @bind="endDate" aria-invalid="@(ShowError(EndDateInvalid) ? "true" : null)" aria-describedby="@(ShowError(EndDateInvalid) ? "end-date-error" : null)" /><span class="floating-label">@FieldNames.ContractEndDate</span></label>
                             @if (ShowError(EndDateInvalid)) { <span id="end-date-error" class="field-validation-message">Choose the contract end date.</span> }
                         </div>
-                        <div class="registration-field">
-                            <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required @ref="contractValueField" type="number" inputmode="decimal" min="0.01" step="0.01" @bind="contractValue" aria-invalid="@(ShowError(ContractValueInvalid) ? "true" : null)" aria-describedby="@(ShowError(ContractValueInvalid) ? "contract-value-error" : null)" /><span class="floating-label">@FieldNames.TotalContractValue</span></label>
-                            @if (ShowError(ContractValueInvalid)) { <span id="contract-value-error" class="field-validation-message">Enter a contract value greater than zero.</span> }
+                    </div>
+
+                    <div class="registration-payment-schedule">
+                        <div class="payment-position-header">
+                            <div>
+                                <h3 id="registration-payment-schedule-heading">Payment schedule</h3>
+                                <p>Enter each fixed and optional payment position from the contract.</p>
+                            </div>
+                            <button type="button" class="button secondary" @onclick="AddPaymentPosition">Add</button>
+                        </div>
+                        <div class="payment-position-editor"
+                             role="group"
+                             aria-labelledby="registration-payment-schedule-heading"
+                             aria-invalid="@(ShowError(PaymentScheduleInvalid) ? "true" : null)"
+                             aria-describedby="@(ShowError(PaymentScheduleInvalid) ? "payment-schedule-error" : null)"
+                             tabindex="-1"
+                             @ref="paymentScheduleField">
+                            <div class="payment-schedule-grid">
+                                <div class="payment-schedule-heading" aria-hidden="true"><span>Year</span><span>Description</span><span>Expected date</span><span>Value, ex VAT</span><span>Optional</span><span></span></div>
+                                @for (var positionIndex = 0; positionIndex < paymentSchedule.Count; positionIndex++)
+                                {
+                                    var position = paymentSchedule[positionIndex];
+                                    var ordinal = positionIndex + 1;
+                                    <div class="payment-position-row" @key="position">
+                                        <input class="payment-schedule-input" type="number" min="1" aria-label="Year, payment position @ordinal" @bind="position.ContractYear" />
+                                        <input class="payment-schedule-input" aria-label="Description, payment position @ordinal" @bind="position.Description" @bind:event="oninput" />
+                                        <input class="payment-schedule-input" type="date" aria-label="Expected date, payment position @ordinal" @bind="position.ExpectedInvoiceDate" />
+                                        <div class="payment-schedule-money"><span aria-hidden="true">£</span><input class="payment-schedule-input" type="text" inputmode="decimal" aria-label="Value excluding VAT, payment position @ordinal" value="@position.ValueExVatInput" @oninput="args => UpdatePaymentPositionValue(position, args)" @onfocus="() => ClearZeroPaymentPositionValue(position)" /></div>
+                                        <label class="payment-optional"><input type="checkbox" aria-label="Optional year, payment position @ordinal" @bind="position.IsOptionalExtension" /></label>
+                                        <button type="button" class="payment-position-remove" title="Remove payment position" aria-label="Remove payment position @ordinal" @onclick="() => RemovePaymentPosition(position)">×</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        @if (ShowError(PaymentScheduleInvalid)) { <span id="payment-schedule-error" class="field-validation-message">Add at least one complete non-optional payment position. Every position needs a year, description and value greater than zero.</span> }
+                        <div class="contract-registration-value-summary" aria-live="polite">
+                            <span>Initial reportable contract value</span>
+                            <strong>@Currency(InitialReportableContractValue)</strong>
+                            <small>Optional payment positions are excluded until the extension is agreed.</small>
                         </div>
                     </div>
                 </section>
@@ -240,7 +276,7 @@
     private string initialReportingMonth = string.Empty;
     private DateOnly? startDate;
     private DateOnly? endDate;
-    private decimal contractValue;
+    private List<RegistrationSchedulePosition> paymentSchedule = [RegistrationSchedulePosition.CreateDefault(1)];
     private string lotNumber = string.Empty;
     private string serviceGroup = string.Empty;
     private string digitalMarketplaceServiceId = string.Empty;
@@ -277,7 +313,7 @@
     private RemiPicklist? orderChannelField;
     private ElementReference startDateField;
     private ElementReference endDateField;
-    private ElementReference contractValueField;
+    private ElementReference paymentScheduleField;
 
     private bool IsGCloud => selectedFramework is FrameworkCode framework && Frameworks.IsGCloud(framework);
     private bool HasMarketplaceServiceSuggestions => selectedFramework is FrameworkCode framework
@@ -318,7 +354,12 @@
         ? $"Choose a contract start date between {frameworkStart:d MMM yyyy} and {frameworkEnd:d MMM yyyy}."
         : "Choose a contract start date while the framework is in operation.";
     private bool EndDateInvalid => endDate is null;
-    private bool ContractValueInvalid => contractValue <= 0;
+    private bool PaymentScheduleInvalid => paymentSchedule.Count == 0
+        || paymentSchedule.Any(position => position.ContractYear < 1 || string.IsNullOrWhiteSpace(position.Description) || position.ParsedValueExVat is not > 0)
+        || paymentSchedule.All(position => position.IsOptionalExtension);
+    private decimal InitialReportableContractValue => paymentSchedule
+        .Where(position => !position.IsOptionalExtension)
+        .Sum(position => position.ParsedValueExVat ?? 0);
     private bool CanCreate => selectedFramework is FrameworkCode framework
         && ContractReportFields.IsAvailable(framework)
         && IsValidReportingMonth
@@ -328,11 +369,17 @@
         && IntakeForm.Lots.Contains(lotNumber, StringComparer.Ordinal)
         && !StartDateInvalid
         && endDate is not null
-        && contractValue > 0
+        && !PaymentScheduleInvalid
         && (IsGCloud
             ? ServiceGroupOptions.Contains(serviceGroup, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId)
             : !string.IsNullOrWhiteSpace(serviceDescription) && ContractReportFields.VasOrderChannels.Contains(orderChannel, StringComparer.Ordinal));
-    private bool HasUnsavedContractChanges => !string.IsNullOrWhiteSpace(supplierReference) || !string.IsNullOrWhiteSpace(customerName) || !string.IsNullOrWhiteSpace(customerUrn) || startDate is not null || endDate is not null || contractValue != 0 || !string.IsNullOrWhiteSpace(lotNumber) || !string.IsNullOrWhiteSpace(serviceGroup) || !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) || !string.IsNullOrWhiteSpace(serviceDescription) || !string.IsNullOrWhiteSpace(orderChannel) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private bool HasUnsavedContractChanges => !string.IsNullOrWhiteSpace(supplierReference) || !string.IsNullOrWhiteSpace(customerName) || !string.IsNullOrWhiteSpace(customerUrn) || startDate is not null || endDate is not null || HasPaymentScheduleChanges || !string.IsNullOrWhiteSpace(lotNumber) || !string.IsNullOrWhiteSpace(serviceGroup) || !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) || !string.IsNullOrWhiteSpace(serviceDescription) || !string.IsNullOrWhiteSpace(orderChannel) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
+    private bool HasPaymentScheduleChanges => paymentSchedule.Count != 1
+        || paymentSchedule[0].ContractYear != 1
+        || !string.Equals(paymentSchedule[0].Description, RegistrationSchedulePosition.DefaultDescription, StringComparison.Ordinal)
+        || paymentSchedule[0].ExpectedInvoiceDate is not null
+        || !string.IsNullOrWhiteSpace(paymentSchedule[0].ValueExVatInput)
+        || paymentSchedule[0].IsOptionalExtension;
     private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as contract evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private IReadOnlyList<string> ReportingMonthOptions
     {
@@ -376,6 +423,22 @@
     }
 
     private void SelectReportingMonth(string value) => reportingMonth = value;
+
+    private void AddPaymentPosition()
+    {
+        var nextYear = paymentSchedule.Count == 0 ? 1 : paymentSchedule.Max(position => position.ContractYear) + 1;
+        paymentSchedule.Add(RegistrationSchedulePosition.CreateDefault(nextYear));
+    }
+
+    private void RemovePaymentPosition(RegistrationSchedulePosition position) => paymentSchedule.Remove(position);
+
+    private void UpdatePaymentPositionValue(RegistrationSchedulePosition position, ChangeEventArgs args) =>
+        position.ValueExVatInput = args.Value?.ToString() ?? string.Empty;
+
+    private static void ClearZeroPaymentPositionValue(RegistrationSchedulePosition position)
+    {
+        if (position.ParsedValueExVat == 0) position.ValueExVatInput = string.Empty;
+    }
 
     private void SelectLot(string value)
     {
@@ -549,7 +612,7 @@
             else if (OrderChannelInvalid) await orderChannelField!.FocusAsync();
             else if (StartDateInvalid) await startDateField.FocusAsync();
             else if (EndDateInvalid) await endDateField.FocusAsync();
-            else await contractValueField.FocusAsync();
+            else await paymentScheduleField.FocusAsync();
         }
         catch (JSException) { }
         catch (InvalidOperationException) { }
@@ -561,7 +624,8 @@
         working = true;
         try
         {
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, contractValue, reportingMonth, "Manual contract registration", null));
+            var paymentPlan = BuildPaymentPlan();
+            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, InitialReportableContractValue, reportingMonth, "Manual contract registration", paymentPlan));
             if (submission.Succeeded)
             {
                 if (clipboardImageCount != 0 && submission.EntityId is Guid contractId)
@@ -584,7 +648,7 @@
         FilteredCustomerSuggestions = customerDirectoryEntries;
         FilteredMarketplaceServices = marketplaceServices;
         startDate = endDate = null;
-        contractValue = 0;
+        paymentSchedule = [RegistrationSchedulePosition.CreateDefault(1)];
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
         clipboardImageCount = 0;
     }
@@ -609,5 +673,42 @@
         return definition is null ? null : definition.IsHistorical ? "Historical" : "Live";
     }
 
+    private ContractPaymentPlanEntry BuildPaymentPlan()
+    {
+        var baseTermYears = paymentSchedule.Where(position => !position.IsOptionalExtension).Max(position => position.ContractYear);
+        var maximumYear = paymentSchedule.Max(position => position.ContractYear);
+        return new ContractPaymentPlanEntry(
+            baseTermYears,
+            Math.Max(0, maximumYear - baseTermYears),
+            paymentSchedule.Select(position => new ContractPaymentPositionEntry(
+                position.ContractYear,
+                position.Description,
+                position.ParsedValueExVat!.Value,
+                position.ExpectedInvoiceDate,
+                position.IsOptionalExtension)).ToList());
+    }
+
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;
+
+    private sealed class RegistrationSchedulePosition
+    {
+        public const string DefaultDescription = "Annual licence and maintenance";
+
+        public int ContractYear { get; set; }
+        public string Description { get; set; } = DefaultDescription;
+        public DateOnly? ExpectedInvoiceDate { get; set; }
+        public string ValueExVatInput { get; set; } = string.Empty;
+        public bool IsOptionalExtension { get; set; }
+        public decimal? ParsedValueExVat => decimal.TryParse(
+            ValueExVatInput,
+            System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.GetCultureInfo("en-GB"),
+            out var value)
+                ? value
+                : null;
+
+        public static RegistrationSchedulePosition CreateDefault(int contractYear) => new() { ContractYear = contractYear };
+    }
 }

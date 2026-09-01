@@ -222,7 +222,9 @@ public sealed record ContractPaymentPlanEntry(
 public sealed record ContractPaymentPositionEntry(
     int ContractYear,
     string Description,
-    decimal ValueExVat);
+    decimal ValueExVat,
+    DateOnly? ExpectedInvoiceDate = null,
+    bool IsOptionalExtension = false);
 
 /// <summary>
 /// Contract data recovered from a Ledger contract cell and its Excel comment. The Ledger file is

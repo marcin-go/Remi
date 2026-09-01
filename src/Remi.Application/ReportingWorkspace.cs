@@ -833,6 +833,9 @@ public sealed class ReportingWorkspace(
             }
 
             var now = timeProvider.GetUtcNow();
+            var reportableContractValue = entry.PaymentPlan is { } registeredPlan
+                ? registeredPlan.Positions.Where(position => !position.IsOptionalExtension).Sum(position => position.ValueExVat)
+                : entry.TotalContractValueExVat;
             var record = new ContractRecord(
                 Guid.NewGuid(),
                 entry.Framework,
@@ -847,7 +850,7 @@ public sealed class ReportingWorkspace(
                 NullIfWhiteSpace(entry.ServiceDescription),
                 NullIfWhiteSpace(entry.OrderChannel),
                 NullIfWhiteSpace(entry.DigitalMarketplaceServiceId),
-                entry.TotalContractValueExVat,
+                reportableContractValue,
                 entry.ReportMonth,
                 string.IsNullOrWhiteSpace(entry.SourceDescription) ? "Manual entry" : entry.SourceDescription.Trim(),
                 now);
@@ -2460,6 +2463,12 @@ public sealed class ReportingWorkspace(
             var agreedChangeValue = database.ContractChanges
                 .Where(change => change.ContractId == contract.Id)
                 .Sum(change => change.IncrementalValueExVat);
+            var currentContractValue = contract.TotalContractValueExVat + agreedChangeValue;
+            var currentContractEndDate = database.ContractChanges
+                .Where(change => change.ContractId == contract.Id && change.Kind == ContractChangeKind.Extension)
+                .Select(change => change.EffectiveEndDate)
+                .Append(contract.EndDate)
+                .Max();
             var plannedValue = committedBaseValue + agreedChangeValue;
             var comparisonValue = plannedValue > 0 ? plannedValue : contract.TotalContractValueExVat;
             var evidence = EvidenceForContract(database, contract);
@@ -2471,14 +2480,14 @@ public sealed class ReportingWorkspace(
                 contract.CustomerUrn,
                 contract.ReportMonth,
                 contract.StartDate,
-                contract.EndDate,
+                currentContractEndDate,
                 contract.LotNumber,
                 contract.ServiceGroup,
                 contract.ServiceGroupLevel2,
                 contract.ServiceDescription,
                 contract.OrderChannel,
                 contract.DigitalMarketplaceServiceId,
-                contract.TotalContractValueExVat,
+                currentContractValue,
                 reportedInvoiceCount,
                 reportedInvoiceValue,
                 comparisonValue,
@@ -2883,16 +2892,15 @@ public sealed class ReportingWorkspace(
     {
         foreach (var position in paymentPlan.Positions)
         {
-            var term = position.ContractYear > paymentPlan.BaseTermYears ? "optional extension" : "base term";
             database.ChargeScheduleItems.Add(new ChargeScheduleItem(
                 Guid.NewGuid(),
                 contract.Id,
                 null,
                 position.ContractYear,
-                $"Year {position.ContractYear} · {term} · {position.Description.Trim()}",
-                null,
+                position.Description.Trim(),
+                position.ExpectedInvoiceDate,
                 position.ValueExVat,
-                position.ContractYear > paymentPlan.BaseTermYears,
+                position.IsOptionalExtension,
                 now));
         }
     }
@@ -2914,6 +2922,11 @@ public sealed class ReportingWorkspace(
             return "Add at least one payment position, or clear the payment-plan fields.";
         }
 
+        if (paymentPlan.Positions.All(position => position.IsOptionalExtension))
+        {
+            return "Add at least one non-optional payment position so the initial reportable contract value can be calculated.";
+        }
+
         var maximumYear = paymentPlan.BaseTermYears + paymentPlan.OptionalExtensionYears;
         if (paymentPlan.Positions.Any(position => position.ContractYear < 1 || position.ContractYear > maximumYear || string.IsNullOrWhiteSpace(position.Description) || position.ValueExVat <= 0))
         {
@@ -2929,7 +2942,7 @@ public sealed class ReportingWorkspace(
             : $"{paymentPlan.BaseTermYears}+{paymentPlan.OptionalExtensionYears}-year";
 
     private static string PaymentPlanSummary(ContractPaymentPlanEntry paymentPlan) =>
-        $"{PaymentPlanTerm(paymentPlan)} term; {string.Join(" + ", paymentPlan.Positions.OrderBy(position => position.ContractYear).ThenBy(position => position.Description, StringComparer.OrdinalIgnoreCase).Select(position => $"Y{position.ContractYear} {position.Description}: {position.ValueExVat:0.00}"))}";
+        $"{PaymentPlanTerm(paymentPlan)} term; {string.Join(" + ", paymentPlan.Positions.OrderBy(position => position.ContractYear).ThenBy(position => position.Description, StringComparer.OrdinalIgnoreCase).Select(position => $"Y{position.ContractYear} {position.Description}: {position.ValueExVat:0.00}{(position.IsOptionalExtension ? " optional" : string.Empty)}"))}";
 
     private static string PaymentPositionDescription(ContractPaymentPosition position)
     {

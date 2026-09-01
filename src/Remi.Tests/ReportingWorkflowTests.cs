@@ -528,6 +528,40 @@ public sealed class ReportingWorkflowTests
     }
 
     [Fact]
+    public async Task Contract_registration_derives_reportable_value_from_non_optional_payment_positions_and_saves_the_schedule()
+    {
+        var database = new RemiDatabase();
+        var workspace = Workspace(database, new FixedTimeProvider(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero)));
+        var paymentPlan = new ContractPaymentPlanEntry(
+            3,
+            1,
+            [
+                new ContractPaymentPositionEntry(1, "Year 1 licence", 21600, new DateOnly(2025, 6, 1)),
+                new ContractPaymentPositionEntry(2, "Year 2 licence", 18000, new DateOnly(2026, 6, 1)),
+                new ContractPaymentPositionEntry(3, "Year 3 licence", 18000, new DateOnly(2027, 6, 1)),
+                new ContractPaymentPositionEntry(4, "Optional year 4 licence", 18000, new DateOnly(2028, 6, 1), true),
+            ]);
+        var entry = GCloudContractEntry("SDE_202511_GMS", new DateOnly(2025, 6, 1), "2026-08") with
+        {
+            TotalContractValueExVat = 75600,
+            PaymentPlan = paymentPlan,
+        };
+
+        var result = await workspace.CreateContractAsync(entry);
+
+        Assert.True(result.Succeeded);
+        var contract = Assert.Single(database.Contracts);
+        Assert.Equal(57600, contract.TotalContractValueExVat);
+        Assert.Equal(4, database.ChargeScheduleItems.Count);
+        var optionalPosition = Assert.Single(database.ChargeScheduleItems.Where(item => item.IsOptionalExtension));
+        Assert.Equal(4, optionalPosition.ContractYear);
+        Assert.Equal("Optional year 4 licence", optionalPosition.Description);
+        Assert.Equal(new DateOnly(2028, 6, 1), optionalPosition.ExpectedInvoiceDate);
+        Assert.Equal(18000, optionalPosition.ValueExVat);
+        Assert.Contains(database.AuditEvents, item => item.EntityId == contract.Id && item.Action == "ContractPaymentScheduleRecorded");
+    }
+
+    [Fact]
     public async Task Digital_marketplace_service_suggestions_can_be_configured_locally()
     {
         var database = new RemiDatabase
@@ -588,7 +622,10 @@ public sealed class ReportingWorkflowTests
         Assert.Contains("2026-07", await workspace.GetReportingPeriodsAsync());
         var readiness = Assert.Single(dashboard.FrameworkReadiness.Where(item => item.Framework.Code == FrameworkCode.GCloud14));
         Assert.Equal(1, readiness.ContractCount);
-        Assert.Equal(1500, Assert.Single(dashboard.ContractProgress).ComparisonValueExVat);
+        var contractProgress = Assert.Single(dashboard.ContractProgress);
+        Assert.Equal(new DateOnly(2027, 12, 31), contractProgress.EndDate);
+        Assert.Equal(1500, contractProgress.TotalContractValueExVat);
+        Assert.Equal(1500, contractProgress.ComparisonValueExVat);
         var extensionRow = Assert.Single(card.Contracts);
         Assert.Equal("500.00", Assert.Single(extensionRow.Fields, field => field.Label == "Total contract value").Value);
     }

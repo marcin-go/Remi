@@ -49,6 +49,19 @@ public sealed class DesignAccessibilityTests
     }
 
     [Fact]
+    public void Contract_registration_centres_field_content()
+    {
+        var css = File.ReadAllText(AppCssPath());
+
+        Assert.Contains(".contract-intake-page .registration-field .floating-field > input,", css, StringComparison.Ordinal);
+        Assert.Contains(".contract-intake-page .registration-field .remi-picklist-trigger {", css, StringComparison.Ordinal);
+        Assert.Contains("padding-top: 10px;", css, StringComparison.Ordinal);
+        Assert.Contains("padding-bottom: 10px;", css, StringComparison.Ordinal);
+        Assert.Contains("line-height: 20px;", css, StringComparison.Ordinal);
+        Assert.Contains(".contract-intake-page .floating-field--currency > b { transform: translateY(-50%); }", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Command_tiers_follow_the_compact_typographic_system()
     {
         var css = File.ReadAllText(AppCssPath());
