@@ -1769,7 +1769,7 @@ public sealed class ReportingWorkspace(
         return await store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();
-            foreach (var existing in database.MiTemplates.Where(item => item.Framework == framework && item.IsActive))
+            foreach (var existing in database.MiTemplates.Where(item => item.Framework == framework && item.IsActive).ToList())
             {
                 database.MiTemplates[database.MiTemplates.FindIndex(item => item.Id == existing.Id)] = existing with { IsActive = false };
             }
