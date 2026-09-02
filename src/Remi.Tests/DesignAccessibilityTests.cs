@@ -62,6 +62,17 @@ public sealed class DesignAccessibilityTests
     }
 
     [Fact]
+    public void Contract_edit_picklists_use_the_refined_vertical_alignment()
+    {
+        var css = File.ReadAllText(AppCssPath());
+
+        Assert.Contains(
+            ".contract-edit-panel .record-edit-fields .remi-picklist-trigger { padding-top: 10px; padding-bottom: 10px; line-height: 20px; }",
+            css,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Active_record_tab_underlines_have_square_corners()
     {
         var css = File.ReadAllText(AppCssPath());

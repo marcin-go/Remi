@@ -686,9 +686,18 @@ else
         if (activeWorkflowStage == 0) activeWorkflowStage = RecommendedWorkflowStage;
     }
 
-    private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries => (returnRegister?.Entries ?? [])
-        .Where(item => registerView == "month" ? item.ReportingMonth == registerMonth : item.Framework.Code == registerFramework)
-        .OrderBy(item => registerView == "month" ? item.Framework.DisplayName : item.ReportingMonth, StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<MonthlyReturnRegisterEntry> VisibleReturnEntries
+    {
+        get
+        {
+            var entries = (returnRegister?.Entries ?? [])
+                .Where(item => registerView == "month" ? item.ReportingMonth == registerMonth : item.Framework.Code == registerFramework);
+
+            return registerView == "month"
+                ? entries.OrderBy(item => item.Framework.DisplayName, StringComparer.OrdinalIgnoreCase)
+                : entries.OrderByDescending(item => item.ReportingMonth, StringComparer.OrdinalIgnoreCase);
+        }
+    }
     private IReadOnlyList<FrameworkDefinition> RegisterFrameworks => (returnRegister?.Entries ?? [])
         .Select(item => item.Framework)
         .DistinctBy(item => item.Code)

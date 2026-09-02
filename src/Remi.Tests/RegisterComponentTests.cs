@@ -449,6 +449,42 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Successful_contract_registration_clears_the_form_and_returns_to_the_confirmation_banner()
+    {
+        using var context = CreateContext();
+        context.JSInterop.SetupVoid("window.scrollTo", _ => true);
+        var registration = context.Render<ContractRegistrationPage>();
+
+        registration.Find("button[role='combobox'][aria-label='Framework']").Click();
+        registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
+        registration.Find("input[autocapitalize='characters']").Input("RM-SAVED");
+        registration.Find("input[role='combobox'][aria-label='Customer organisation name']").Input("Saved customer");
+        registration.Find("input[role='combobox'][aria-label='Customer Unique Reference Number (URN)']").Input("URN-SAVED");
+        registration.Find("button[role='combobox'][aria-label='Lot number']").Click();
+        registration.FindAll("#lot-number-picklist-options [role='option']").Single(option => option.TextContent.Trim() == "2").Click();
+        registration.Find("input[role='combobox'][aria-label='Service Group']").Focus();
+        registration.FindAll("#service-group-picklist-options [role='option']").Single(option => option.TextContent.Contains("Information and Communication Technology")).Click();
+        registration.Find("input[role='combobox'][aria-label='Digital Marketplace Service ID']").Input("115981361947474");
+        registration.FindAll("input[type='date']")[0].Change("2026-07-01");
+        registration.FindAll("input[type='date']")[1].Change("2027-06-30");
+        registration.Find("input[aria-label='Value excluding VAT, payment position 1']").Input("1200");
+
+        registration.Find("button.invoice-command-save").Click();
+
+        registration.WaitForAssertion(() =>
+        {
+            var confirmation = registration.Find(".contract-registration-success");
+            Assert.Equal("status", confirmation.GetAttribute("role"));
+            Assert.Contains("Contract saved", confirmation.TextContent);
+            Assert.Contains("added to the reporting register", confirmation.TextContent);
+            Assert.Equal("Select a framework", registration.Find("button[role='combobox'][aria-label='Framework']").TextContent.Trim());
+            Assert.Empty(registration.FindAll(".invoice-details-section"));
+            Assert.Empty(registration.FindAll("[aria-invalid='true']"));
+            Assert.Single(context.JSInterop.Invocations["window.scrollTo"]);
+        });
+    }
+
+    [Fact]
     public void Contract_registration_replaces_long_native_lists_with_searchable_Remi_picklists()
     {
         using var context = CreateContext();
@@ -1233,6 +1269,26 @@ public sealed class RegisterComponentTests
             Assert.Contains("Submission", table.TextContent);
             Assert.DoesNotContain("Activity", table.TextContent);
             Assert.DoesNotContain("Readiness", table.TextContent);
+        });
+    }
+
+    [Fact]
+    public void Reports_framework_view_orders_reporting_months_newest_first()
+    {
+        using var context = CreateContext();
+        var reports = context.Render<ReportingRegister>();
+
+        reports.WaitForAssertion(() => Assert.NotEmpty(reports.FindAll(".return-register-table tbody tr")));
+        reports.FindAll(".return-register-views button").Single(button => button.TextContent.Trim() == "By framework").Click();
+
+        reports.WaitForAssertion(() =>
+        {
+            var reportingMonths = reports.FindAll(".return-register-table tbody tr td:first-child strong")
+                .Select(cell => DateOnly.ParseExact(cell.TextContent.Trim(), "MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture))
+                .ToList();
+
+            Assert.True(reportingMonths.Count >= 2);
+            Assert.Equal(reportingMonths.OrderByDescending(month => month), reportingMonths);
         });
     }
 

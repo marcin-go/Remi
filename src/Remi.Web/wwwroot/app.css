@@ -798,6 +798,11 @@ input, select { width: 100%; padding: 0.65rem 0.7rem; color: #1b2b38; background
 .contract-registration-value-summary > small { grid-column: 1 / -1; color: #607482; font-size: 0.72rem; line-height: 1.35; }
 .field-validation-message { color: var(--color-error); font-size: 0.72rem; font-weight: 650; line-height: 1.35; }
 .contract-registration-validation { margin: 0.15rem 0 0.25rem; padding: 0.65rem 0.8rem; color: var(--color-error); background: color-mix(in srgb, var(--color-error) 7%, var(--color-surface)); border-left: 3px solid var(--color-error); font-size: 0.78rem; font-weight: 650; line-height: 1.4; }
+.contract-registration-success { display: flex; align-items: center; gap: 0.85rem; margin: 0 0 1.25rem; padding: 0.9rem 1rem; color: #174c3b; background: linear-gradient(135deg, #edf9f4, #f6fcfa); border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border)); border-left: 4px solid var(--color-success); border-radius: 0.65rem; box-shadow: 0 5px 16px rgb(27 112 75 / 8%); }
+.contract-registration-success-icon { display: grid; flex: 0 0 auto; width: 2rem; height: 2rem; place-items: center; color: #fff; background: var(--color-success); border-radius: 50%; font-size: 1.1rem; font-weight: 800; line-height: 1; }
+.contract-registration-success div { display: grid; gap: 0.12rem; }
+.contract-registration-success strong { color: #123f31; font-size: 0.95rem; }
+.contract-registration-success p { margin: 0; color: #3f6659; font-size: 0.8rem; line-height: 1.4; }
 .clipboard-document-item { background: var(--color-surface); }
 .clipboard-document-item .floating-field > .floating-label { background: var(--color-surface); }
 .clipboard-document-remove {
@@ -987,6 +992,7 @@ select option:checked {
 .contract-edit-panel { max-width: 64rem; margin-bottom: 0; padding: 0; background: #fff; border: 1px solid #dce5e9; border-radius: 0.75rem; }
 .contract-edit-panel .panel-heading { padding: 1.1rem 1.25rem; border-bottom: 1px solid #dce5e9; }
 .contract-edit-panel .record-edit-fields { max-width: none; margin: 0; padding: 1.25rem; }
+.contract-edit-panel .record-edit-fields .remi-picklist-trigger { padding-top: 10px; padding-bottom: 10px; line-height: 20px; }
 .contract-edit-field-group + .contract-edit-field-group { border-top: 1px solid #dce5e9; }
 .contract-edit-field-group > h3 { margin: 0; padding: 1.1rem 1.25rem 0; color: #143c5d; font-size: 0.9rem; }
 .contract-edit-field-group > .record-edit-fields { padding-top: 0.85rem; }

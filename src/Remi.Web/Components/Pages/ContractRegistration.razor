@@ -14,9 +14,19 @@
         <div><h1>Register contract</h1><p>Choose a framework and enter the signed contract details.</p></div>
     </header>
 
-    @if (submission is not null)
+    @if (submission is { Succeeded: true })
     {
-        <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
+        <section class="contract-registration-success" role="status" aria-live="polite">
+            <span class="contract-registration-success-icon" aria-hidden="true">✓</span>
+            <div>
+                <strong>Contract saved</strong>
+                <p>@submission.Message</p>
+            </div>
+        </section>
+    }
+    else if (submission is not null)
+    {
+        <p class="notice error" role="alert">@submission.Message</p>
     }
 
     <ClipboardImageEvidence @ref="clipboardEvidence"
@@ -633,6 +643,9 @@
                     await clipboardEvidence!.ArchiveAsync("contract", contractId);
                 }
                 ResetForm();
+                await InvokeAsync(StateHasChanged);
+                await Task.Yield();
+                await ScrollToTopAsync();
             }
         }
         finally { working = false; }
@@ -641,6 +654,7 @@
     private void ResetForm()
     {
         validationAttempted = false;
+        selectedFramework = null;
         supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
         selectedCustomer = null;
         ActiveCustomerPicker = null;
@@ -651,6 +665,16 @@
         paymentSchedule = [RegistrationSchedulePosition.CreateDefault(1)];
         reportingMonth = initialReportingMonth = ReportingPeriod.SelectedPeriod;
         clipboardImageCount = 0;
+    }
+
+    private async Task ScrollToTopAsync()
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("window.scrollTo", 0, 0);
+        }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
     }
 
     private async Task ConfirmCancelAsync()
