@@ -786,6 +786,23 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Contract_register_initially_orders_start_dates_from_newest_to_oldest()
+    {
+        using var context = CreateContext(additionalContracts: 2);
+        var cut = context.Render<ContractsRegister>();
+
+        cut.WaitForAssertion(() => Assert.Equal(3, cut.FindAll(".contract-register-table tbody tr").Count));
+
+        Assert.Equal(
+            ["EXTRA-002", "EXTRA-001", "RM-001"],
+            cut.FindAll(".contract-register-table tbody a.register-reference")
+                .Select(reference => reference.TextContent.Trim())
+                .ToList());
+        Assert.Equal("descending", cut.FindAll(".contract-register-table thead th")[2].GetAttribute("aria-sort"));
+        Assert.EndsWith("↓", cut.FindAll(".contract-register-table thead th")[2].TextContent.Trim(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Contract_register_uses_the_current_end_date_and_value_after_an_extension()
     {
         using var context = CreateContext(includeContractExtension: true);
@@ -1431,7 +1448,7 @@ public sealed class RegisterComponentTests
                 $"EXTRA-{index:000}",
                 $"Picklist customer {index:000}",
                 $"URN-EXTRA-{index:000}",
-                new DateOnly(2026, 1, 1),
+                new DateOnly(2026, 1, 1).AddMonths(index),
                 new DateOnly(2026, 12, 31),
                 "2",
                 "Information and Communication Technology (ICT)",
