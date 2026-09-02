@@ -70,7 +70,16 @@ else
                                 <h3>Reporting context</h3>
                                 <div class="invoice-details-grid record-edit-fields">
                                     <RemiPicklist Id="contract-edit-framework-picklist-options" Label="Framework" Items="@EditableFrameworkOptions" Value="@editFramework.ToString()" ValueChanged="SetEditFramework" ItemLabel="FrameworkLabel" ItemGroup="FrameworkGroup" />
-                                    <label class="floating-field"><input required placeholder=" " @bind="editReportingMonth" /><span class="floating-label">Reporting month</span></label>
+                                    <RemiPicklist Id="contract-edit-reporting-month-picklist-options"
+                                                  Label="Reporting month"
+                                                  Items="@EditReportingMonthOptions"
+                                                  Value="@editReportingMonth"
+                                                  ValueChanged="@(value => editReportingMonth = value)"
+                                                  ItemLabel="DisplayReportingMonth"
+                                                  Placeholder="Search month or year"
+                                                  EmptyMessage="No matching reporting months."
+                                                  Searchable="true"
+                                                  Required="true" />
                                 </div>
                             </section>
                             <section class="contract-edit-field-group">
@@ -600,17 +609,8 @@ else
     private bool CanRecordChange => details is not null && changeAgreementDate is not null && changeIncrementalValue is not null && changeIncrementalValue != 0;
     private bool EditingChange => editingChangeId is not null;
     private bool ConfirmedChangeCannotBeUnconfirmed => editingChangeId is Guid changeId && details?.ContractChanges.Any(change => change.Id == changeId && change.IsConfirmed) == true;
-    private IReadOnlyList<string> InvoiceReportingMonthOptions
-    {
-        get
-        {
-            var selectedMonth = DateOnly.TryParseExact($"{invoiceReportingMonth}-01", "yyyy-MM-dd", out var parsed)
-                ? parsed
-                : DateOnly.FromDateTime(DateTime.Today);
-            var firstMonth = new DateOnly(selectedMonth.Year, selectedMonth.Month, 1).AddMonths(-36);
-            return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
-        }
-    }
+    private IReadOnlyList<string> EditReportingMonthOptions => ReportingMonthOptions(editReportingMonth);
+    private IReadOnlyList<string> InvoiceReportingMonthOptions => ReportingMonthOptions(invoiceReportingMonth);
     private bool CanSaveContract => details is not null
         && ContractReportFields.IsAvailable(editFramework)
         && IsValidReportingMonth(editReportingMonth)
@@ -666,7 +666,7 @@ else
         PopulateEditors();
     }
 
-    private void SetTab(string tab) => activeTab = tab;
+    private void SetTab(string tab) { if (!contractWorking && !changeWorking) activeTab = tab; }
     private async Task ShowInvoiceFormAsync()
     {
         showInvoiceForm = !showInvoiceForm;
@@ -676,9 +676,10 @@ else
             await PopulateInvoiceReportingFieldsAsync(details.Contract);
         }
     }
-    private void ToggleChangeForm() { showChangeForm = !showChangeForm; changeSubmission = null; if (!showChangeForm) ResetChangeForm(); }
+    private void ToggleChangeForm() { if (changeWorking) return; showChangeForm = !showChangeForm; changeSubmission = null; if (!showChangeForm) ResetChangeForm(); }
     private void BeginChangeEdit(ContractChangeRecord change)
     {
+        if (changeWorking) return;
         editingChangeId = change.Id;
         changeKind = change.Kind;
         changeAgreementDate = change.AgreementDate;
@@ -692,7 +693,7 @@ else
         changeSubmission = null;
         showChangeForm = true;
     }
-    private void ToggleContractEditor() { editingContract = !editingContract; contractSubmission = null; moreMenuOpen = false; confirmingDelete = false; if (editingContract) PopulateContractEditor(); }
+    private void ToggleContractEditor() { if (contractWorking) return; editingContract = !editingContract; contractSubmission = null; moreMenuOpen = false; confirmingDelete = false; if (editingContract) PopulateContractEditor(); }
     private void ToggleMoreMenu() => moreMenuOpen = !moreMenuOpen;
     private async Task ShowDeleteConfirmationAsync()
     {
@@ -1038,13 +1039,32 @@ else
 
     private async Task SaveContractAsync()
     {
-        if (!CanSaveContract) return;
+        if (!CanSaveContract || contractWorking) return;
         contractWorking = true; contractSubmission = null;
         try
         {
+            await contractClipboardEvidence!.PrepareAsync();
             contractSubmission = await Workspace.UpdateContractAsync(ContractId, new ContractEntry(editFramework, editSupplierReference, editCustomerName, editCustomerUrn, editStartDate, editEndDate, editLotNumber, IsEditGCloud ? editServiceGroup : null, null, IsEditGCloud ? null : editServiceDescription, IsEditGCloud ? null : editOrderChannel, IsEditGCloud ? editMarketplaceServiceId : null, editContractValue, editReportingMonth, "Edited in Remi"));
-            if (contractSubmission.Succeeded) { if (contractClipboardImageCount != 0) await contractClipboardEvidence!.ArchiveAsync("contract", ContractId); contractClipboardImageCount = 0; details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); editingContract = false; PopulateEditors(); }
+            if (contractSubmission.Succeeded)
+            {
+                try
+                {
+                    _ = await contractClipboardEvidence!.ArchiveAsync("contract", ContractId);
+                }
+                catch (Exception exception)
+                {
+                    contractSubmission = new ReturnActionResult(false, $"The contract was updated, but its supporting documents could not be saved: {exception.Message}", []);
+                    return;
+                }
+
+                contractClipboardImageCount = 0;
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+                editingContract = false;
+                PopulateEditors();
+            }
         }
+        catch (Exception exception) { contractSubmission = new ReturnActionResult(false, $"The contract could not be saved: {exception.Message}", []); }
         finally { contractWorking = false; }
     }
 
@@ -1140,27 +1160,27 @@ else
 
     private async Task SaveChangeAsync()
     {
-        if (!CanRecordChange) return;
+        if (!CanRecordChange || changeWorking) return;
         changeWorking = true;
         changeSubmission = null;
         try
         {
+            await changeClipboardEvidence!.PrepareAsync();
             var entry = new ContractChangeEntry(ContractId, changeKind, changeAgreementDate, changeEffectiveStartDate, changeEffectiveEndDate, changeIncrementalValue!.Value, changeProvidedFor, changeIsConfirmed, changeReference);
             changeSubmission = editingChangeId is Guid changeId
                 ? await Workspace.UpdateContractChangeAsync(changeId, entry)
                 : await Workspace.RecordContractChangeAsync(entry);
             if (changeSubmission.Succeeded)
             {
-                if (changeClipboardDocumentCount != 0 && changeSubmission.EntityId is Guid archivedChangeId)
-                {
-                    await changeClipboardEvidence!.ArchiveAsync("contract-change", archivedChangeId);
-                }
+                editingChangeId = changeSubmission.EntityId ?? throw new InvalidOperationException("The saved change could not be identified.");
+                await changeClipboardEvidence.ArchiveAsync("contract-change", editingChangeId.Value);
                 details = await Workspace.GetContractDetailsAsync(ContractId);
                 history = await Workspace.GetContractAuditEventsAsync(ContractId);
                 showChangeForm = false;
                 ResetChangeForm();
             }
         }
+        catch (Exception exception) { changeSubmission = new ReturnActionResult(false, $"The change or its documents could not be saved: {exception.Message}", []); }
         finally { changeWorking = false; }
     }
 
@@ -1214,6 +1234,14 @@ else
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string InvoiceRoute(Guid invoiceId) => PeriodRoute($"invoices/{invoiceId}");
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
+    private static IReadOnlyList<string> ReportingMonthOptions(string value)
+    {
+        var selectedMonth = DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed)
+            ? parsed
+            : DateOnly.FromDateTime(DateTime.Today);
+        var firstMonth = new DateOnly(selectedMonth.Year, selectedMonth.Month, 1).AddMonths(-36);
+        return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
+    }
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed) ? parsed.ToString("MMMM yyyy") : month;
     private static string StatusMark(bool complete) => complete ? "✓" : "!";
     private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;

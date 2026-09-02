@@ -12,7 +12,9 @@
         {
             <header><strong>@Heading</strong><span>@(documents.Count == 0 ? EmptyStatus : $"{documents.Count} ready to save")</span></header>
         }
-        <label class="clipboard-document-dropzone"><input type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" /><strong>@DropZoneTitle</strong><span class="clipboard-instruction-desktop">choose from disk, or press Ctrl+V to paste an image</span><span class="clipboard-instruction-mobile">choose a file or photo</span></label>
+        <label class="clipboard-document-dropzone"><input type="file" multiple disabled="@saving" aria-label="Add supporting documents" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" /><strong>@DropZoneTitle</strong><span class="clipboard-instruction-desktop">choose multiple files, drop files here, or press Ctrl+V to paste</span><span class="clipboard-instruction-mobile">choose files or photos</span><span>15 MB per file</span></label>
+        <p class="clipboard-document-error" data-clipboard-client-error hidden role="alert"></p>
+        @if (busy || progress is not null) { <p class="clipboard-documents-empty" role="status">@(busy ? "Preparing documents…" : progress)</p> }
         @if (intakeError is not null) { <p class="clipboard-document-error" role="alert">@intakeError</p> }
         @if (documents.Count != 0)
         {
@@ -20,9 +22,9 @@
                 @foreach (var document in documents)
                 {
                     <article class="clipboard-document-item" @key="document.Id">
-                        @if (document.PreviewDataUrl is not null) { <img src="@document.PreviewDataUrl" alt="@document.FileName" /> } else { <span class="clipboard-document-icon" aria-hidden="true">▧</span> }
-                        <div><label class="floating-field floating-field--static"><input value="@document.Title" @oninput="@(args => RenameDocumentAsync(document, args))" aria-label="Document title for @document.FileName" placeholder="Document title" /><span class="floating-label">Document title</span></label><small>@document.FileName</small></div>
-                        <button type="button" class="clipboard-document-remove" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName" title="Remove document"><span aria-hidden="true">×</span></button>
+                        @if (document.PreviewUrl is not null) { <img src="@document.PreviewUrl" alt="@document.FileName" /> } else { <span class="clipboard-document-icon" aria-hidden="true">▧</span> }
+                        <div><label class="floating-field floating-field--static"><input value="@document.Title" disabled="@saving" maxlength="200" @oninput="@(args => RenameDocumentAsync(document, args))" aria-label="Document title for @document.FileName" placeholder="Document title" /><span class="floating-label">Document title</span></label><small>@document.FileName</small></div>
+                        <button type="button" class="clipboard-document-remove" disabled="@saving" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName" title="Remove document"><span aria-hidden="true">×</span></button>
                     </article>
                 }
             </div>
@@ -47,6 +49,10 @@
     private ElementReference host;
     private IJSObjectReference? module;
     private DotNetObjectReference<ClipboardImageEvidence>? reference;
+    private readonly TaskCompletionSource<bool> ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool disposed, busy, saving;
+    private string? progress;
+    private long revision = -1;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -56,40 +62,51 @@
             module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "/clipboard-image-evidence.js");
             reference = DotNetObjectReference.Create(this);
             await module.InvokeVoidAsync("attach", host, reference);
+            ready.TrySetResult(true);
         }
         catch (Exception)
         {
             intakeError = "Documents could not be prepared. Reload the page and try again.";
+            ready.TrySetResult(false);
             await InvokeAsync(StateHasChanged);
         }
     }
 
     [JSInvokable]
-    public async Task DocumentAdded(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
+    public async Task DocumentsChanged()
     {
-        intakeError = null;
-        if (documents.All(document => document.Id != id))
-        {
-            documents.Add(new PendingDocument(id, fileName, contentType, fileSizeBytes, previewDataUrl));
-        }
-        await InvokeAsync(StateHasChanged);
-        await OnDocumentsChanged.InvokeAsync(documents.Count);
+        if (disposed || module is null) return;
+        await ApplyStateAsync(await module.InvokeAsync<DocumentState>("getState", host));
     }
 
-    [JSInvokable]
-    public async Task DocumentIntakeFailed(string message)
+    public async Task PrepareAsync()
     {
-        intakeError = message;
-        await InvokeAsync(StateHasChanged);
+        if (!await ready.Task.WaitAsync(TimeSpan.FromSeconds(15)) || module is null)
+            throw new InvalidOperationException("Documents are not ready. Reload the page and try again.");
+        await ApplyStateAsync(await module.InvokeAsync<DocumentState>("prepare", host));
     }
 
     public async Task<bool> ArchiveAsync(string entityType, Guid entityId)
     {
-        if (module is null) return false;
-        var archivedCount = await module.InvokeAsync<int>("archive", host, entityType, entityId);
-        documents.Clear();
-        await OnDocumentsChanged.InvokeAsync(0);
-        return archivedCount != 0;
+        await PrepareAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        var result = await module!.InvokeAsync<DocumentState>("archive", timeout.Token, host, entityType, entityId);
+        await ApplyStateAsync(result);
+        if (result.Error is not null) throw new InvalidOperationException(result.Error);
+        return result.ArchivedCount != 0;
+    }
+
+    private async Task ApplyStateAsync(DocumentState state)
+    {
+        if (disposed || state.Revision < revision) return;
+        revision = state.Revision;
+        documents = state.Documents;
+        busy = state.Busy;
+        saving = state.Saving;
+        intakeError = state.Error;
+        progress = state.Progress;
+        await OnDocumentsChanged.InvokeAsync(documents.Count);
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RenameDocumentAsync(PendingDocument document, ChangeEventArgs args)
@@ -98,37 +115,52 @@
         if (module is not null)
         {
             await module.InvokeVoidAsync("rename", host, document.Id, document.Title);
+            await DocumentsChanged();
         }
     }
 
     private async Task RemoveDocumentAsync(string id)
     {
         if (module is not null) await module.InvokeVoidAsync("remove", host, id);
-        documents.RemoveAll(document => document.Id == id);
-        await OnDocumentsChanged.InvokeAsync(documents.Count);
-        await InvokeAsync(StateHasChanged);
+        await DocumentsChanged();
     }
 
     public async ValueTask DisposeAsync()
     {
+        disposed = true;
+        ready.TrySetResult(false);
         if (module is not null)
         {
-            try { await module.InvokeVoidAsync("dispose", host); }
+            try
+            {
+                await module.InvokeVoidAsync("dispose", host);
+                await module.DisposeAsync();
+            }
             catch (JSDisconnectedException) { }
-            await module.DisposeAsync();
         }
         reference?.Dispose();
     }
 
-    private readonly List<PendingDocument> documents = [];
+    private List<PendingDocument> documents = [];
     private string? intakeError;
-    private sealed class PendingDocument(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
+    public sealed class DocumentState
     {
-        public string Id { get; } = id;
-        public string FileName { get; } = fileName;
-        public string ContentType { get; } = contentType;
-        public long FileSizeBytes { get; } = fileSizeBytes;
-        public string? PreviewDataUrl { get; } = previewDataUrl;
-        public string Title { get; set; } = Path.GetFileNameWithoutExtension(fileName);
+        public long Revision { get; set; }
+        public List<PendingDocument> Documents { get; set; } = [];
+        public bool Busy { get; set; }
+        public bool Saving { get; set; }
+        public string? Error { get; set; }
+        public string? Progress { get; set; }
+        public int ArchivedCount { get; set; }
+    }
+
+    public sealed class PendingDocument
+    {
+        public string Id { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long FileSizeBytes { get; set; }
+        public string? PreviewUrl { get; set; }
+        public string Title { get; set; } = string.Empty;
     }
 }

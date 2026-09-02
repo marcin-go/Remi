@@ -196,7 +196,7 @@ else
     private static bool IsOverrun(ContractProgress contract) => contract.ComparisonValueExVat > 0 && contract.ReportedInvoiceValueExVat > contract.ComparisonValueExVat;
     private static string ProgressSummary(ContractProgress contract) => IsOverrun(contract) ? $"{Percentage(contract.CompletionRatio)} reported. Reported invoice value exceeds the planned or contract value." : $"{Percentage(contract.CompletionRatio)} reported against the planned or contract value.";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
-    private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
+    private static string ContractRoute(Guid contractId) => $"/contracts/{contractId}";
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
 }

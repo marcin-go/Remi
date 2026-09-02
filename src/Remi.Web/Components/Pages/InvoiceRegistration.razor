@@ -30,6 +30,11 @@
     }
     else
     {
+        @if (pendingInvoiceId is not null)
+        {
+            <p class="notice">The invoice has been registered. Retry the unfinished document uploads; the invoice will not be created again.</p>
+            <button type="button" class="invoice-command invoice-command-save" disabled="@working" @onclick="RecordInvoiceAsync">@(working ? "Saving…" : "Retry documents")</button>
+        }
         @if (submission is not null)
         {
             <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p>
@@ -39,7 +44,7 @@
             }
         }
 
-        <section class="invoice-intake-surface">
+        <section class="invoice-intake-surface" inert="@(pendingInvoiceId is not null || working)">
             <section class="invoice-contract-section">
                 <h2>Contract</h2>
                 <div class="contract-picker">
@@ -176,6 +181,7 @@
     private ReturnActionResult? submission;
     private bool working;
     private ClipboardImageEvidence? clipboardEvidence;
+    private Guid? pendingInvoiceId;
     private int clipboardImageCount;
     private string customerName = string.Empty, customerUrn = string.Empty, lotNumber = string.Empty, serviceGroup = string.Empty, serviceGroupLevel2 = string.Empty, serviceDescription = string.Empty, orderChannel = string.Empty, digitalMarketplaceServiceId = string.Empty, unitOfMeasure = string.Empty, originalVendor = string.Empty, subcontractorName = string.Empty;
     private decimal? quantity;
@@ -281,13 +287,16 @@
     private async Task RecordInvoiceAsync()
     {
         var contract = SelectedContract;
-        if (!CanRecord || contract is null) return;
+        if (working || (!CanRecord && pendingInvoiceId is null) || contract is null) return;
 
         working = true;
         submission = null;
         try
         {
-            submission = await Workspace.RecordInvoiceAsync(new InvoiceEntry(
+            await clipboardEvidence!.PrepareAsync();
+            submission = pendingInvoiceId is Guid retainedId
+                ? new ReturnActionResult(true, "The invoice and its supporting documents have been saved.", [], retainedId)
+                : await Workspace.RecordInvoiceAsync(new InvoiceEntry(
                 contract.Framework,
                 contract.SupplierReference,
                 customerName,
@@ -311,18 +320,18 @@
                 contractChangeId));
             if (submission.Succeeded)
             {
-                if (clipboardImageCount != 0 && submission.EntityId is Guid invoiceId)
-                {
-                    await clipboardEvidence!.ArchiveAsync("invoice", invoiceId);
-                }
+                pendingInvoiceId = submission.EntityId ?? throw new InvalidOperationException("The registered invoice could not be identified.");
+                await clipboardEvidence.ArchiveAsync("invoice", pendingInvoiceId.Value);
                 await ResetFormAsync();
             }
         }
+        catch (Exception exception) { submission = new ReturnActionResult(false, pendingInvoiceId is null ? $"The invoice could not be saved: {exception.Message}" : $"The invoice was registered, but some documents remain unsaved: {exception.Message}", []); }
         finally { working = false; }
     }
 
     private async Task ResetFormAsync()
     {
+        pendingInvoiceId = null;
         invoiceNumber = string.Empty;
         invoiceDate = null;
         totalCostExVat = 0;
@@ -405,6 +414,7 @@
 
     private async Task ConfirmCancelAsync()
     {
+        if (working) return;
         if (HasUnsavedInvoiceChanges && !await JsRuntime.InvokeAsync<bool>("confirm", "Discard the invoice details you have entered?")) return;
         Navigation.NavigateTo(PeriodRoute("invoices"));
     }
@@ -412,7 +422,7 @@
     private void SetClipboardImageCount(int count) => clipboardImageCount = count;
 
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
-    private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
+    private static string ContractRoute(Guid contractId) => $"/contracts/{contractId}";
     private static string DisplayReportingMonth(string month) => DateOnly.TryParseExact($"{month}-01", "yyyy-MM-dd", out var parsed) ? parsed.ToString("MMMM yyyy") : month;
     private static string ContractDescription(InvoiceRegistrationContract contract) => $"{contract.SupplierReference} · {contract.CustomerName} · {Frameworks.Get(contract.Framework).DisplayName}";
     private static string ChangeDescription(ContractChangeRecord change) => $"{change.Kind} agreed {change.AgreementDate:dd MMM yyyy} · {change.IncrementalValueExVat:C2}";

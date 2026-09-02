@@ -194,8 +194,8 @@ else
     }
 
     private async void ReportingPeriodChanged() => await InvokeAsync(StateHasChanged);
-    private void SetTab(string tab) => activeTab = tab;
-    private void ToggleEditor() { editing = !editing; submission = null; confirmingDelete = false; moreMenuOpen = false; deleteResult = null; if (editing) PopulateEditor(); }
+    private void SetTab(string tab) { if (!saving) activeTab = tab; }
+    private void ToggleEditor() { if (saving) return; editing = !editing; submission = null; confirmingDelete = false; moreMenuOpen = false; deleteResult = null; if (editing) PopulateEditor(); }
     private void ToggleMoreMenu() => moreMenuOpen = !moreMenuOpen;
     private async Task ShowDeleteConfirmationAsync()
     {
@@ -217,21 +217,18 @@ else
 
     private async Task SaveAsync()
     {
-        if (!CanSave || details is null) return;
+        if (!CanSave || details is null || saving) return;
         saving = true;
         submission = null;
         var invoiceUpdated = false;
         try
         {
+            await invoiceClipboardEvidence!.PrepareAsync();
             submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi", details.ContractChange?.Id));
             if (submission.Succeeded)
             {
                 invoiceUpdated = true;
-                if (invoiceClipboardImageCount != 0 && !await invoiceClipboardEvidence!.ArchiveAsync("invoice", InvoiceId))
-                {
-                    submission = new ReturnActionResult(false, "The invoice was updated, but its supporting documents could not be saved. Check the Documents pane and try again.", []);
-                    return;
-                }
+                await invoiceClipboardEvidence.ArchiveAsync("invoice", InvoiceId);
 
                 invoiceClipboardImageCount = 0;
                 await ReloadAsync();
@@ -268,7 +265,7 @@ else
     private string TabClass(string tab) => activeTab == tab ? "active" : string.Empty;
     private void SetInvoiceClipboardImageCount(int count) => invoiceClipboardImageCount = count;
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
-    private string ContractRoute(Guid contractId) => PeriodRoute($"contracts/{contractId}");
+    private static string ContractRoute(Guid contractId) => $"/contracts/{contractId}";
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
     private static string StatusMark(bool complete) => complete ? "✓" : "!";
     private static string NotRecordedClass(string? value) => string.IsNullOrWhiteSpace(value) ? "not-recorded" : string.Empty;

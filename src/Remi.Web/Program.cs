@@ -212,55 +212,7 @@ app.MapGet("/mail/{id:guid}/download", async (
         : Results.File(stream, "message/rfc822", fileDownloadName: $"{message.EventType}-{message.CreatedAtUtc:yyyyMMdd-HHmmss}.eml", enableRangeProcessing: true);
 });
 
-app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", async (
-    string entityType,
-    Guid entityId,
-    string? title,
-    IFormFile file,
-    IRemiStore store,
-    ReportingWorkspace workspace,
-    CancellationToken cancellationToken) =>
-{
-    if (file.Length is <= 0 or > 15 * 1024 * 1024)
-    {
-        return Results.BadRequest("Add a file smaller than 15 MB.");
-    }
-
-    var target = await store.ReadAsync(database => entityType.ToLowerInvariant() switch
-    {
-        "contract" => database.Contracts.Where(item => item.Id == entityId).Select(item => new ClipboardEvidenceTarget(item.Framework, item.ReportMonth, item.SupplierReference)).SingleOrDefault(),
-        "invoice" => database.Invoices.Where(item => item.Id == entityId).Select(item => new ClipboardEvidenceTarget(item.Framework, item.ReportMonth, item.SupplierReference)).SingleOrDefault(),
-        "contract-change" => (from change in database.ContractChanges
-                              join contract in database.Contracts on change.ContractId equals contract.Id
-                              where change.Id == entityId
-                              select new ClipboardEvidenceTarget(contract.Framework, change.AgreementDate.ToString("yyyy-MM"), contract.SupplierReference)).SingleOrDefault(),
-        "monthly-return" => database.MonthlyReturns.Where(item => item.Id == entityId).Select(item => new ClipboardEvidenceTarget(item.Framework, item.ReportMonth, null)).SingleOrDefault(),
-        _ => null,
-    }, cancellationToken);
-    if (target is null)
-    {
-        return Results.NotFound();
-    }
-
-    var extension = Path.GetExtension(file.FileName);
-    var fileName = string.IsNullOrWhiteSpace(title)
-        ? Path.GetFileName(file.FileName)
-        : $"{Path.GetFileNameWithoutExtension(title.Trim())}{extension}";
-    await using var content = file.OpenReadStream();
-    var archived = await workspace.ArchiveEvidenceAsync(
-        string.Equals(entityType, "monthly-return", StringComparison.OrdinalIgnoreCase)
-            ? Remi.Domain.EvidenceKind.SubmissionEvidence
-            : Remi.Domain.EvidenceKind.SupportingDocument,
-        target.Framework,
-        target.ReportMonth,
-        fileName,
-        $"clipboard/{entityType.ToLowerInvariant()}/{entityId:D}/{fileName}",
-        file.ContentType,
-        target.SupplierReference,
-        content,
-        cancellationToken);
-    return Results.Ok(new { archived });
-});
+app.MapPost("/evidence/clipboard/{entityType}/{entityId:guid}", EvidenceUploadEndpoint.HandleAsync);
 
 app.MapPost("/data-transfer/backup/prepare", async (
     HttpRequest request,
@@ -432,5 +384,3 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 
 app.Run();
-
-sealed record ClipboardEvidenceTarget(Remi.Domain.FrameworkCode Framework, string ReportMonth, string? SupplierReference);

@@ -106,7 +106,7 @@
                 }
             </section>
         }
-        else if (activeWorkflowStage == 4 && CanRecordPortalSubmission)
+        else if (activeWorkflowStage == 4 && (CanRecordPortalSubmission || pendingSubmission is not null))
         {
             <ClipboardImageEvidence @ref="submissionClipboardEvidence"
                                     LayoutClass="return-submission-evidence-layout"
@@ -116,11 +116,11 @@
                                     EmptyMessage="Add the GCA submission confirmation screenshot."
                                     ShowHeader="false">
                 <section class="return-current-action return-submission-capture" id="submission-record" aria-label="@SubmissionActionHeading">
-                    <p class="return-stage-intro">@SubmissionActionGuidance</p>
+                    <p class="return-stage-intro">@(pendingSubmission is not null ? "The submission is recorded. Retry its unfinished documents; the submission will not be recorded again." : SubmissionActionGuidance)</p>
                     <div class="return-submission-capture-actions">
-                        <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference (optional)</span></label>
-                        <label class="submission-timestamp floating-field floating-field--static"><input @bind="submissionTimestampInput" @bind:event="oninput" placeholder="6 August 2026 13:45 UTC" aria-label="Submission date and time" /><span class="floating-label">Submission date and time (UTC)</span></label>
-                        <button class="remi-action remi-action--primary" disabled="@(working || !SubmissionTimestampIsValid)" @onclick="RecordCurrentSubmissionAsync">@(IsNilReturnDraft ? "Record nil submission" : IsCorrectionRequired ? "Record corrected submission" : "Record submission")</button>
+                        <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" disabled="@(working || pendingSubmission is not null)" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference (optional)</span></label>
+                        <label class="submission-timestamp floating-field floating-field--static"><input @bind="submissionTimestampInput" @bind:event="oninput" disabled="@(working || pendingSubmission is not null)" placeholder="6 August 2026 13:45 UTC" aria-label="Submission date and time" /><span class="floating-label">Submission date and time (UTC)</span></label>
+                        <button class="remi-action remi-action--primary" disabled="@(working || !SubmissionTimestampIsValid)" @onclick="RecordCurrentSubmissionAsync">@(pendingSubmission is not null ? "Retry documents" : IsNilReturnDraft ? "Record nil submission" : IsCorrectionRequired ? "Record corrected submission" : "Record submission")</button>
                     </div>
                     @if (!SubmissionTimestampIsValid) { <p class="field-validation-message" role="status">Use a date and time such as 6 August 2026 13:45 UTC.</p> }
                 </section>
@@ -166,7 +166,7 @@
                                         DropZoneTitle="Submission evidence"
                                         EmptyMessage="Add the GCA submission confirmation screenshot."
                                         ShowHeader="false">
-                    <section class="return-current-action return-submission-edit" aria-labelledby="submission-edit-heading">
+                    <section class="return-current-action return-submission-edit" aria-labelledby="submission-edit-heading" inert="@working">
                         <div><h3 id="submission-edit-heading">Edit submission record</h3><p class="muted">Update the retained GCA details and documents without reopening the return.</p></div>
                         <div class="submission-evidence-details">
                             <label class="submission-reference floating-field floating-field--static"><input @bind="submissionReference" @bind:event="oninput" placeholder="e0303f95-3441-4d48-bd32-e028a66f87db" /><span class="floating-label">GCA task reference</span></label>
@@ -369,6 +369,7 @@ else
     private ReportingCardModel? reportingCard;
     private ClipboardImageEvidence? submissionClipboardEvidence;
     private ClipboardImageEvidence? submissionEditClipboardEvidence;
+    private ReturnActionResult? pendingSubmission;
     private int submissionClipboardImageCount;
     private int submissionEditClipboardImageCount;
     private readonly List<SubmissionEvidenceEditModel> submissionEvidenceEdits = [];
@@ -517,12 +518,18 @@ else
         working = true;
         try
         {
-            actionResult = await recordSubmission();
-            if (actionResult.Succeeded) await ArchiveSubmissionEvidenceAsync(actionResult);
+            await submissionClipboardEvidence!.PrepareAsync();
+            actionResult = pendingSubmission ?? await recordSubmission();
+            if (actionResult.Succeeded)
+            {
+                pendingSubmission = actionResult;
+                await ArchiveSubmissionEvidenceAsync(actionResult);
+                pendingSubmission = null;
+            }
         }
         catch (Exception exception)
         {
-            actionResult = new ReturnActionResult(false, $"The submission could not be recorded: {exception.Message}", []);
+            actionResult = new ReturnActionResult(false, pendingSubmission is null ? $"The submission could not be recorded: {exception.Message}" : $"The submission was recorded, but some documents remain unsaved: {exception.Message}", []);
         }
         finally
         {
@@ -534,30 +541,10 @@ else
 
     private async Task ArchiveSubmissionEvidenceAsync(ReturnActionResult recorded)
     {
-        if (submissionClipboardImageCount == 0) return;
         if (recorded.EntityId is not Guid monthlyReturnId || submissionClipboardEvidence is null)
-        {
-            actionResult = recorded with { Message = $"{recorded.Message} The submission screenshot could not be linked, so please keep it and try again." };
-            return;
-        }
-
-        try
-        {
-            var archived = await submissionClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId);
-            if (archived)
-            {
-                submissionClipboardImageCount = 0;
-                actionResult = recorded with { Message = $"{recorded.Message} Submission evidence was retained." };
-            }
-            else
-            {
-                actionResult = recorded with { Message = $"{recorded.Message} The submission screenshot could not be archived, so please keep it and try again." };
-            }
-        }
-        catch (Exception)
-        {
-            actionResult = recorded with { Message = $"{recorded.Message} The submission screenshot could not be archived, so please keep it and try again." };
-        }
+            throw new InvalidOperationException("The submission documents could not be linked to the saved return.");
+        if (await submissionClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId))
+            actionResult = recorded with { Message = $"{recorded.Message} Submission evidence was retained." };
     }
 
     private void EditSubmissionRecord()
@@ -574,6 +561,7 @@ else
 
     private void CancelSubmissionEdit()
     {
+        if (working) return;
         submissionReference = SelectedReturn?.SubmissionReference;
         submissionTimestampInput = SelectedReturn?.SubmittedAtUtc is { } submittedAt
             ? SubmissionTimestampParser.FormatUtc(submittedAt)
@@ -586,9 +574,11 @@ else
     private async Task SaveSubmissionRecordAsync()
     {
         if (!CanSaveSubmissionRecord || SelectedReturn?.ReturnId is not Guid monthlyReturnId || !TryGetSubmissionTimestamp(out var submittedAtUtc)) return;
+        var evidenceEditsSaved = false;
         working = true;
         try
         {
+            await submissionEditClipboardEvidence!.PrepareAsync();
             actionResult = HasSubmissionReferenceChanged || HasSubmissionTimestampChanged
                 ? await Workspace.UpdateSubmissionDetailsAsync(framework, reportingMonth, submissionReference, submittedAtUtc)
                 : new ReturnActionResult(true, "The submission record has been saved.", [], monthlyReturnId);
@@ -605,13 +595,20 @@ else
                 actionResult = evidenceResult.Succeeded && detailsChanged
                     ? evidenceResult with { Message = $"{detailsMessage} {evidenceResult.Message}" }
                     : evidenceResult;
+                if (evidenceResult.Succeeded)
+                {
+                    // These edits are committed even if a later new-file upload fails.
+                    // In particular, retry must not attempt to delete an already removed document.
+                    evidenceEditsSaved = true;
+                    submissionEvidenceEdits.Clear();
+                }
             }
-            if (actionResult.Succeeded && submissionEditClipboardImageCount != 0)
+            if (actionResult.Succeeded)
             {
                 await ArchiveSubmissionEditEvidenceAsync(actionResult);
             }
 
-            if (actionResult.Succeeded && submissionEditClipboardImageCount == 0)
+            if (actionResult.Succeeded)
             {
                 submissionEvidenceEdits.Clear();
                 editingSubmissionRecord = false;
@@ -627,28 +624,15 @@ else
         }
 
         await ReloadAsync();
+        if (evidenceEditsSaved && editingSubmissionRecord) ResetSubmissionEvidenceEdits();
     }
 
     private async Task ArchiveSubmissionEditEvidenceAsync(ReturnActionResult saved)
     {
-        if (saved.EntityId is not Guid monthlyReturnId || submissionEditClipboardEvidence is null) return;
-        try
-        {
-            var archived = await submissionEditClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId);
-            if (archived)
-            {
-                submissionEditClipboardImageCount = 0;
-                actionResult = saved with { Message = $"{saved.Message} Submission evidence was retained." };
-            }
-            else
-            {
-                actionResult = saved with { Message = $"{saved.Message} The submission screenshot could not be archived, so please keep it and try again." };
-            }
-        }
-        catch (Exception)
-        {
-            actionResult = saved with { Message = $"{saved.Message} The submission screenshot could not be archived, so please keep it and try again." };
-        }
+        if (saved.EntityId is not Guid monthlyReturnId || submissionEditClipboardEvidence is null)
+            throw new InvalidOperationException("The submission documents could not be linked to the saved return.");
+        if (await submissionEditClipboardEvidence.ArchiveAsync("monthly-return", monthlyReturnId))
+            actionResult = saved with { Message = $"{saved.Message} Submission evidence was retained." };
     }
 
     private async Task RequestCorrectionAsync()
@@ -725,7 +709,7 @@ else
         ? "return-workflow-tab is-current"
         : IsWorkflowStageComplete(stage) ? "return-workflow-tab is-complete" : "return-workflow-tab";
     private string? WorkflowStageMark(int stage) => IsWorkflowStageComplete(stage) ? "✓" : null;
-    private void SelectWorkflowStage(int stage) => activeWorkflowStage = Math.Clamp(stage, 1, 4);
+    private void SelectWorkflowStage(int stage) { if (!working && pendingSubmission is null) activeWorkflowStage = Math.Clamp(stage, 1, 4); }
     private static string LifecycleLabel(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "Submitted", ReportLifecycleStatus.CorrectionRequired => "Correction required", _ => "Draft" };
     private static string LifecycleClass(ReportLifecycleStatus status) => status switch { ReportLifecycleStatus.Submitted => "readiness-status complete", ReportLifecycleStatus.CorrectionRequired => "readiness-status warning", _ => "readiness-status neutral" };
     private static string SubmissionRegisterTiming(MonthlyReturnRegisterEntry item) => item.SubmittedAtUtc is { } submittedAt

@@ -36,7 +36,12 @@
                             EmptyMessage="Add the signed contract, pricing or related files."
                             LayoutClass="contract-registration-evidence"
                             ShowHeader="false">
-        <section class="invoice-intake-surface">
+        @if (pendingContractId is not null)
+        {
+            <p class="notice">The contract has been registered. Retry the unfinished document uploads below; the contract will not be created again.</p>
+            <button type="button" class="invoice-command invoice-command-save" disabled="@working" @onclick="CreateContractAsync">@(working ? "Saving…" : "Retry documents")</button>
+        }
+        <section class="invoice-intake-surface" inert="@(pendingContractId is not null || working)">
             <section class="invoice-contract-section contract-reporting-context">
                 <div class="invoice-details-grid">
                     <RemiPicklist @key="FrameworkPickerKey"
@@ -311,6 +316,7 @@
     private IReadOnlyList<DigitalMarketplaceService> FilteredMarketplaceServices = [];
     private bool marketplaceSuggestionsOpen;
     private ClipboardImageEvidence? clipboardEvidence;
+    private Guid? pendingContractId;
     private int clipboardImageCount;
     private RemiPicklist? reportingMonthField;
     private ElementReference supplierReferenceField;
@@ -630,29 +636,32 @@
 
     private async Task CreateContractAsync()
     {
-        if (!CanCreate || selectedFramework is null) return;
+        if (working || (!CanCreate && pendingContractId is null) || selectedFramework is null) return;
         working = true;
         try
         {
+            await clipboardEvidence!.PrepareAsync();
             var paymentPlan = BuildPaymentPlan();
-            submission = await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, InitialReportableContractValue, reportingMonth, "Manual contract registration", paymentPlan));
+            submission = pendingContractId is Guid retainedId
+                ? new ReturnActionResult(true, "The contract and its supporting documents have been saved.", [], retainedId)
+                : await Workspace.CreateContractAsync(new ContractEntry(selectedFramework.Value, supplierReference, customerName, customerUrn, startDate, endDate, lotNumber, IsGCloud ? serviceGroup : null, null, IsGCloud ? null : serviceDescription, IsGCloud ? null : orderChannel, IsGCloud ? digitalMarketplaceServiceId : null, InitialReportableContractValue, reportingMonth, "Manual contract registration", paymentPlan));
             if (submission.Succeeded)
             {
-                if (clipboardImageCount != 0 && submission.EntityId is Guid contractId)
-                {
-                    await clipboardEvidence!.ArchiveAsync("contract", contractId);
-                }
+                pendingContractId = submission.EntityId ?? throw new InvalidOperationException("The registered contract could not be identified.");
+                await clipboardEvidence.ArchiveAsync("contract", pendingContractId.Value);
                 ResetForm();
                 await InvokeAsync(StateHasChanged);
                 await Task.Yield();
                 await ScrollToTopAsync();
             }
         }
+        catch (Exception exception) { submission = new ReturnActionResult(false, pendingContractId is null ? $"The contract could not be saved: {exception.Message}" : $"The contract was registered, but some documents remain unsaved: {exception.Message}", []); }
         finally { working = false; }
     }
 
     private void ResetForm()
     {
+        pendingContractId = null;
         validationAttempted = false;
         selectedFramework = null;
         supplierReference = customerName = customerUrn = lotNumber = serviceGroup = digitalMarketplaceServiceId = serviceDescription = orderChannel = string.Empty;
@@ -679,6 +688,7 @@
 
     private async Task ConfirmCancelAsync()
     {
+        if (working) return;
         if (HasUnsavedContractChanges && !await JsRuntime.InvokeAsync<bool>("confirm", "Discard the contract details you have entered?")) return;
         Navigation.NavigateTo("/contracts");
     }

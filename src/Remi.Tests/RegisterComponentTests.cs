@@ -4,6 +4,8 @@ using Remi.Application;
 using Remi.Domain;
 using Remi.Web;
 using ClipboardImageEvidenceComponent = Remi.Web.Components.ClipboardImageEvidence;
+using DocumentState = Remi.Web.Components.ClipboardImageEvidence.DocumentState;
+using PendingDocument = Remi.Web.Components.ClipboardImageEvidence.PendingDocument;
 using ContractRecordView = Remi.Web.Components.ContractRecordView;
 using ContractRegistrationPage = Remi.Web.Components.Pages.ContractRegistration;
 using Remi.Web.Components.Layout;
@@ -21,10 +23,11 @@ using Xunit;
 
 namespace Remi.Tests;
 
-public sealed class RegisterComponentTests
+public sealed partial class RegisterComponentTests
 {
     private static readonly Guid SampleContractId = Guid.Parse("405b5dd4-0b92-4576-99a9-d2cc7851a2b5");
     private static readonly Guid SampleVasContractId = Guid.Parse("9f2dc10e-9554-47d0-8870-8dbb6bb94e4a");
+    private static readonly Guid SampleInvoiceContractId = Guid.Parse("3c638f46-9eb1-428a-8ea4-7c5f9a2dddf9");
     private static readonly Guid SampleInvoiceId = Guid.Parse("d461989e-a1e8-4450-a371-31f7f1028df1");
     private static readonly IReadOnlyList<CustomerUrnSuggestion> CustomerDirectoryEntries =
     [
@@ -426,7 +429,7 @@ public sealed class RegisterComponentTests
         Assert.Empty(registration.FindAll(".invoice-contract-section h2"));
         Assert.Empty(registration.FindAll(".clipboard-image-panel > header"));
         Assert.Equal("Supporting documents", registration.Find(".clipboard-document-dropzone strong").TextContent.Trim());
-        Assert.Contains("choose a file or photo", registration.Find(".clipboard-document-dropzone").TextContent);
+        Assert.Contains("choose files or photos", registration.Find(".clipboard-document-dropzone").TextContent);
 
         registration.Find("button[role='combobox'][aria-label='Framework']").Click();
         registration.FindAll("#framework-picklist-options [role='option']").Single(option => option.TextContent.Contains("G-Cloud 14")).Click();
@@ -600,15 +603,19 @@ public sealed class RegisterComponentTests
     {
         using var context = CreateContext();
         var clipboardModule = context.JSInterop.SetupModule("/clipboard-image-evidence.js");
-        clipboardModule.SetupVoid("attach", _ => true);
-        clipboardModule.SetupVoid("rename", _ => true);
-        clipboardModule.SetupVoid("dispose", _ => true);
-        clipboardModule.Setup<int>("archive", _ => true).SetResult(2);
+        clipboardModule.SetupVoid("attach", _ => true).SetVoidResult();
+        clipboardModule.SetupVoid("rename", _ => true).SetVoidResult();
+        clipboardModule.SetupVoid("dispose", _ => true).SetVoidResult();
+        var pending = new DocumentState { Revision = 1, Documents = [
+            new PendingDocument { Id = "contract-file", FileName = "signed-contract.pdf", Title = "signed-contract", ContentType = "application/pdf", FileSizeBytes = 128 },
+            new PendingDocument { Id = "pricing-file", FileName = "pricing.xlsx", Title = "pricing", ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", FileSizeBytes = 256 }] };
+        clipboardModule.Setup<DocumentState>("getState", _ => true).SetResult(pending);
+        clipboardModule.Setup<DocumentState>("prepare", _ => true).SetResult(pending);
+        clipboardModule.Setup<DocumentState>("archive", _ => true).SetResult(new DocumentState { Revision = 2, ArchivedCount = 2 });
         var registration = context.Render<ContractRegistrationPage>();
         var evidence = registration.FindComponent<ClipboardImageEvidenceComponent>();
 
-        await evidence.InvokeAsync(() => evidence.Instance.DocumentAdded("contract-file", "signed-contract.pdf", "application/pdf", 128, null));
-        await evidence.InvokeAsync(() => evidence.Instance.DocumentAdded("pricing-file", "pricing.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 256, null));
+        await evidence.InvokeAsync(() => evidence.Instance.DocumentsChanged());
 
         registration.WaitForAssertion(() =>
         {
@@ -823,6 +830,7 @@ public sealed class RegisterComponentTests
 
         Assert.Null(row.GetAttribute("tabindex"));
         Assert.Single(row.QuerySelectorAll("a.register-reference"));
+        Assert.Equal($"/contracts/{SampleContractId}", row.QuerySelector("a.register-reference")!.GetAttribute("href"));
         Assert.Empty(row.QuerySelectorAll(".table-action-cell"));
         Assert.Empty(row.QuerySelectorAll(".remi-action"));
         Assert.DoesNotContain("Lot", row.TextContent);
@@ -952,6 +960,67 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public async Task Contract_editing_uses_the_same_searchable_reporting_month_picker_as_registration()
+    {
+        using var context = CreateContext();
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+        cut.WaitForAssertion(() => Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim()));
+        cut.Find(".contract-hero-actions button.secondary").Click();
+
+        var reportingMonth = cut.Find("input[role='combobox'][aria-label='Reporting month']");
+        Assert.Equal("July 2026", reportingMonth.GetAttribute("value"));
+
+        reportingMonth.Focus();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal(61, cut.FindAll("#contract-edit-reporting-month-picklist-options [role='option']").Count);
+            Assert.Equal("true", cut.Find("#contract-edit-reporting-month-picklist-options").GetAttribute("data-scroll-selected"));
+            Assert.Equal("July 2026", cut.Find("#contract-edit-reporting-month-picklist-options [aria-selected='true']").TextContent.Trim());
+        });
+
+        reportingMonth.Input("February 2025");
+        cut.WaitForAssertion(() => Assert.Equal(
+            "February 2025",
+            cut.Find("#contract-edit-reporting-month-picklist-options [role='option']").TextContent.Trim()));
+        cut.Find("#contract-edit-reporting-month-picklist-options [role='option']").Click();
+
+        cut.WaitForAssertion(() => Assert.Equal(
+            "February 2025",
+            cut.Find("input[role='combobox'][aria-label='Reporting month']").GetAttribute("value")));
+
+        cut.Find(".contract-hero-actions button.primary").Click();
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".contract-edit-panel")));
+        var updated = await context.Services.GetRequiredService<ReportingWorkspace>().GetContractDetailsAsync(SampleContractId);
+        Assert.Equal("2025-02", updated!.Contract.ReportMonth);
+    }
+
+    [Fact]
+    public void Contract_editing_always_drains_the_clipboard_queue_before_closing()
+    {
+        using var context = CreateContext();
+        var clipboardModule = context.JSInterop.SetupModule("/clipboard-image-evidence.js");
+        clipboardModule.SetupVoid("attach", _ => true).SetVoidResult();
+        clipboardModule.SetupVoid("dispose", _ => true).SetVoidResult();
+        clipboardModule.Setup<DocumentState>("prepare", _ => true).SetResult(new DocumentState());
+        clipboardModule.Setup<DocumentState>("archive", _ => true).SetResult(new DocumentState());
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() => Assert.Equal("Edit", cut.Find(".contract-hero-actions button.secondary").TextContent.Trim()));
+        cut.Find(".contract-hero-actions button.secondary").Click();
+        cut.WaitForAssertion(() => Assert.Single(clipboardModule.Invocations["attach"]));
+        cut.Find(".contract-hero-actions button.primary").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotEmpty(clipboardModule.Invocations["prepare"]);
+            var archive = Assert.Single(clipboardModule.Invocations["archive"]);
+            Assert.Equal("contract", archive.Arguments[1]);
+            Assert.Equal(SampleContractId, archive.Arguments[2]);
+            Assert.Empty(cut.FindAll(".contract-edit-panel"));
+        });
+    }
+
+    [Fact]
     public void Vas_contract_view_shows_only_vas_template_fields()
     {
         using var context = CreateContext(FrameworkCode.VerticalApplicationSolutions);
@@ -1024,8 +1093,28 @@ public sealed class RegisterComponentTests
             Assert.Equal(["Cancel", "Save"], cut.Find(".contract-edit-panel .invoice-overview-actions").QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
             Assert.Single(cut.FindAll(".invoice-edit-evidence-layout .clipboard-document-dropzone input[accept*='image']"));
             Assert.Equal("LABEL", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TagName);
-            Assert.Contains("press Ctrl+V to paste an image", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TextContent);
+            Assert.Contains("press Ctrl+V to paste", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TextContent);
         });
+    }
+
+    [Fact]
+    public void Invoice_workflows_link_to_contract_details_without_a_reporting_period()
+    {
+        using var context = CreateContext(includeInvoiceContract: true);
+
+        var invoice = context.Render<InvoiceRecordView>(parameters => parameters.Add(component => component.InvoiceId, SampleInvoiceId));
+        invoice.WaitForAssertion(() => Assert.Equal(
+            $"/contracts/{SampleInvoiceContractId}",
+            invoice.Find("a.contract-source-file").GetAttribute("href")));
+
+        using var registrationContext = CreateContext();
+        var registration = registrationContext.Render<InvoiceRegistrationPage>();
+        registration.Find("input[role='combobox'][aria-label='Contract']").Input("RM-001");
+        registration.WaitForAssertion(() => Assert.Single(registration.FindAll("button[role='option']")));
+        registration.Find("button[role='option']").Click();
+        registration.WaitForAssertion(() => Assert.Equal(
+            $"/contracts/{SampleContractId}",
+            registration.Find("a.invoice-command").GetAttribute("href")));
     }
 
     [Fact]
@@ -1447,7 +1536,9 @@ public sealed class RegisterComponentTests
         int additionalMarketplaceServices = 0,
         bool includeSubmittedReturn = false,
         bool includeContractExtension = false,
-        bool includeContractEvidence = false)
+        bool includeContractEvidence = false,
+        bool includeInvoiceContract = false,
+        string? attachmentTestDirectory = null)
     {
         var database = new RemiDatabase
         {
@@ -1500,6 +1591,14 @@ public sealed class RegisterComponentTests
                     DateTimeOffset.UtcNow),
             ],
         };
+        if (includeInvoiceContract)
+        {
+            database.Contracts.Add(database.Contracts[0] with
+            {
+                Id = SampleInvoiceContractId,
+                Framework = FrameworkCode.VerticalApplicationSolutions,
+            });
+        }
         if (includeContractExtension)
         {
             var originalEndDate = DateOnly.FromDateTime(DateTime.Today).AddMonths(-3);
@@ -1621,13 +1720,37 @@ public sealed class RegisterComponentTests
         var reportingPeriod = new ReportingPeriodContext(TimeProvider.System);
         reportingPeriod.Synchronise(["2026-07"], "2026-07");
         var context = new BunitContext();
+        var clipboardModule = context.JSInterop.SetupModule("/clipboard-image-evidence.js");
+        clipboardModule.SetupVoid("attach", _ => true).SetVoidResult();
+        clipboardModule.SetupVoid("dispose", _ => true).SetVoidResult();
+        clipboardModule.Setup<DocumentState>(invocation => invocation.Identifier is "getState" or "prepare" or "archive", isCatchAllHandler: true).SetResult(new DocumentState());
         context.Services.AddSingleton(reportingPeriod);
         context.Services.AddSingleton<IRemiDataTransfer>(new StubDataTransfer());
+        IRemiStore registerStore = new InMemoryStore(database);
+        IEvidenceArchive archive = new NoOpEvidenceArchive();
+        if (attachmentTestDirectory is not null)
+        {
+            registerStore = new Remi.Infrastructure.SqliteRemiStore(Path.Combine(attachmentTestDirectory, "test.db"));
+            registerStore.UpdateAsync(target =>
+            {
+                target.Contracts.AddRange(database.Contracts);
+                target.Invoices.AddRange(database.Invoices);
+                target.ContractChanges.AddRange(database.ContractChanges);
+                target.MonthlyReturns.AddRange(database.MonthlyReturns);
+                target.Evidence.AddRange(database.Evidence);
+                target.DigitalMarketplaceServices.Clear();
+                target.DigitalMarketplaceServices.AddRange(database.DigitalMarketplaceServices);
+                return true;
+            }).GetAwaiter().GetResult();
+            archive = new Remi.Infrastructure.FileEvidenceArchive(Path.Combine(attachmentTestDirectory, "evidence"));
+        }
+        context.Services.AddSingleton(registerStore);
+        context.Services.AddSingleton(archive);
         context.Services.AddSingleton(new ReportingWorkspace(
-            new InMemoryStore(database),
+            registerStore,
             null!,
             null!,
-            new NoOpEvidenceArchive(),
+            archive,
             new InMemoryCustomerUrnDirectory(CustomerDirectoryEntries),
             TimeProvider.System));
         return context;
