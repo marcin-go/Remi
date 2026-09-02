@@ -410,7 +410,7 @@ public sealed class SqliteRemiMailStore(
     [
         new(MailEventTypes.MonthlyActiveContracts, "Monthly active contracts", false, MailTriggerMode.Manual,
             "Framework reporting - active contracts for {{reporting_month}}",
-            "Hello everyone,\n\nAnother month has passed and the framework returns for {{reporting_month}} now need compiling.\n\nPlease check the active-contract inventory below and reply with any new contracts, extensions or invoices that Remi does not yet contain.\n\n{{active_contracts}}\n\nTake care\nMarcin Goralski\nGeneral Manager\nStatMap Ltd",
+            "Hello everyone,\n\nI hope this message finds you well.\n\nAnother month has passed and the framework returns for {{reporting_month}} now need compiling. Please check your diary for information about new contracts signed and invoices raised during this month relating to the frameworks which we are obligated to report for:\n\n{{reportable_frameworks}}\n\nPlease find a list of ongoing contracts which have been reported to Crown Commercial Services or which will be reported this month if I already have their details (entry prefixed NEW).\n\n{{active_contracts}}\n\nCheers\n\nMarcin\n\nMarcin Goralski\nGeneral Manager\nStatMap Ltd\nOffice 7 • 35-37 Ludgate Hill • London • EC4M 7JN • 0844 376 4321",
             "Hello everyone,",
             "Another month has passed and the framework returns for {{reporting_month}} now need compiling.",
             "Please check the active-contract inventory below and reply with any new contracts, extensions or invoices that Remi does not yet contain.",

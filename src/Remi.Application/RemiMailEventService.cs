@@ -85,7 +85,13 @@ public sealed class RemiMailEventService(
         }
 
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
-        var inventory = await store.ReadAsync(database => BuildActiveInventory(database, monthStart, monthEnd, triggeredAtUtc), cancellationToken);
+        var context = await store.ReadAsync(database =>
+        {
+            var inventory = BuildActiveInventory(database, monthStart, monthEnd, triggeredAtUtc);
+            return new MonthlyActiveContractsContext(
+                inventory,
+                BuildReportableFrameworks(database, monthStart, monthEnd, inventory));
+        }, cancellationToken);
         var monthName = monthStart.ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-GB"));
         var tokens = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -93,7 +99,11 @@ public sealed class RemiMailEventService(
         };
         var subject = Expand(template.SubjectTemplate, tokens);
         var body = RenderTemplateBody(template.BodyTemplate, tokens,
-            new TemplateBlock("active_contracts", BuildMonthlyPlainBlock(inventory), BuildMonthlyHtmlBlock(inventory)));
+            new TemplateBlock(
+                "reportable_frameworks",
+                BuildReportableFrameworksPlainBlock(context.ReportableFrameworks),
+                BuildReportableFrameworksHtmlBlock(context.ReportableFrameworks)),
+            new TemplateBlock("active_contracts", BuildMonthlyPlainBlock(context.Inventory), BuildMonthlyHtmlBlock(context.Inventory)));
         return await captureService.CaptureAsync(new MailCaptureDraft(
             MailEventTypes.MonthlyActiveContracts,
             $"monthly-active-contracts:{sourcePeriod}:{triggeredAtUtc.UtcDateTime:yyyyMMddTHHmmssZ}",
@@ -301,8 +311,9 @@ public sealed class RemiMailEventService(
             .Where(item => (item.Contract.StartDate is null || item.Contract.StartDate <= monthEnd)
                 && (item.EndDate is null || item.EndDate >= monthStart))
             .GroupBy(item => item.Contract.Framework)
-            .OrderBy(group => (int)group.Key)
+            .OrderBy(group => FrameworkTitle(group.Key), StringComparer.OrdinalIgnoreCase)
             .Select(group => new FrameworkInventory(
+                group.Key,
                 FrameworkTitle(group.Key),
                 group.Select(item =>
                 {
@@ -316,17 +327,62 @@ public sealed class RemiMailEventService(
                     var service = ServiceName(contract, marketplaceNames);
                     return new ActiveContractLine(
                         isNew,
+                        contract.ReportMonth,
                         ReportingMonthLabel(contract.ReportMonth),
                         contract.CustomerName,
                         service,
                         ContractTerm(database, contract, asOfUtc),
                         statusSuffix);
                 })
-                .OrderBy(line => line.ReportingMonth, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(line => line.ReportingMonthSortKey, StringComparer.Ordinal)
                 .ThenBy(line => line.CustomerName, StringComparer.OrdinalIgnoreCase)
                 .ToList()))
             .Where(group => group.Contracts.Count != 0)
             .ToList();
+    }
+
+    private static IReadOnlyList<string> BuildReportableFrameworks(
+        RemiDatabase database,
+        DateOnly monthStart,
+        DateOnly monthEnd,
+        IReadOnlyList<FrameworkInventory> inventory)
+    {
+        var ongoingFrameworks = inventory.Select(item => item.Framework).ToHashSet();
+        return Frameworks.All
+            .Where(framework => ongoingFrameworks.Contains(framework.Code)
+                || IsFrameworkActiveForMonth(database, framework, monthStart, monthEnd))
+            .Select(framework => FrameworkTitle(framework.Code))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsFrameworkActiveForMonth(
+        RemiDatabase database,
+        FrameworkDefinition framework,
+        DateOnly monthStart,
+        DateOnly monthEnd)
+    {
+        var configuration = database.FrameworkConfigurations.SingleOrDefault(item => item.Framework == framework.Code);
+        var startDate = configuration?.StartDate ?? framework.DefaultStartDate;
+        var endDate = configuration?.EndDate ?? framework.DefaultEndDate;
+        return startDate is DateOnly start && start <= monthEnd && (endDate is null || endDate >= monthStart);
+    }
+
+    private static string BuildReportableFrameworksPlainBlock(IReadOnlyList<string> frameworks) =>
+        frameworks.Count == 0
+            ? "No reportable frameworks."
+            : string.Join('\n', frameworks.Select(framework => $"- {framework}"));
+
+    private static string BuildReportableFrameworksHtmlBlock(IReadOnlyList<string> frameworks)
+    {
+        if (frameworks.Count == 0) return "<p>No reportable frameworks.</p>";
+
+        var builder = new StringBuilder("<ul style=\"padding-left:22px\">");
+        foreach (var framework in frameworks)
+        {
+            builder.Append("<li style=\"margin:6px 0\">").Append(Html(framework)).Append("</li>");
+        }
+        return builder.Append("</ul>").ToString();
     }
 
     private static string BuildMonthlyPlainBlock(
@@ -487,8 +543,11 @@ public sealed class RemiMailEventService(
     private static string HtmlDocument(string title, string body) => $"<!doctype html><html><head><meta charset=\"utf-8\"><title>{Html(title)}</title></head><body style=\"font-family:Arial,sans-serif;color:#17364b;line-height:1.5;max-width:760px;margin:24px auto\">{body}</body></html>";
 
     private sealed record GoLiveContext(ContractRecord Contract, IReadOnlyList<ContractServicePart> Parts);
-    private sealed record FrameworkInventory(string Name, IReadOnlyList<ActiveContractLine> Contracts);
-    private sealed record ActiveContractLine(bool IsNew, string ReportingMonth, string CustomerName, string ServiceName, string Term, string StatusSuffix);
+    private sealed record MonthlyActiveContractsContext(
+        IReadOnlyList<FrameworkInventory> Inventory,
+        IReadOnlyList<string> ReportableFrameworks);
+    private sealed record FrameworkInventory(FrameworkCode Framework, string Name, IReadOnlyList<ActiveContractLine> Contracts);
+    private sealed record ActiveContractLine(bool IsNew, string ReportingMonthSortKey, string ReportingMonth, string CustomerName, string ServiceName, string Term, string StatusSuffix);
     private sealed record PostSubmissionContext(IReadOnlyList<PostSubmissionFramework> Frameworks, IReadOnlyList<string> Problems);
     private sealed record PostSubmissionFramework(FrameworkCode Framework, IReadOnlyList<EvidenceRecord> Evidence);
     private sealed record PostSubmissionRenderedFramework(string Name, IReadOnlyList<PostSubmissionRenderedEvidence> Evidence);

@@ -29,6 +29,10 @@ public sealed class MailCaptureTests
                 Assert.Null(template.ScheduleTimeLocal);
                 Assert.Null(template.TimeZoneId);
             });
+            Assert.Contains(
+                "{{reportable_frameworks}}",
+                Assert.Single(templates, template => template.EventType == MailEventTypes.MonthlyActiveContracts).BodyTemplate,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -128,6 +132,7 @@ public sealed class MailCaptureTests
             var reportedId = Guid.NewGuid();
             var newId = Guid.NewGuid();
             var lateId = Guid.NewGuid();
+            var ongoingHistoricalId = Guid.NewGuid();
             var schemaStore = new SqliteRemiStore(databasePath);
             await schemaStore.UpdateAsync(database =>
             {
@@ -136,7 +141,15 @@ public sealed class MailCaptureTests
                     Contract(reportedId, "REPORTED", "Reported Council", new DateTimeOffset(2026, 6, 15, 9, 0, 0, TimeSpan.Zero)),
                     Contract(newId, "NEW-CONTRACT", "New Council", new DateTimeOffset(2026, 7, 20, 9, 0, 0, TimeSpan.Zero)),
                     Contract(lateId, "LATE", "Late Council", new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.Zero)),
+                    Contract(ongoingHistoricalId, "G13-ONGOING", "Historical Framework Council", new DateTimeOffset(2026, 5, 10, 9, 0, 0, TimeSpan.Zero)) with
+                    {
+                        Framework = FrameworkCode.GCloud13,
+                    },
                 ]);
+                database.FrameworkConfigurations.Add(new FrameworkConfiguration(
+                    FrameworkCode.GCloud15,
+                    new DateOnly(2026, 1, 1),
+                    new DateOnly(2028, 12, 31)));
                 database.ContractServiceParts.AddRange(
                 [
                     new ContractServicePart(Guid.NewGuid(), reportedId, "Earthlight", new DateOnly(2026, 1, 1), 0, DateTimeOffset.UtcNow),
@@ -156,7 +169,7 @@ public sealed class MailCaptureTests
                 template.EventType,
                 true,
                 template.SubjectTemplate,
-                "Message before {{reporting_month}}.\n\n{{active_contracts}}\n\nMessage after the inventory.",
+                "Message before {{reporting_month}}.\n\n{{reportable_frameworks}}\n\n{{active_contracts}}\n\nMessage after the inventory.",
                 [new MailRecipient(Guid.NewGuid(), MailRecipientType.To, null, "director@example.test", 0)]), triggeredAt);
             var contentStore = new FileMailContentStore(mailRoot);
             var capture = new MailCaptureService(mailStore, contentStore, new MailRuntimeOptions(MailDeliveryMode.Capture, "remi@example.test", "Remi"), new FixedTimeProvider(triggeredAt));
@@ -176,9 +189,19 @@ public sealed class MailCaptureTests
             Assert.Contains("NEW - Jul 2026 - New Council", plainText, StringComparison.Ordinal);
             Assert.Contains("NOT live yet", plainText, StringComparison.Ordinal);
             Assert.DoesNotContain("Late Council", plainText, StringComparison.Ordinal);
+            Assert.DoesNotContain("{{reportable_frameworks}}", plainText, StringComparison.Ordinal);
             Assert.DoesNotContain("{{active_contracts}}", plainText, StringComparison.Ordinal);
+            var gCloud13Index = plainText.IndexOf("- G-Cloud 13", StringComparison.Ordinal);
+            var gCloud14Index = plainText.IndexOf("- G-Cloud 14", StringComparison.Ordinal);
+            var gCloud15Index = plainText.IndexOf("- G-Cloud 15", StringComparison.Ordinal);
+            var vasIndex = plainText.IndexOf("- Vertical Application Solutions", StringComparison.Ordinal);
+            Assert.True(gCloud13Index >= 0 && gCloud13Index < gCloud14Index);
+            Assert.True(gCloud14Index < gCloud15Index);
+            Assert.True(gCloud15Index < vasIndex);
+            Assert.True(plainText.IndexOf("Jun 2026 - Reported Council", StringComparison.Ordinal)
+                < plainText.IndexOf("Jul 2026 - New Council", StringComparison.Ordinal));
             Assert.True(plainText.IndexOf("Message before July 2026.", StringComparison.Ordinal)
-                < plainText.IndexOf("Reported Council", StringComparison.Ordinal));
+                < gCloud13Index);
             Assert.True(plainText.IndexOf("Reported Council", StringComparison.Ordinal)
                 < plainText.IndexOf("Message after the inventory.", StringComparison.Ordinal));
         }
