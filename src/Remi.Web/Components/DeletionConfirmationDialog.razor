@@ -31,10 +31,13 @@
             {
                 <p class="deletion-retained-note">@RetainedMessage</p>
             }
-            <label class="deletion-confirmation-field">
-                <span>To proceed type: <strong>DELETE</strong></span>
-                <input aria-label="Type DELETE to confirm" autocomplete="off" spellcheck="false" value="@confirmationText" @oninput="UpdateConfirmation" />
-            </label>
+            @if (RequiresTypedConfirmation)
+            {
+                <label class="deletion-confirmation-field">
+                    <span>To proceed type: <strong>DELETE</strong></span>
+                    <input aria-label="Type DELETE to confirm" autocomplete="off" spellcheck="false" value="@confirmationText" @oninput="UpdateConfirmation" />
+                </label>
+            }
             @if (!string.IsNullOrWhiteSpace(ErrorMessage))
             {
                 <p class="notice error" role="alert">@ErrorMessage</p>
@@ -42,7 +45,7 @@
         </div>
         <footer>
             <button type="button" class="button secondary" disabled="@Working" @onclick="OnCancel">Cancel</button>
-            <button type="button" class="button danger deletion-confirm" disabled="@(confirmationText != "DELETE" || Working)" @onclick="ConfirmAsync">@(Working ? "Deleting…" : ConfirmLabel)</button>
+            <button type="button" class="button danger deletion-confirm" disabled="@((RequiresTypedConfirmation && confirmationText != "DELETE") || Working)" @onclick="ConfirmAsync">@(Working ? "Deleting…" : ConfirmLabel)</button>
         </footer>
     </section>
 </div>
@@ -55,6 +58,7 @@
     [Parameter] public string? RetainedMessage { get; set; }
     [Parameter] public string? ErrorMessage { get; set; }
     [Parameter] public bool Working { get; set; }
+    [Parameter] public bool RequiresTypedConfirmation { get; set; } = true;
     [Parameter, EditorRequired] public EventCallback OnCancel { get; set; }
     [Parameter, EditorRequired] public EventCallback OnConfirm { get; set; }
 
@@ -64,7 +68,7 @@
 
     private async Task ConfirmAsync()
     {
-        if (confirmationText == "DELETE" && !Working)
+        if ((!RequiresTypedConfirmation || confirmationText == "DELETE") && !Working)
         {
             await OnConfirm.InvokeAsync();
         }

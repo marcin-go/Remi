@@ -1005,9 +1005,12 @@ select option:checked {
 .invoice-edit-evidence-layout .contract-edit-panel { max-width: none; }
 .contract-file-grid > .remi-document-gallery { grid-column: 1 / -1; width: 100%; }
 .remi-document-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr)); gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
-.remi-document-card { display: grid; min-width: 0; background: #f7fafb; border: 1px solid #dce5e9; border-radius: 8px; transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease; }
+.remi-document-card { position: relative; display: grid; min-width: 0; background: #f7fafb; border: 1px solid #dce5e9; border-radius: 8px; transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease; }
 .remi-document-card:has(.remi-document-open:hover) { border-color: #a7bbc6; background: #fbfcfc; box-shadow: 0 1px 3px rgb(20 60 80 / 8%); }
 .remi-document-open { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr); gap: 0.65rem; align-items: center; min-width: 0; padding: 0.55rem 0.65rem; color: inherit; background: transparent; border: 0; border-radius: inherit; font: inherit; text-align: left; cursor: pointer; }
+.remi-document-card.is-deletable .remi-document-open { padding-right: 2.5rem; }
+.remi-document-delete { position: absolute; top: 50%; right: 0.55rem; display: grid; width: 1.65rem; height: 1.65rem; place-items: center; padding: 0; color: var(--color-error); background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; transform: translateY(-50%); }
+.remi-document-delete:hover, .remi-document-delete:focus-visible { color: #fff; background: var(--color-danger-hover); }
 .remi-document-open:focus-visible { box-shadow: 0 0 0 3px rgb(8 121 119 / 18%); outline: none; }
 .remi-document-thumbnail { display: grid; width: 2.75rem; height: 2.25rem; place-items: center; color: #176779; background: #e5f0f5; border-radius: 6px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; }
 .remi-document-thumbnail img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

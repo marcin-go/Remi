@@ -2,7 +2,10 @@ const handlers = new WeakMap();
 const maxFileSizeBytes = 15 * 1024 * 1024;
 
 export function attach(host, dotNetReference) {
-    const onPaste = async event => {
+    dispose(host);
+
+    const state = { dotNetReference, documents: new Map(), queue: Promise.resolve(), disposed: false };
+    const onPaste = event => {
         if (isTextEditingTarget(event.target) && !host.contains(event.target)) return;
 
         const image = [...event.clipboardData?.items ?? []].find(item => item.type.startsWith('image/'));
@@ -12,33 +15,43 @@ export function attach(host, dotNetReference) {
         if (!file) return;
 
         event.preventDefault();
-        await addFiles(host, [file], 'clipboard-image');
+        void enqueue(state, () => addFiles(state, [file], 'clipboard-image'));
     };
 
     const fileInput = host.querySelector('input[type="file"]');
-    const onFileChange = async event => { await addFiles(host, event.target.files, 'document'); event.target.value = ''; };
+    const onFileChange = event => {
+        const files = [...event.target.files];
+        event.target.value = '';
+        void enqueue(state, () => addFiles(state, files, 'document'));
+    };
     const dropZone = host.querySelector('.clipboard-document-dropzone');
     const onDragOver = event => { event.preventDefault(); dropZone.classList.add('is-dragging'); };
     const onDragLeave = () => dropZone.classList.remove('is-dragging');
-    const onDrop = async event => { event.preventDefault(); dropZone.classList.remove('is-dragging'); await addFiles(host, event.dataTransfer.files, 'document'); };
+    const onDrop = event => {
+        event.preventDefault();
+        dropZone.classList.remove('is-dragging');
+        void enqueue(state, () => addFiles(state, [...event.dataTransfer.files], 'document'));
+    };
+    Object.assign(state, { onPaste, onFileChange, fileInput, dropZone, onDragOver, onDragLeave, onDrop });
+    handlers.set(host, state);
     document.addEventListener('paste', onPaste);
     fileInput.addEventListener('change', onFileChange);
     dropZone.addEventListener('dragover', onDragOver);
     dropZone.addEventListener('dragleave', onDragLeave);
     dropZone.addEventListener('drop', onDrop);
-    handlers.set(host, { onPaste, onFileChange, fileInput, dropZone, onDragOver, onDragLeave, onDrop, dotNetReference, documents: new Map() });
 }
 
-export async function archive(host, entityType, entityId, titles) {
+export async function archive(host, entityType, entityId) {
     const state = handlers.get(host);
-    if (!state?.documents?.size) return 0;
+    if (!state) return 0;
+    await state.queue;
+    if (!state.documents.size) return 0;
 
     for (const document of state.documents.values()) {
-        const title = titles.find(item => item.id === document.id)?.title ?? document.title;
         const body = new FormData();
         body.append('file', document.file, document.name);
         const antiforgeryToken = host.querySelector('input[name="__RequestVerificationToken"]')?.value;
-        const response = await fetch(`/evidence/clipboard/${entityType}/${entityId}?title=${encodeURIComponent(title)}`, {
+        const response = await fetch(`/evidence/clipboard/${entityType}/${entityId}?title=${encodeURIComponent(document.title)}`, {
             method: 'POST',
             body,
             headers: antiforgeryToken ? { RequestVerificationToken: antiforgeryToken } : {}
@@ -55,6 +68,11 @@ export async function archive(host, entityType, entityId, titles) {
 
 export function remove(host, id) { handlers.get(host)?.documents.delete(id); }
 
+export function rename(host, id, title) {
+    const document = handlers.get(host)?.documents.get(id);
+    if (document) document.title = title;
+}
+
 function readAsDataUrl(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -64,20 +82,23 @@ function readAsDataUrl(file) {
     });
 }
 
-async function addFiles(host, files, namePrefix) {
-    const state = handlers.get(host);
-    if (!state) return;
-
+async function addFiles(state, files, namePrefix) {
     for (const file of files) {
         try {
             if (file.size === 0) throw new Error(`${file.name || 'This file'} is empty.`);
             if (file.size > maxFileSizeBytes) throw new Error(`${file.name} is larger than the 15 MB limit.`);
 
+            const fingerprint = await fingerprintFile(file);
+            if ([...state.documents.values()].some(document => document.fingerprint === fingerprint)) {
+                await state.dotNetReference.invokeMethodAsync('DocumentIntakeFailed', `${file.name || 'This file'} is already ready to save.`);
+                continue;
+            }
+
             const id = crypto.randomUUID();
             const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/gif' ? 'gif' : 'png';
-            const name = namePrefix === 'clipboard-image' ? `${namePrefix}-${new Date().toISOString().replace(/[:.]/g, '-')}Z.${extension}` : file.name;
+            const name = namePrefix === 'clipboard-image' ? `${namePrefix}-${fingerprint.slice(0, 12)}.${extension}` : file.name;
             const previewDataUrl = file.type.startsWith('image/') ? await readAsDataUrl(file) : null;
-            state.documents.set(id, { file, name, title: name.replace(/\.[^.]+$/, '') });
+            state.documents.set(id, { file, name, title: name.replace(/\.[^.]+$/, ''), fingerprint });
             await state.dotNetReference.invokeMethodAsync('DocumentAdded', id, name, file.type || 'application/octet-stream', file.size, previewDataUrl);
         }
         catch (error) {
@@ -86,9 +107,23 @@ async function addFiles(host, files, namePrefix) {
     }
 }
 
+function enqueue(state, operation) {
+    state.queue = state.queue.then(
+        () => state.disposed ? undefined : operation(),
+        () => state.disposed ? undefined : operation());
+    return state.queue;
+}
+
+async function fingerprintFile(file) {
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
 export function dispose(host) {
     const state = handlers.get(host);
+    if (state) state.disposed = true;
     if (state?.onPaste) document.removeEventListener('paste', state.onPaste);
+    if (state?.fileInput) state.fileInput.removeEventListener('change', state.onFileChange);
     if (state?.dropZone) {
         state.dropZone.removeEventListener('dragover', state.onDragOver);
         state.dropZone.removeEventListener('dragleave', state.onDragLeave);

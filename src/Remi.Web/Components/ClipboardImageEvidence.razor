@@ -19,9 +19,9 @@
             <div class="clipboard-image-list">
                 @foreach (var document in documents)
                 {
-                    <article class="clipboard-document-item">
+                    <article class="clipboard-document-item" @key="document.Id">
                         @if (document.PreviewDataUrl is not null) { <img src="@document.PreviewDataUrl" alt="@document.FileName" /> } else { <span class="clipboard-document-icon" aria-hidden="true">▧</span> }
-                        <div><label class="floating-field floating-field--static"><input @bind="document.Title" @bind:event="oninput" placeholder="Document title" /><span class="floating-label">Document title</span></label><small>@document.FileName</small></div>
+                        <div><label class="floating-field floating-field--static"><input value="@document.Title" @oninput="@(args => RenameDocumentAsync(document, args))" aria-label="Document title for @document.FileName" placeholder="Document title" /><span class="floating-label">Document title</span></label><small>@document.FileName</small></div>
                         <button type="button" class="clipboard-document-remove" @onclick="@(() => RemoveDocumentAsync(document.Id))" aria-label="Remove @document.FileName" title="Remove document"><span aria-hidden="true">×</span></button>
                     </article>
                 }
@@ -68,7 +68,11 @@
     public async Task DocumentAdded(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
     {
         intakeError = null;
-        documents.Add(new PendingDocument(id, fileName, contentType, fileSizeBytes, previewDataUrl));
+        if (documents.All(document => document.Id != id))
+        {
+            documents.Add(new PendingDocument(id, fileName, contentType, fileSizeBytes, previewDataUrl));
+        }
+        await InvokeAsync(StateHasChanged);
         await OnDocumentsChanged.InvokeAsync(documents.Count);
     }
 
@@ -82,10 +86,19 @@
     public async Task<bool> ArchiveAsync(string entityType, Guid entityId)
     {
         if (module is null) return false;
-        var archivedCount = await module.InvokeAsync<int>("archive", host, entityType, entityId, documents.Select(document => new DocumentTitle(document.Id, document.Title)).ToList());
+        var archivedCount = await module.InvokeAsync<int>("archive", host, entityType, entityId);
         documents.Clear();
         await OnDocumentsChanged.InvokeAsync(0);
         return archivedCount != 0;
+    }
+
+    private async Task RenameDocumentAsync(PendingDocument document, ChangeEventArgs args)
+    {
+        document.Title = args.Value?.ToString() ?? string.Empty;
+        if (module is not null)
+        {
+            await module.InvokeVoidAsync("rename", host, document.Id, document.Title);
+        }
     }
 
     private async Task RemoveDocumentAsync(string id)
@@ -93,6 +106,7 @@
         if (module is not null) await module.InvokeVoidAsync("remove", host, id);
         documents.RemoveAll(document => document.Id == id);
         await OnDocumentsChanged.InvokeAsync(documents.Count);
+        await InvokeAsync(StateHasChanged);
     }
 
     public async ValueTask DisposeAsync()
@@ -108,7 +122,6 @@
 
     private readonly List<PendingDocument> documents = [];
     private string? intakeError;
-    private sealed record DocumentTitle(string Id, string Title);
     private sealed class PendingDocument(string id, string fileName, string contentType, long fileSizeBytes, string? previewDataUrl)
     {
         public string Id { get; } = id;

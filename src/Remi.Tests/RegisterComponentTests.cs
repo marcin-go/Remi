@@ -38,17 +38,21 @@ public sealed class RegisterComponentTests
     ];
 
     [Fact]
-    public void Header_carries_the_current_reporting_period_without_rendering_a_selector()
+    public void Header_clears_the_reporting_period_from_links_outside_reports()
     {
         using var context = CreateContext();
+        context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>()
+            .NavigateTo("/reports?period=2026-07");
 
         var cut = context.Render<MainLayout>();
 
-        Assert.Equal("/home?period=2026-07", cut.Find("a.brand").GetAttribute("href"));
+        Assert.Equal("/home", cut.Find("a.brand").GetAttribute("href"));
         Assert.Equal("Remi home", cut.Find("a.brand").GetAttribute("aria-label"));
-        Assert.Equal("/contracts?period=2026-07", cut.Find("nav a[href^='/contracts']").GetAttribute("href"));
+        Assert.Equal("/home", cut.Find("nav a[href^='/home']").GetAttribute("href"));
+        Assert.Equal("/contracts", cut.Find("nav a[href^='/contracts']").GetAttribute("href"));
+        Assert.Equal("/invoices", cut.Find("nav a[href^='/invoices']").GetAttribute("href"));
         Assert.Equal("/reports?period=2026-07", cut.Find("nav a[href^='/reports']").GetAttribute("href"));
-        Assert.Equal("/settings?period=2026-07", cut.Find("nav a[href^='/settings']").GetAttribute("href"));
+        Assert.Equal("/settings", cut.Find("nav a[href^='/settings']").GetAttribute("href"));
         Assert.Contains("Home", cut.Find("nav").TextContent);
         Assert.DoesNotContain("Dashboard", cut.Find("nav").TextContent);
         Assert.Contains("Reports", cut.Find("nav").TextContent);
@@ -556,21 +560,39 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
-    public async Task Contract_registration_document_cards_use_an_accessible_icon_remove_action()
+    public async Task Contract_registration_document_callbacks_render_every_pending_file_with_an_accessible_remove_action()
     {
         using var context = CreateContext();
+        var clipboardModule = context.JSInterop.SetupModule("/clipboard-image-evidence.js");
+        clipboardModule.SetupVoid("attach", _ => true);
+        clipboardModule.SetupVoid("rename", _ => true);
+        clipboardModule.SetupVoid("dispose", _ => true);
+        clipboardModule.Setup<int>("archive", _ => true).SetResult(2);
         var registration = context.Render<ContractRegistrationPage>();
         var evidence = registration.FindComponent<ClipboardImageEvidenceComponent>();
 
         await evidence.InvokeAsync(() => evidence.Instance.DocumentAdded("contract-file", "signed-contract.pdf", "application/pdf", 128, null));
+        await evidence.InvokeAsync(() => evidence.Instance.DocumentAdded("pricing-file", "pricing.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 256, null));
 
         registration.WaitForAssertion(() =>
         {
-            var remove = registration.Find(".clipboard-document-item .clipboard-document-remove");
+            var pendingDocuments = registration.FindAll(".clipboard-document-item");
+            Assert.Equal(2, pendingDocuments.Count);
+            Assert.Equal(["signed-contract.pdf", "pricing.xlsx"], pendingDocuments.Select(item => item.QuerySelector("small")!.TextContent.Trim()).ToList());
+            var remove = pendingDocuments[0].QuerySelector(".clipboard-document-remove")!;
             Assert.Equal("×", remove.TextContent.Trim());
             Assert.Equal("Remove signed-contract.pdf", remove.GetAttribute("aria-label"));
             Assert.Equal("Remove document", remove.GetAttribute("title"));
         });
+
+        registration.Find("input[aria-label='Document title for signed-contract.pdf']").Input("Signed agreement");
+        var rename = Assert.Single(clipboardModule.Invocations["rename"]);
+        Assert.Equal("contract-file", rename.Arguments[1]);
+        Assert.Equal("Signed agreement", rename.Arguments[2]);
+
+        var archived = await evidence.InvokeAsync(() => evidence.Instance.ArchiveAsync("contract", Guid.NewGuid()));
+        Assert.True(archived);
+        Assert.Equal(3, Assert.Single(clipboardModule.Invocations["archive"]).Arguments.Count);
     }
 
     [Fact]
@@ -1000,6 +1022,35 @@ public sealed class RegisterComponentTests
     }
 
     [Fact]
+    public void Contract_documents_allow_added_files_to_be_deleted_while_imported_evidence_stays_protected()
+    {
+        using var context = CreateContext(includeContractEvidence: true);
+        var cut = context.Render<ContractRecordView>(parameters => parameters.Add(component => component.ContractId, SampleContractId));
+
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".contract-tabs button")));
+        cut.FindAll(".contract-tabs button").Single(button => button.TextContent.Trim().StartsWith("Documents", StringComparison.Ordinal)).Click();
+
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll(".remi-document-card").Count));
+        var delete = Assert.Single(cut.FindAll(".remi-document-delete"));
+        Assert.Equal("Delete duplicate.png", delete.GetAttribute("aria-label"));
+        delete.Click();
+
+        var dialog = cut.Find("[role='dialog'][aria-modal='true']");
+        Assert.Contains("Delete duplicate.png?", dialog.TextContent);
+        Assert.Empty(dialog.QuerySelectorAll("input[aria-label='Type DELETE to confirm']"));
+        Assert.False(dialog.QuerySelector("button.deletion-confirm")!.HasAttribute("disabled"));
+        dialog.QuerySelector("button.deletion-confirm")!.Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Single(cut.FindAll(".remi-document-card"));
+            Assert.Empty(cut.FindAll(".remi-document-delete"));
+            Assert.Empty(cut.FindAll("[role='dialog'][aria-modal='true']"));
+            Assert.Contains("Documents 1", cut.FindAll(".contract-tabs button").Single(button => button.TextContent.Trim().StartsWith("Documents", StringComparison.Ordinal)).TextContent);
+        });
+    }
+
+    [Fact]
     public void Document_preview_policy_matches_Caseys_supported_formats()
     {
         Assert.Equal(EvidencePreviewKind.Image, EvidencePreviewPolicy.GetKind("image.png"));
@@ -1339,7 +1390,8 @@ public sealed class RegisterComponentTests
         int additionalContracts = 0,
         int additionalMarketplaceServices = 0,
         bool includeSubmittedReturn = false,
-        bool includeContractExtension = false)
+        bool includeContractExtension = false,
+        bool includeContractEvidence = false)
     {
         var database = new RemiDatabase
         {
@@ -1412,6 +1464,20 @@ public sealed class RegisterComponentTests
                 true,
                 "EXT-01",
                 DateTimeOffset.UtcNow));
+        }
+        if (includeContractEvidence)
+        {
+            database.Evidence.AddRange(
+            [
+                new EvidenceRecord(
+                    Guid.NewGuid(), EvidenceKind.SupportingDocument, FrameworkCode.GCloud14, "2026-07", "duplicate.png",
+                    $"clipboard/contract/{SampleContractId:D}/duplicate.png", "duplicate.png", "image/png", 100,
+                    "duplicate-hash", "RM-001", DateTimeOffset.UtcNow),
+                new EvidenceRecord(
+                    Guid.NewGuid(), EvidenceKind.ContractDocument, FrameworkCode.GCloud14, "2026-07", "test.xlsx",
+                    "imports/2026-07/test.xlsx", "test.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 200,
+                    "source-hash", "RM-001", DateTimeOffset.UtcNow),
+            ]);
         }
         if (includeSubmittedReturn)
         {
@@ -1505,7 +1571,7 @@ public sealed class RegisterComponentTests
             new InMemoryStore(database),
             null!,
             null!,
-            null!,
+            new NoOpEvidenceArchive(),
             new InMemoryCustomerUrnDirectory(CustomerDirectoryEntries),
             TimeProvider.System));
         return context;
@@ -1541,6 +1607,18 @@ public sealed class RegisterComponentTests
 
         public Task<T> UpdateAsync<T>(Func<RemiDatabase, T> update, CancellationToken cancellationToken = default) =>
             Task.FromResult(update(database));
+    }
+
+    private sealed class NoOpEvidenceArchive : IEvidenceArchive
+    {
+        public Task<ArchivedEvidenceFile> ArchiveAsync(EvidenceArchiveRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Stream?> OpenReadAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task DeleteAsync(EvidenceRecord evidence, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class StubDataTransfer : IRemiDataTransfer

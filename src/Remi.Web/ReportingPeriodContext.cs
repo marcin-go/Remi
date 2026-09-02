@@ -34,11 +34,9 @@ public sealed class ReportingPeriodContext
 
         // A reporting cycle is reviewed in the following calendar month. Keep that
         // calculated period available before any contracts, invoices or return exist for it.
-        var selectedPeriod = requestedPeriod is null && IsInitialised && periods.Contains(SelectedPeriod, StringComparer.Ordinal)
-            ? SelectedPeriod
-            : IsValidPeriod(requestedPeriod) && periods.Contains(requestedPeriod, StringComparer.Ordinal)
-                ? requestedPeriod
-                : defaultPeriod;
+        var selectedPeriod = IsValidPeriod(requestedPeriod) && periods.Contains(requestedPeriod, StringComparer.Ordinal)
+            ? requestedPeriod
+            : defaultPeriod;
         var changed = !string.Equals(SelectedPeriod, selectedPeriod, StringComparison.Ordinal)
             || !AvailablePeriods.SequenceEqual(periods, StringComparer.Ordinal)
             || !IsInitialised;

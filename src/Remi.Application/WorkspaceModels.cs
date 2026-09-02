@@ -162,7 +162,8 @@ public sealed record EvidenceLink(
     string ContentType,
     long FileSizeBytes,
     string? ReportMonth,
-    DateTimeOffset ArchivedAtUtc);
+    DateTimeOffset ArchivedAtUtc,
+    bool CanDelete = false);
 
 public sealed record ReportingEvidence(
     Guid Id,

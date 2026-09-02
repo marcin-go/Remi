@@ -8,7 +8,7 @@ namespace Remi.Tests;
 public sealed class ReportingWorkflowTests
 {
     [Fact]
-    public void ReportingPeriodContext_uses_requested_period_and_preserves_it_without_a_query()
+    public void ReportingPeriodContext_uses_requested_period_and_resets_to_the_default_without_a_query()
     {
         var context = new ReportingPeriodContext(new FixedTimeProvider(new DateTimeOffset(2026, 8, 5, 0, 0, 0, TimeSpan.Zero)));
 
@@ -19,7 +19,7 @@ public sealed class ReportingWorkflowTests
 
         context.Synchronise(["2026-07", "2026-05"], null);
 
-        Assert.Equal("2026-05", context.SelectedPeriod);
+        Assert.Equal("2026-07", context.SelectedPeriod);
     }
 
     [Fact]
@@ -649,6 +649,46 @@ public sealed class ReportingWorkflowTests
         Assert.True(result.Succeeded);
         Assert.DoesNotContain(database.ChargeScheduleItems, item => item.Id == scheduleItemId);
         Assert.Contains(database.AuditEvents, item => item.Action == "ChargeScheduleDeleted" && item.EntityId == scheduleItemId);
+    }
+
+    [Fact]
+    public async Task Contract_supporting_document_can_be_deleted_without_removing_protected_or_shared_evidence()
+    {
+        var contractId = Guid.NewGuid();
+        var supportingDocument = new EvidenceRecord(
+            Guid.NewGuid(), EvidenceKind.SupportingDocument, FrameworkCode.GCloud14, "2026-07", "duplicate.png",
+            $"clipboard/contract/{contractId:D}/duplicate.png", "shared-content.png", "image/png", 100,
+            "shared-hash", "RM-001", DateTimeOffset.UtcNow);
+        var protectedEvidence = supportingDocument with
+        {
+            Id = Guid.NewGuid(),
+            Kind = EvidenceKind.ContractDocument,
+            FileName = "source.pdf",
+            OriginalRelativePath = "imports/2026-07/source.pdf",
+        };
+        var database = new RemiDatabase
+        {
+            Contracts = [Contract(contractId, FrameworkCode.GCloud14, "RM-001", "2026-01")],
+            Evidence = [supportingDocument, protectedEvidence],
+        };
+        var archive = new RecordingEvidenceArchive();
+        var workspace = Workspace(database, evidenceArchive: archive);
+
+        var details = await workspace.GetContractDetailsAsync(contractId);
+        Assert.True(Assert.Single(details!.Evidence, item => item.Id == supportingDocument.Id).CanDelete);
+        Assert.False(Assert.Single(details.Evidence, item => item.Id == protectedEvidence.Id).CanDelete);
+
+        var protectedResult = await workspace.DeleteContractEvidenceAsync(contractId, protectedEvidence.Id);
+        var deleted = await workspace.DeleteContractEvidenceAsync(contractId, supportingDocument.Id);
+
+        Assert.False(protectedResult.Succeeded);
+        Assert.True(deleted.Succeeded);
+        Assert.Equal(protectedEvidence.Id, Assert.Single(database.Evidence).Id);
+        Assert.Empty(archive.DeletedEvidence);
+        Assert.Contains(database.AuditEvents, item =>
+            item.Action == "ContractEvidenceDeleted" &&
+            item.EntityId == contractId &&
+            item.Summary.Contains("duplicate.png", StringComparison.Ordinal));
     }
 
     [Fact]

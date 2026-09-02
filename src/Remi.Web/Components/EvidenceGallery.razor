@@ -5,7 +5,7 @@
     <ul class="remi-document-gallery">
         @foreach (var document in Documents)
         {
-            <li class="remi-document-card" @key="document.Id">
+            <li class="remi-document-card @(CanDelete(document) ? "is-deletable" : null)" @key="document.Id">
                 <button class="remi-document-open" type="button" @onclick="() => OpenPreview(document)" aria-label="Open @document.FileName">
                     <span class="remi-document-thumbnail" aria-hidden="true">
                         @if (EvidencePreviewPolicy.GetKind(document.FileName) == EvidencePreviewKind.Image)
@@ -22,6 +22,10 @@
                         <span class="remi-document-meta">@FormatBytes(document.FileSizeBytes)</span>
                     </span>
                 </button>
+                @if (CanDelete(document))
+                {
+                    <button class="remi-document-delete" type="button" @onclick="() => OnDelete.InvokeAsync(document)" aria-label="Delete @document.FileName" title="Delete document"><span aria-hidden="true">×</span></button>
+                }
             </li>
         }
     </ul>
@@ -67,9 +71,11 @@
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<EvidenceLink> Documents { get; set; } = [];
+    [Parameter] public EventCallback<EvidenceLink> OnDelete { get; set; }
 
     private EvidenceLink? previewing;
 
+    private bool CanDelete(EvidenceLink document) => document.CanDelete && OnDelete.HasDelegate;
     private void OpenPreview(EvidenceLink document) => previewing = document;
     private void ClosePreview() => previewing = null;
     private static string PreviewUrl(EvidenceLink document) => $"/evidence/{document.Id}/preview";

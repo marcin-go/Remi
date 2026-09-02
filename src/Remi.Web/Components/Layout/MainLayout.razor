@@ -6,17 +6,17 @@
 
 <div class="app-shell">
     <header class="app-header">
-        <a class="brand" href="@PeriodLink("/home")" aria-label="Remi home">
+        <a class="brand" href="/home" aria-label="Remi home">
             <span class="brand-mark">R</span>
             <span>Remi</span>
         </a>
         <span class="brand-subtitle">Framework MI reporting</span>
         <nav class="navigation" aria-label="Primary navigation">
-            <NavLink href="@PeriodLink("/home")" Match="NavLinkMatch.All">Home</NavLink>
-            <NavLink href="@PeriodLink("/contracts")">Contracts</NavLink>
-            <NavLink href="@PeriodLink("/invoices")">Invoices</NavLink>
+            <NavLink href="/home" Match="NavLinkMatch.All">Home</NavLink>
+            <NavLink href="/contracts">Contracts</NavLink>
+            <NavLink href="/invoices">Invoices</NavLink>
             <NavLink href="@PeriodLink("/reports")">Reports</NavLink>
-            <NavLink href="@PeriodLink("/settings")">Settings</NavLink>
+            <NavLink href="/settings">Settings</NavLink>
         </nav>
     </header>
     <main>
@@ -55,10 +55,7 @@
         ReportingPeriod.Synchronise(periods, PeriodFromLocation(location ?? Navigation.Uri));
     }
 
-    private string PeriodLink(string path) => PeriodLink(path, ReportingPeriod.SelectedPeriod);
-
-    private static string PeriodLink(string path, string period)
-        => ReportingRoutes.WithPeriod(path, period);
+    private string PeriodLink(string path) => ReportingRoutes.WithPeriod(path, ReportingPeriod.SelectedPeriod);
 
     private static string? PeriodFromLocation(string location) =>
         QueryHelpers.ParseQuery(new Uri(location).Query).TryGetValue("period", out var values)

@@ -412,7 +412,21 @@ else
             }
             else if (activeTab == "evidence")
             {
-                <div class="contract-tab-panel" role="tabpanel"><article class="contract-content-card"><header class="contract-card-head"><div><h2>Supporting documents</h2><p>Immutable copies retained alongside this contract record.</p></div></header><section class="contract-file-grid">@if (details.Evidence.Count == 0) { <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div> } else { <EvidenceGallery Documents="@details.Evidence" /> }</section></article></div>
+                <div class="contract-tab-panel" role="tabpanel">
+                    <article class="contract-content-card">
+                        <header class="contract-card-head"><div><h2>Supporting documents</h2><p>Files added to this contract can be deleted. Imported source evidence remains protected.</p></div></header>
+                        <section class="contract-file-grid">
+                            @if (details.Evidence.Count == 0)
+                            {
+                                <div class="contract-empty-inline"><strong>No documents linked</strong><span>Add signed contracts, pricing extracts and other supporting documents from the contract record.</span></div>
+                            }
+                            else
+                            {
+                                <EvidenceGallery Documents="@details.Evidence" OnDelete="BeginDocumentDeletion" />
+                            }
+                        </section>
+                    </article>
+                </div>
             }
             else
             {
@@ -430,6 +444,19 @@ else
                                         ErrorMessage="@(deleteResult is { Succeeded: false } ? deleteResult.Message : null)"
                                         OnCancel="CancelDelete"
                                         OnConfirm="DeleteAsync" />
+        }
+        @if (documentPendingDeletion is not null)
+        {
+            <DeletionConfirmationDialog Title="@($"Delete {documentPendingDeletion.FileName}?")"
+                                        Description="This permanently removes this supporting document from the contract. This action cannot be undone."
+                                        Impact="@NoDependentDeletionImpact"
+                                        RetainedMessage="Imported source evidence and other documents are retained."
+                                        ConfirmLabel="Delete document"
+                                        Working="@documentDeleting"
+                                        RequiresTypedConfirmation="false"
+                                        ErrorMessage="@(documentDeleteResult is { Succeeded: false } ? documentDeleteResult.Message : null)"
+                                        OnCancel="CancelDocumentDeletion"
+                                        OnConfirm="DeleteDocumentAsync" />
         }
     </section>
 }
@@ -464,6 +491,10 @@ else
     private bool deleting;
     private DeletionImpact? deletionImpact;
     private ReturnActionResult? deleteResult;
+    private static readonly DeletionImpact NoDependentDeletionImpact = new([]);
+    private EvidenceLink? documentPendingDeletion;
+    private bool documentDeleting;
+    private ReturnActionResult? documentDeleteResult;
     private FrameworkCode editFramework;
     private string editSupplierReference = string.Empty, editCustomerName = string.Empty, editCustomerUrn = string.Empty, editLotNumber = string.Empty, editServiceGroup = string.Empty, editServiceDescription = string.Empty, editOrderChannel = string.Empty, editMarketplaceServiceId = string.Empty, editReportingMonth = string.Empty;
     private DateOnly? editStartDate, editEndDate;
@@ -671,6 +702,45 @@ else
         confirmingDelete = deletionImpact is not null;
     }
     private void CancelDelete() { confirmingDelete = false; deletionImpact = null; deleteResult = null; }
+
+    private void BeginDocumentDeletion(EvidenceLink document)
+    {
+        if (!document.CanDelete) return;
+        documentPendingDeletion = document;
+        documentDeleteResult = null;
+    }
+
+    private void CancelDocumentDeletion()
+    {
+        if (documentDeleting) return;
+        documentPendingDeletion = null;
+        documentDeleteResult = null;
+    }
+
+    private async Task DeleteDocumentAsync()
+    {
+        if (documentPendingDeletion is null || documentDeleting) return;
+        documentDeleting = true;
+        documentDeleteResult = null;
+        try
+        {
+            documentDeleteResult = await Workspace.DeleteContractEvidenceAsync(ContractId, documentPendingDeletion.Id);
+            if (documentDeleteResult.Succeeded)
+            {
+                details = await Workspace.GetContractDetailsAsync(ContractId);
+                history = await Workspace.GetContractAuditEventsAsync(ContractId);
+                documentPendingDeletion = null;
+            }
+        }
+        catch (Exception exception)
+        {
+            documentDeleteResult = new ReturnActionResult(false, $"The supporting document could not be deleted: {exception.Message}", []);
+        }
+        finally
+        {
+            documentDeleting = false;
+        }
+    }
 
     private async Task DeleteAsync()
     {
@@ -1162,7 +1232,7 @@ else
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private string ContractPartPickerLabel(string value) => string.IsNullOrEmpty(value) ? "Not assigned" : ContractPartName(Guid.TryParse(value, out var id) ? id : null);
     private string ContractPartName(Guid? partId) => partId is null ? "Not assigned" : details?.ServiceParts.SingleOrDefault(part => part.Id == partId)?.Name ?? "Part unavailable";
-    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "ContractOperationsUpdated" => "Operational delivery updated", "ContractPartWentLive" => "Customer went live", "ContractChangeRecorded" => "Contract change recorded", "ContractChangeUpdated" => "Contract change corrected", "ContractChangeConfirmed" => "Contract change confirmed", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", "ChargeScheduleDeleted" => "Payment position removed", _ => action };
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "ContractMigratedFromLedger" => "Contract recovered from Ledger", "ContractPaymentScheduleRecorded" => "Payment schedule recorded", "LedgerPaymentScheduleImported" => "Payment schedule recovered from Ledger", "ContractOperationsUpdated" => "Operational delivery updated", "ContractPartWentLive" => "Customer went live", "ContractChangeRecorded" => "Contract change recorded", "ContractChangeUpdated" => "Contract change corrected", "ContractChangeConfirmed" => "Contract change confirmed", "ContractEvidenceDeleted" => "Supporting document deleted", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "ChargeScheduled" => "Charge schedule updated", "ChargeScheduleUpdated" => "Payment position updated", "ChargeScheduleDeleted" => "Payment position removed", _ => action };
     private sealed class EditableContractPart
     {
         public Guid? Id { get; init; }

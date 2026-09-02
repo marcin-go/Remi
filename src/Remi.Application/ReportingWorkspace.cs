@@ -1462,6 +1462,72 @@ public sealed class ReportingWorkspace(
             : deletion.Result with { Message = "The contract was deleted, but one or more supporting files could not be removed from the archive." };
     }
 
+    public async Task<ReturnActionResult> DeleteContractEvidenceAsync(
+        Guid contractId,
+        Guid evidenceId,
+        string? actor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var deletion = await store.UpdateAsync(database =>
+        {
+            var contract = database.Contracts.SingleOrDefault(item => item.Id == contractId);
+            if (contract is null)
+            {
+                return new ContractEvidenceDeletionResult(
+                    new ReturnActionResult(false, "The selected contract no longer exists.", []),
+                    null);
+            }
+
+            var evidence = database.Evidence.SingleOrDefault(item => item.Id == evidenceId);
+            var changeIds = database.ContractChanges
+                .Where(change => change.ContractId == contractId)
+                .Select(change => change.Id)
+                .ToHashSet();
+            if (evidence is null || !IsDeletableContractEvidence(evidence, contractId, changeIds))
+            {
+                return new ContractEvidenceDeletionResult(
+                    new ReturnActionResult(false, "Only supporting documents added directly to this contract can be deleted.", []),
+                    null);
+            }
+
+            database.Evidence.Remove(evidence);
+            RecordAudit(
+                database,
+                timeProvider.GetUtcNow(),
+                "ContractEvidenceDeleted",
+                "Contract",
+                contractId,
+                $"Deleted supporting document {evidence.FileName} from contract {contract.SupplierReference}.",
+                null,
+                actor);
+
+            var unreferencedEvidence = database.Evidence.Any(remaining => string.Equals(
+                remaining.StoredRelativePath,
+                evidence.StoredRelativePath,
+                StringComparison.OrdinalIgnoreCase))
+                ? null
+                : evidence;
+            return new ContractEvidenceDeletionResult(
+                new ReturnActionResult(true, "The supporting document has been deleted.", [], contractId),
+                unreferencedEvidence);
+        }, cancellationToken);
+
+        if (!deletion.Result.Succeeded || deletion.UnreferencedEvidence is null)
+        {
+            return deletion.Result;
+        }
+
+        try
+        {
+            await evidenceArchive.DeleteAsync(deletion.UnreferencedEvidence, cancellationToken);
+            return deletion.Result;
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return deletion.Result with { Message = "The document was removed from the contract, but its file could not be removed from the archive." };
+        }
+    }
+
     public Task<ReturnActionResult> AddChargeScheduleItemAsync(
         ChargeScheduleEntry entry,
         string? actor = null,
@@ -2738,7 +2804,7 @@ public sealed class ReportingWorkspace(
         return true;
     }
 
-    private static EvidenceLink ToEvidenceLink(EvidenceRecord evidence) => new(
+    private static EvidenceLink ToEvidenceLink(EvidenceRecord evidence, bool canDelete = false) => new(
         evidence.Id,
         evidence.Kind,
         evidence.FileName,
@@ -2746,7 +2812,8 @@ public sealed class ReportingWorkspace(
         evidence.ContentType,
         evidence.FileSizeBytes,
         evidence.ReportMonth,
-        evidence.ArchivedAtUtc);
+        evidence.ArchivedAtUtc,
+        canDelete);
 
     private static ReportingEvidence ToReportingEvidence(EvidenceRecord evidence) => new(
         evidence.Id,
@@ -2758,11 +2825,16 @@ public sealed class ReportingWorkspace(
         evidence.ContractReference,
         evidence.ArchivedAtUtc);
 
-    private static IReadOnlyList<EvidenceLink> EvidenceForContract(RemiDatabase database, ContractRecord contract) =>
-        database.Evidence
+    private static IReadOnlyList<EvidenceLink> EvidenceForContract(RemiDatabase database, ContractRecord contract)
+    {
+        var changeIds = database.ContractChanges
+            .Where(change => change.ContractId == contract.Id)
+            .Select(change => change.Id)
+            .ToHashSet();
+        return database.Evidence
             .Where(item => item.Framework == contract.Framework &&
                 (IsClipboardEvidenceFor(item, "contract", contract.Id) ||
-                 database.ContractChanges.Where(change => change.ContractId == contract.Id).Any(change => IsClipboardEvidenceFor(item, "contract-change", change.Id)) ||
+                 changeIds.Any(changeId => IsClipboardEvidenceFor(item, "contract-change", changeId)) ||
                  (!IsClipboardEvidence(item) && (string.Equals(
                     ReportingRules.NormaliseReference(item.ContractReference ?? string.Empty),
                     ReportingRules.NormaliseReference(contract.SupplierReference),
@@ -2770,8 +2842,9 @@ public sealed class ReportingWorkspace(
                  (item.ReportMonth == contract.ReportMonth &&
                     string.Equals(item.FileName, contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))))
             .OrderBy(item => item.OriginalRelativePath, StringComparer.OrdinalIgnoreCase)
-            .Select(ToEvidenceLink)
+            .Select(item => ToEvidenceLink(item, IsDeletableContractEvidence(item, contract.Id, changeIds)))
             .ToList();
+    }
 
     private static IReadOnlyList<EvidenceLink> EvidenceForInvoice(RemiDatabase database, InvoiceRecord invoice) =>
         database.Evidence
@@ -2784,12 +2857,15 @@ public sealed class ReportingWorkspace(
                  (item.ReportMonth == invoice.ReportMonth &&
                     string.Equals(item.FileName, invoice.SourceWorkbook, StringComparison.OrdinalIgnoreCase))))))
             .OrderBy(item => item.OriginalRelativePath, StringComparer.OrdinalIgnoreCase)
-            .Select(ToEvidenceLink)
+            .Select(item => ToEvidenceLink(item))
             .ToList();
 
     private static bool IsClipboardEvidence(EvidenceRecord evidence) => evidence.OriginalRelativePath.StartsWith("clipboard/", StringComparison.OrdinalIgnoreCase);
     private static bool IsClipboardEvidenceFor(EvidenceRecord evidence, string entityType, Guid entityId) =>
         evidence.OriginalRelativePath.StartsWith($"clipboard/{entityType}/{entityId:D}/", StringComparison.OrdinalIgnoreCase);
+    private static bool IsDeletableContractEvidence(EvidenceRecord evidence, Guid contractId, IReadOnlySet<Guid> changeIds) =>
+        IsClipboardEvidenceFor(evidence, "contract", contractId) ||
+        changeIds.Any(changeId => IsClipboardEvidenceFor(evidence, "contract-change", changeId));
 
     private static PaymentScheduleUpdate AddPaymentScheduleItems(
         RemiDatabase database,
@@ -3126,6 +3202,10 @@ public sealed class ReportingWorkspace(
     private sealed record ContractDeletionResult(
         ReturnActionResult Result,
         IReadOnlyList<EvidenceRecord> UnreferencedEvidence);
+
+    private sealed record ContractEvidenceDeletionResult(
+        ReturnActionResult Result,
+        EvidenceRecord? UnreferencedEvidence);
 
     private sealed record SubmissionEvidenceUpdateResult(
         ReturnActionResult Result,

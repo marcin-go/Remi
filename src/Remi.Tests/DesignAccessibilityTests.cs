@@ -168,6 +168,14 @@ public sealed class DesignAccessibilityTests
 
         var clipboardEvidence = File.ReadAllText(FindFromRepository("src", "Remi.Web", "wwwroot", "clipboard-image-evidence.js"));
         Assert.Contains("isTextEditingTarget(event.target) && !host.contains(event.target)", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("dispose(host);", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("document.fingerprint === fingerprint", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("`${namePrefix}-${fingerprint.slice(0, 12)}.${extension}`", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("void enqueue(state, () => addFiles(state, [file], 'clipboard-image'))", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("await state.queue;", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("document.title = title", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("encodeURIComponent(document.title)", clipboardEvidence, StringComparison.Ordinal);
+        Assert.Contains("state.fileInput.removeEventListener('change', state.onFileChange)", clipboardEvidence, StringComparison.Ordinal);
 
         var contractRegistration = File.ReadAllText(Path.Combine(componentRoot, "Pages", "ContractRegistration.razor"));
         Assert.DoesNotContain("<select", contractRegistration, StringComparison.OrdinalIgnoreCase);
