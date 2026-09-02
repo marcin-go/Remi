@@ -62,6 +62,16 @@ public sealed class DesignAccessibilityTests
     }
 
     [Fact]
+    public void Active_record_tab_underlines_have_square_corners()
+    {
+        var css = File.ReadAllText(AppCssPath());
+
+        Assert.Matches(
+            @"\.contract-tabs button\.active\s*\{[^}]*border-radius:\s*0;",
+            css);
+    }
+
+    [Fact]
     public void Command_tiers_follow_the_compact_typographic_system()
     {
         var css = File.ReadAllText(AppCssPath());

@@ -1073,6 +1073,7 @@ select option:checked {
 
 .contract-tabs button.active {
     color: var(--color-teal);
+    border-radius: 0;
 }
 
 .return-register-views .button.active {
