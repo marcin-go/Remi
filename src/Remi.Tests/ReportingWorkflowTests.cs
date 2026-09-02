@@ -558,6 +558,7 @@ public sealed class ReportingWorkflowTests
         Assert.Equal("Optional year 4 licence", optionalPosition.Description);
         Assert.Equal(new DateOnly(2028, 6, 1), optionalPosition.ExpectedInvoiceDate);
         Assert.Equal(18000, optionalPosition.ValueExVat);
+        Assert.Equal(entry.StartDate, Assert.Single(database.ContractServiceParts).GoLiveDate);
         Assert.Contains(database.AuditEvents, item => item.EntityId == contract.Id && item.Action == "ContractPaymentScheduleRecorded");
     }
 

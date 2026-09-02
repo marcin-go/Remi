@@ -114,6 +114,71 @@ public sealed class SchemaMigrationTests
     }
 
     [Fact]
+    public async Task Go_live_backfill_upgrades_v8_and_preserves_explicit_operational_dates()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "remi-data.db");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var missingPartId = Guid.NewGuid();
+            var explicitPartId = Guid.NewGuid();
+            var missingContractId = Guid.NewGuid();
+            var explicitContractId = Guid.NewGuid();
+            var initialStore = new SqliteRemiStore(databasePath);
+            await initialStore.UpdateAsync(database =>
+            {
+                database.Contracts.AddRange(
+                [
+                    MigrationContract(missingContractId, "MISSING-GO-LIVE", new DateOnly(2025, 4, 1)),
+                    MigrationContract(explicitContractId, "EXPLICIT-GO-LIVE", new DateOnly(2025, 5, 1)),
+                ]);
+                database.ContractServiceParts.AddRange(
+                [
+                    new ContractServicePart(missingPartId, missingContractId, "Whole contract", null, 0, DateTimeOffset.UtcNow),
+                    new ContractServicePart(explicitPartId, explicitContractId, "Implementation", new DateOnly(2025, 6, 15), 0, DateTimeOffset.UtcNow),
+                ]);
+                return 0;
+            });
+
+            await using (var connection = await OpenAsync(databasePath))
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM remi_schema_migrations WHERE version = 9;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var upgradedStore = new SqliteRemiStore(databasePath);
+            var parts = await upgradedStore.ReadAsync(database => database.ContractServiceParts.ToDictionary(item => item.Id));
+
+            Assert.Equal(new DateOnly(2025, 4, 1), parts[missingPartId].GoLiveDate);
+            Assert.Equal(new DateOnly(2025, 6, 15), parts[explicitPartId].GoLiveDate);
+
+            var automaticBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v9-*.db"));
+            await using var backup = await OpenAsync(automaticBackup, readOnly: true);
+            await using (var integrity = backup.CreateCommand())
+            {
+                integrity.CommandText = "PRAGMA integrity_check;";
+                Assert.Equal("ok", await integrity.ExecuteScalarAsync());
+            }
+            await using (var preMigrationValue = backup.CreateCommand())
+            {
+                preMigrationValue.CommandText = "SELECT go_live_date FROM contract_service_parts WHERE id = $id;";
+                preMigrationValue.Parameters.AddWithValue("$id", missingPartId.ToString("D"));
+                Assert.Equal(DBNull.Value, await preMigrationValue.ExecuteScalarAsync());
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Current_operational_schema_is_upgraded_additively_without_losing_register_data()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
@@ -144,7 +209,7 @@ public sealed class SchemaMigrationTests
             Assert.Single(snapshot.Evidence);
             Assert.Single(snapshot.Parts);
             Assert.Equal("Planning Management", snapshot.Parts[0].Name);
-            Assert.Null(snapshot.Parts[0].GoLiveDate);
+            Assert.Equal(new DateOnly(2024, 10, 1), snapshot.Parts[0].GoLiveDate);
             Assert.Single(snapshot.ReportingOccurrences);
             Assert.Equal(snapshot.Contracts[0].Id, snapshot.ReportingOccurrences[0].ContractId);
             Assert.Equal(snapshot.Returns[0].Id, snapshot.ReportingOccurrences[0].MonthlyReturnId);
@@ -163,7 +228,7 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
             Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
             Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));
@@ -224,6 +289,14 @@ public sealed class SchemaMigrationTests
             await using var versionEightIntegrity = versionEightBackup.CreateCommand();
             versionEightIntegrity.CommandText = "PRAGMA integrity_check;";
             Assert.Equal("ok", await versionEightIntegrity.ExecuteScalarAsync());
+
+            var goLiveBackup = Assert.Single(Directory.GetFiles(
+                Path.Combine(root, "migration-backups"),
+                "remi-data-before-schema-v9-*.db"));
+            await using var versionNineBackup = await OpenAsync(goLiveBackup, readOnly: true);
+            await using var versionNineIntegrity = versionNineBackup.CreateCommand();
+            versionNineIntegrity.CommandText = "PRAGMA integrity_check;";
+            Assert.Equal("ok", await versionNineIntegrity.ExecuteScalarAsync());
         }
         finally
         {
@@ -304,6 +377,26 @@ public sealed class SchemaMigrationTests
             """;
         await command.ExecuteNonQueryAsync();
     }
+
+    private static ContractRecord MigrationContract(Guid id, string reference, DateOnly startDate) =>
+        new(
+            id,
+            FrameworkCode.GCloud14,
+            reference,
+            "Migration customer",
+            "URN-MIGRATION",
+            startDate,
+            startDate.AddYears(1),
+            "2",
+            "Information and Communication Technology (ICT)",
+            null,
+            null,
+            null,
+            "migration-service",
+            1000,
+            startDate.ToString("yyyy-MM"),
+            "migration-test",
+            DateTimeOffset.UtcNow);
 
     private static async Task<SqliteConnection> OpenAsync(string path, bool readOnly = false)
     {

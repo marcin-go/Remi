@@ -11,7 +11,7 @@ namespace Remi.Infrastructure;
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 8;
+    internal const int CurrentSchemaVersion = 9;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -1429,6 +1429,39 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 cancellationToken);
             transaction.Commit();
             applied.Add(8);
+        }
+
+        if (!applied.Contains(9))
+        {
+            if (existingDatabase)
+            {
+                await CreateAutomaticMigrationBackupAsync(connection, 9, cancellationToken);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                UPDATE contract_service_parts
+                SET go_live_date = (
+                    SELECT contracts.start_date
+                    FROM contracts
+                    WHERE contracts.id = contract_service_parts.contract_id
+                )
+                WHERE go_live_date IS NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM contracts
+                    WHERE contracts.id = contract_service_parts.contract_id
+                      AND contracts.start_date IS NOT NULL
+                  );
+                """, cancellationToken);
+            await RecordMigrationAsync(
+                connection,
+                transaction,
+                9,
+                "Backfill contract go-live dates from contract starts",
+                cancellationToken);
+            transaction.Commit();
+            applied.Add(9);
         }
     }
 

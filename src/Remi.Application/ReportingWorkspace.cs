@@ -2955,7 +2955,7 @@ public sealed class ReportingWorkspace(
         var name = NullIfWhiteSpace(contract.ServiceDescription)
             ?? NullIfWhiteSpace(contract.ServiceGroup)
             ?? "Whole contract";
-        var created = new ContractServicePart(Guid.NewGuid(), contract.Id, name, null, 0, now);
+        var created = new ContractServicePart(Guid.NewGuid(), contract.Id, name, contract.StartDate, 0, now);
         database.ContractServiceParts.Add(created);
         return created;
     }
