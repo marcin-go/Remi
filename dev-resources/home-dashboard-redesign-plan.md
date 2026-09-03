@@ -1,6 +1,24 @@
 # Home dashboard redesign plan
 
-Date: 3 September 2026. Status: proposed; investigation complete, implementation not started.
+Date: 3 September 2026. Status: implementation started; shared operational foundation implemented, dashboard layout and persistent forecast work pending.
+
+## Implementation progress — 3 September 2026
+
+The first slice implements the shared definitions and read projection from step 1. `OperationalHomeWorkspace` now supplies a single-read portfolio snapshot using grouped lookups, independent of the selected reporting period. It includes current local business date, 30/90/180-day ending filters, extension-aware commercial values, service go-live timing, dated payment positions for this and next month, and schedule coverage. It does not load evidence files or write to the register.
+
+`ContractPortfolioRules` supplies the common lifecycle, commercial value, committed billing value and delivery calculations. The contract register and details now distinguish future starts and invalid/missing dates from Live. The invoice picker uses the current extended end date and local business date, retaining advance billing and final bills for ended contracts. A fully invoiced contract still within its extended term remains selectable. Confirmation warnings are preserved and also exposed in the contract register.
+
+Analysis clarified three implementation rules:
+
+- Existing data cannot prove which optional year an extension exercised. A contract with both options and a recorded extension is therefore **Association needs review**, outside the count of recorded options awaiting a decision. Multiple positions in the same optional year form one recorded option period. No absence of data is interpreted as an explicit no-further-option assessment.
+- Forecasts count explicit **payment positions**, not invoices. Optional rows remain outside the committed dated forecast, even when an extension may match them; all recorded extensions remain available for association review. Dated final bills on ended contracts remain visible. Legacy plan rows are used only when there is no charge schedule, avoiding overlap.
+- The existing progress calculation could use only the extension value when no payment schedule existed. Shared committed value now uses the non-optional schedule (or a legacy plan when no charge schedule exists), falling back to the base contract value, then adds recorded changes. Commercial contract value remains base value plus changes. Ambiguous contract/reference matches have unknown invoice balances in the new operational projection instead of assigning the same invoices confidently to two contracts.
+
+Verification covers date and horizon boundaries, leap-day/year rollover and local time, historical frameworks, multiple/unconfirmed/future-dated agreements, ambiguous option associations, missing dates and zero complete schedules, legacy overlap, final billing, credits, duplicate references, service timing, reporting-period independence and read-only behaviour. Component tests compare the register's Live filter with the operational projection and check detail status labels. The accessibility test now resolves the blueprint from its existing `dev-resources` location.
+
+Validation: `dotnet test src/Remi.Tests/Remi.Tests.csproj --no-restore --verbosity minimal` passed all **183 tests**, with none skipped. An earlier full run hit the existing attachment retry test's render timeout; the final full run passed without modifying that test. `git diff --check -- src` also passed. Tests built the application assemblies but did not launch an application instance.
+
+Still pending: the Home page rewrite and removal of its obsolete branch, URL-backed drill-downs, Planned invoices view, compact reporting summary, and updating the Home design blueprint alongside that UI. Planned-invoice groups, allocations, explicit option associations and audited data review remain steps 3–4. Portable publishing, complete-folder backup and browser verification at the specified widths remain the release gate. This slice makes no schema change and does not publish, start or alter the operational instance.
 
 ## Recommendation
 
@@ -184,6 +202,6 @@ Steps 1–2 can deliver a useful first slice without a schema change, but they d
 - No GET/read path records data, exercises an option, creates an invoice, confirms a NIL return or changes a submission. No completed-monthly-workbook import workflow is introduced.
 - Layout and keyboard behaviour are checked at approximately 1440, 1024, 768 and 390px widths, including empty, loading, error and partially populated states.
 
-## Investigation boundary
+## Original investigation boundary (before implementation)
 
 This plan is based on current source, existing test contracts and a read-only aggregate inspection of the operational register. No application source, operational records, schemas, evidence or keys were changed. The portable application was not started or rebuilt, and no live rendered UI verification or new test run was performed for this planning task.

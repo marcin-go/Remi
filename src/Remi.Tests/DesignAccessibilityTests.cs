@@ -233,7 +233,7 @@ public sealed class DesignAccessibilityTests
         Assert.Contains("min-height: 46px;", css, StringComparison.Ordinal);
         Assert.Contains(".clipboard-instruction-mobile { display: inline; }", css, StringComparison.Ordinal);
 
-        var blueprint = File.ReadAllText(FindFromRepository("docs", "design-blueprint.md"));
+        var blueprint = File.ReadAllText(FindFromRepository("dev-resources", "design-blueprint.md"));
         Assert.Contains("## Non-negotiable rules", blueprint, StringComparison.Ordinal);
         Assert.Contains("Floating labels are the default form control", blueprint, StringComparison.Ordinal);
         Assert.Contains("### Searchable picklists", blueprint, StringComparison.Ordinal);

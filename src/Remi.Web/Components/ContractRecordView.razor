@@ -2,6 +2,7 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject TimeProvider Clock
 @inject IServiceProvider Services
 @inject NavigationManager Navigation
 @implements IDisposable
@@ -15,7 +16,7 @@ else
     <section class="contract-record">
         <header class="dashboard-header register-page-header-compact contract-hero">
             <div>
-                <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status @OperationalStatusCss"><i aria-hidden="true"></i>@OperationalStatus</span></div>
+                <div class="contract-title-line"><h1>@details.Contract.SupplierReference</h1><span class="contract-status @OperationalStatusCss"><span class="visually-hidden">Operational delivery: </span><i aria-hidden="true"></i>@OperationalStatus</span></div>
                 <p class="contract-hero-context">@details.Contract.CustomerName <span aria-hidden="true">·</span> @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
@@ -558,20 +559,17 @@ else
     private EvidenceLink? SourceEvidence => details is null ? null : details.Evidence.FirstOrDefault(item => string.Equals(item.FileName, details.Contract.SourceWorkbook, StringComparison.OrdinalIgnoreCase));
     private IReadOnlyList<EvidenceLink> SourceDocuments => SourceEvidence is { } evidence ? [evidence] : [];
     private decimal InvoicedValue => details?.Invoices.Sum(item => item.TotalCostExVat) ?? 0;
-    private decimal AgreedChangeValue => details?.ContractChanges.Sum(change => change.IncrementalValueExVat) ?? 0;
-    private decimal CurrentContractValue => details?.Contract.TotalContractValueExVat + AgreedChangeValue ?? 0;
-    private decimal RemainingContractValue => Math.Max(0, CurrentContractValue - InvoicedValue);
+    private ContractCommercialPosition? CommercialPosition => details is null ? null : ContractPortfolioRules.CommercialPosition(details.Contract, details.ContractChanges);
+    private decimal AgreedChangeValue => CommercialPosition?.AgreedChangeValueExVat ?? 0;
+    private decimal CurrentContractValue => CommercialPosition?.ContractValueExVat ?? 0;
+    private decimal RemainingContractValue => Math.Max(0, (details?.CommittedValueExVat ?? CurrentContractValue) - InvoicedValue);
     private ContractChangeRecord? SelectedInvoiceChange => invoiceContractChangeId is Guid changeId ? details?.ContractChanges.SingleOrDefault(change => change.Id == changeId) : null;
     private int ReportingMonthCount => details?.Invoices.Select(item => item.ReportMonth).Distinct(StringComparer.Ordinal).Count() ?? 0;
     private decimal InvoiceRatio => CurrentContractValue <= 0 ? 0 : InvoicedValue / CurrentContractValue;
     private string InvoiceProgressWidth => $"{Math.Clamp(InvoiceRatio * 100, 0, 100):0.##}%";
     private string InvoicePercent => $"{InvoiceRatio * 100:0.#}%";
     private string LotAndFramework => $"{(string.IsNullOrWhiteSpace(details!.Contract.LotNumber) ? "No lot recorded" : $"Lot {details.Contract.LotNumber}")} · {Frameworks.Get(details.Contract.Framework).DisplayName}";
-    private DateOnly? CurrentContractEndDate => details is null ? null : details.ContractChanges
-        .Where(change => change.Kind == ContractChangeKind.Extension)
-        .Select(change => change.EffectiveEndDate)
-        .Append(details.Contract.EndDate)
-        .Max();
+    private DateOnly? CurrentContractEndDate => CommercialPosition?.EndDate;
     private bool TermHasBeenExtended => details is not null && CurrentContractEndDate is not null && CurrentContractEndDate != details.Contract.EndDate;
     private string ContractTerm => details?.Contract.StartDate is not null && CurrentContractEndDate is not null ? $"{FullContractMonths(details.Contract.StartDate.Value, CurrentContractEndDate.Value)} months" : "Not recorded";
     private string DateRange => details?.Contract.StartDate is not null && CurrentContractEndDate is not null ? $"{Display(details.Contract.StartDate)} – {Display(CurrentContractEndDate)}" : "Dates not recorded";
@@ -627,14 +625,20 @@ else
     private string ContractClipboardEvidenceMessage => contractClipboardImageCount == 0 ? "Paste images here to add them to this contract's evidence." : $"{contractClipboardImageCount} image{(contractClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
     private bool CanSaveSchedule => editableSchedule.Count == 0 || editableSchedule.All(item => item.ContractYear > 0 && !string.IsNullOrWhiteSpace(item.Description) && item.ParsedValueExVat is > 0);
     private bool HasStagedOperations => details?.ServiceParts.Count > 1;
-    private int LivePartCount => details?.ServiceParts.Count(part => part.GoLiveDate is not null) ?? 0;
-    private string OperationalStatus => CurrentContractEndDate is DateOnly end && end < DateOnly.FromDateTime(DateTime.Today)
-        ? "Ended"
-        : LivePartCount == 0
-            ? "Not live"
-            : LivePartCount == details?.ServiceParts.Count
-                ? "Live"
-                : "Partially live";
+    private DateOnly Today => ContractPortfolioRules.Today(Clock);
+    private int LivePartCount => details?.ServiceParts.Count(part => part.GoLiveDate is DateOnly date && date <= Today) ?? 0;
+    private string OperationalStatus => ContractPortfolioRules.Lifecycle(details?.Contract.StartDate, CurrentContractEndDate, Today) switch
+    {
+        ContractLifecycle.Ended => "Ended",
+        ContractLifecycle.Future => "Not started",
+        ContractLifecycle.Unknown => "Dates need review",
+        _ => ContractPortfolioRules.Delivery(details!.ServiceParts, Today) switch
+        {
+            ContractDeliveryStatus.Live => "Live",
+            ContractDeliveryStatus.PartiallyLive => "Partially live",
+            _ => "Not live",
+        },
+    };
     private string OperationalStatusCss => OperationalStatus switch { "Live" => "is-live", "Partially live" => "is-partial", "Ended" => "is-ended", _ => "is-not-live" };
     private bool CanSaveOperations => editableOperations.Count is >= 1 and <= 20
         && (!operationsStaged || editableOperations.All(part => !string.IsNullOrWhiteSpace(part.Name) && part.Name.Trim().Length <= 120));
@@ -1234,11 +1238,11 @@ else
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private string InvoiceRoute(Guid invoiceId) => PeriodRoute($"invoices/{invoiceId}");
     private static bool IsValidReportingMonth(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
-    private static IReadOnlyList<string> ReportingMonthOptions(string value)
+    private IReadOnlyList<string> ReportingMonthOptions(string value)
     {
         var selectedMonth = DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed)
             ? parsed
-            : DateOnly.FromDateTime(DateTime.Today);
+            : Today;
         var firstMonth = new DateOnly(selectedMonth.Year, selectedMonth.Month, 1).AddMonths(-36);
         return Enumerable.Range(0, 61).Select(offset => firstMonth.AddMonths(offset).ToString("yyyy-MM")).ToList();
     }

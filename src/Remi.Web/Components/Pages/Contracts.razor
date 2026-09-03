@@ -2,6 +2,7 @@
 @using Remi.Domain
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject TimeProvider Clock
 @implements IDisposable
 
 <PageTitle>Remi · Contracts</PageTitle>
@@ -59,7 +60,7 @@ else
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
                                 <td class="register-date">@DisplayDate(contract.StartDate)</td>
                                 <td class="register-date">@DisplayDate(contract.EndDate)</td>
-                                <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span></td>
+                                <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span>@if (contract.UnconfirmedChangeCount > 0) { <span>@contract.UnconfirmedChangeCount agreement(s) awaiting confirmation</span> }</td>
                                 <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
                             </tr>
@@ -86,7 +87,7 @@ else
     ];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private static readonly IReadOnlyList<string> ProgressFilterItems = [string.Empty, "not-started", "in-progress", "complete"];
-    private static readonly IReadOnlyList<string> StatusFilterItems = ["ongoing", "ending-soon", "ended"];
+    private static readonly IReadOnlyList<string> StatusFilterItems = ["live", "ongoing", "ending-soon", "future", "ended", "unknown"];
     private DashboardModel? model;
     private string searchTerm = string.Empty;
     private string frameworkFilter = string.Empty;
@@ -128,7 +129,7 @@ else
     private bool MatchesFilters(ContractProgress contract)
     {
         var hasEvidence = contract.Evidence.Count > 0;
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = ContractPortfolioRules.Today(Clock);
         return (string.IsNullOrWhiteSpace(searchTerm) || contract.SupplierReference.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || contract.CustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
             && (string.IsNullOrWhiteSpace(frameworkFilter) || contract.Framework.ToString() == frameworkFilter)
             && (string.IsNullOrWhiteSpace(evidenceFilter) || (evidenceFilter == "available" && hasEvidence) || (evidenceFilter == "missing" && !hasEvidence))
@@ -148,12 +149,16 @@ else
         : Frameworks.Get(framework).IsHistorical ? "Historical" : "Live";
     private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
     private static string ProgressFilterLabel(string value) => value switch { "not-started" => "Not started", "in-progress" => "In progress", "complete" => "Complete", _ => "Any progress" };
-    private static string StatusFilterLabel(string value) => value switch { "ongoing" => "Ongoing", "ending-soon" => "Ending soon", "ended" => "Ended", _ => "All statuses" };
+    private static string StatusFilterLabel(string value) => value switch { "live" => "Live", "ongoing" => "Ongoing", "ending-soon" => "Ending within 180 days", "future" => "Not started", "ended" => "Ended", "unknown" => "Dates need review", _ => "All statuses" };
     private bool MatchesStatusFilter(ContractProgress contract, DateOnly today) => statusFilter switch
     {
-        "ongoing" => contract.EndDate is null || contract.EndDate > today.AddDays(180),
-        "ending-soon" => contract.EndDate is DateOnly endDate && endDate >= today && endDate <= today.AddDays(180),
-        "ended" => contract.EndDate is DateOnly endDate && endDate < today,
+        "live" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Live,
+        "ongoing" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Live
+            && !ContractPortfolioRules.IsEndingWithin(contract.StartDate, contract.EndDate, today, 180),
+        "ending-soon" => ContractPortfolioRules.IsEndingWithin(contract.StartDate, contract.EndDate, today, 180),
+        "future" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Future,
+        "ended" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Ended,
+        "unknown" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Unknown,
         _ => true,
     };
     private void SortBy(string column)
@@ -186,10 +191,21 @@ else
     private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = statusFilter = string.Empty; ResetPage(); }
     private void PreviousPage() => page = Math.Max(1, page - 1);
     private void NextPage() => page = Math.Min(TotalPages, page + 1);
-    private static bool IsEnded(ContractProgress contract) => contract.EndDate is not null && contract.EndDate < DateOnly.FromDateTime(DateTime.Today);
-    private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.UsesInvoicePlan && contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
-    private static string LifecycleStatus(ContractProgress contract) => !IsEnded(contract) ? "Live" : HasOutstandingPaymentPositions(contract) ? "Ended · payments open" : "Ended";
-    private static string LifecycleStatusClass(ContractProgress contract) => !IsEnded(contract) ? "register-status live" : HasOutstandingPaymentPositions(contract) ? "register-status ended-open" : "register-status ended";
+    private ContractLifecycle Lifecycle(ContractProgress contract) => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, ContractPortfolioRules.Today(Clock));
+    private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
+    private string LifecycleStatus(ContractProgress contract) => Lifecycle(contract) switch
+    {
+        ContractLifecycle.Live => "Live",
+        ContractLifecycle.Future => "Not started",
+        ContractLifecycle.Ended => HasOutstandingPaymentPositions(contract) ? "Ended · payments open" : "Ended",
+        _ => "Dates need review",
+    };
+    private string LifecycleStatusClass(ContractProgress contract) => Lifecycle(contract) switch
+    {
+        ContractLifecycle.Live => "register-status live",
+        ContractLifecycle.Ended when HasOutstandingPaymentPositions(contract) => "register-status ended-open",
+        _ => "register-status ended",
+    };
     private static string DisplayDate(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
     private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
     private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";

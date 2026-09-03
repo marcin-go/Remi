@@ -114,7 +114,8 @@ public sealed record ContractProgress(
     bool UsesInvoicePlan,
     decimal CompletionRatio,
     IReadOnlyList<ChargeScheduleItem> ChargeSchedule,
-    IReadOnlyList<EvidenceLink> Evidence);
+    IReadOnlyList<EvidenceLink> Evidence,
+    int UnconfirmedChangeCount = 0);
 
 /// <summary>
 /// A registered contract that can provide the shared and framework-specific context for a new invoice.
@@ -364,7 +365,8 @@ public sealed record ContractDetailsModel(
     IReadOnlyList<ContractServicePart> ServiceParts,
     IReadOnlyList<ContractChangeRecord> ContractChanges,
     IReadOnlyList<EvidenceLink> Evidence,
-    IReadOnlyList<ValidationFinding> Findings);
+    IReadOnlyList<ValidationFinding> Findings,
+    decimal? CommittedValueExVat = null);
 
 /// <summary>
 /// The complete register view for one invoice, including its linked contract when one exists.

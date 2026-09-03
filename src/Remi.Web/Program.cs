@@ -83,6 +83,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<RestoreRequestTokenService>();
 builder.Services.AddScoped<ReportingPeriodContext>();
 builder.Services.AddScoped<ReportingWorkspace>();
+builder.Services.AddScoped<OperationalHomeWorkspace>();
 
 var app = builder.Build();
 

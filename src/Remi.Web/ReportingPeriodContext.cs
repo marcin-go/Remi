@@ -55,5 +55,5 @@ public sealed class ReportingPeriodContext
         !string.IsNullOrWhiteSpace(period)
         && DateOnly.TryParseExact($"{period}-01", "yyyy-MM-dd", out _);
 
-    private string DefaultPeriod() => DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime).AddMonths(-1).ToString("yyyy-MM");
+    private string DefaultPeriod() => Remi.Application.ContractPortfolioRules.Today(timeProvider).AddMonths(-1).ToString("yyyy-MM");
 }

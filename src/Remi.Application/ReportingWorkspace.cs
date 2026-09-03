@@ -246,7 +246,11 @@ public sealed class ReportingWorkspace(
                     (item.EntityType == "ChargeSchedule" && database.ChargeScheduleItems.Any(schedule => schedule.Id == item.EntityId && schedule.ContractId == contract.Id)) ||
                     (item.EntityType == "ContractChange" && changes.Any(change => change.Id == item.EntityId)))
                 .ToList();
-            return new ContractDetailsModel(contract, invoices, chargeSchedule, serviceParts, changes, EvidenceForContract(database, contract), findings);
+            var commercial = ContractPortfolioRules.CommercialPosition(contract, changes);
+            var committedValue = ContractPortfolioRules.CommittedValue(contract, commercial, chargeSchedule,
+                database.InvoicePlanItems.Where(item => item.ContractId == contractId).ToList());
+            return new ContractDetailsModel(contract, invoices, chargeSchedule, serviceParts, changes,
+                EvidenceForContract(database, contract), findings, committedValue);
         }, cancellationToken);
 
     public Task<InvoiceDetailsModel?> GetInvoiceDetailsAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
@@ -372,17 +376,28 @@ public sealed class ReportingWorkspace(
 
     public Task<IReadOnlyList<InvoiceRegistrationContract>> GetInvoiceRegistrationContractsAsync(CancellationToken cancellationToken = default)
     {
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        return store.ReadAsync(database => (IReadOnlyList<InvoiceRegistrationContract>)database.Contracts
-            .Where(contract => contract.EndDate is null || contract.EndDate >= today || HasOutstandingPaymentPositions(database, contract))
+        var today = Today();
+        return store.ReadAsync(database =>
+        {
+            var changesByContract = database.ContractChanges.ToLookup(change => change.ContractId);
+            var schedulesByContract = database.ChargeScheduleItems.ToLookup(item => item.ContractId);
+            var legacyByContract = database.InvoicePlanItems.ToLookup(item => item.ContractId);
+            var invoicesByContract = database.Invoices.ToLookup(invoice =>
+                (invoice.Framework, ReportingRules.NormaliseReference(invoice.SupplierReference)));
+            return (IReadOnlyList<InvoiceRegistrationContract>)database.Contracts
             .OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase)
             .Select(contract =>
             {
-                var changes = database.ContractChanges.Where(change => change.ContractId == contract.Id).OrderBy(change => change.AgreementDate).ToList();
-                var invoicedValue = database.Invoices
-                    .Where(invoice => invoice.Framework == contract.Framework &&
-                        ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
+                var changes = changesByContract[contract.Id].OrderBy(change => change.AgreementDate).ToList();
+                var commercial = ContractPortfolioRules.CommercialPosition(contract, changes);
+                var invoicedValue = invoicesByContract[(contract.Framework, ReportingRules.NormaliseReference(contract.SupplierReference))]
                     .Sum(invoice => invoice.TotalCostExVat);
+                var committedValue = ContractPortfolioRules.CommittedValue(contract, commercial,
+                    schedulesByContract[contract.Id].ToList(), legacyByContract[contract.Id].ToList());
+                var remainingValue = Math.Max(0, committedValue - invoicedValue);
+                if (!ContractPortfolioRules.CanRegisterInvoice(
+                    ContractPortfolioRules.Lifecycle(contract.StartDate, commercial.EndDate, today), remainingValue))
+                    return null;
                 return new InvoiceRegistrationContract(
                     contract.Id,
                     contract.Framework,
@@ -396,10 +411,11 @@ public sealed class ReportingWorkspace(
                     contract.OrderChannel,
                     contract.DigitalMarketplaceServiceId,
                     changes,
-                    Math.Max(0, CommittedValue(database, contract) - invoicedValue),
-                    changes.Count(change => !change.IsConfirmed));
+                    remainingValue,
+                    commercial.UnconfirmedChangeCount);
             })
-            .ToList(), cancellationToken);
+            .OfType<InvoiceRegistrationContract>().ToList();
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -2505,38 +2521,25 @@ public sealed class ReportingWorkspace(
                 frameworkFindings.Count(finding => finding.Severity == FindingSeverity.Warning));
         }).ToList();
 
+        var invoicesByContract = database.Invoices.ToLookup(invoice =>
+            (invoice.Framework, ReportingRules.NormaliseReference(invoice.SupplierReference)));
+        var schedulesByContract = database.ChargeScheduleItems.ToLookup(item => item.ContractId);
+        var legacyByContract = database.InvoicePlanItems.ToLookup(item => item.ContractId);
+        var changesByContract = database.ContractChanges.ToLookup(item => item.ContractId);
         var progress = database.Contracts.Select(contract =>
         {
-            var reportedInvoiceValue = database.Invoices
-                .Where(invoice => invoice.Framework == contract.Framework &&
-                    ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
-                .Sum(invoice => invoice.TotalCostExVat);
-            var reportedInvoiceCount = database.Invoices.Count(invoice =>
-                invoice.Framework == contract.Framework &&
-                ReportingRules.NormaliseReference(invoice.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference));
-            var invoicePlanValue = database.InvoicePlanItems
-                .Where(item => item.ContractId == contract.Id)
-                .Sum(item => item.ExpectedValueExVat);
-            var chargeSchedule = database.ChargeScheduleItems
-                .Where(item => item.ContractId == contract.Id)
+            var invoices = invoicesByContract[(contract.Framework, ReportingRules.NormaliseReference(contract.SupplierReference))];
+            var reportedInvoiceValue = invoices.Sum(invoice => invoice.TotalCostExVat);
+            var reportedInvoiceCount = invoices.Count();
+            var legacyPlan = legacyByContract[contract.Id].ToList();
+            var chargeSchedule = schedulesByContract[contract.Id]
                 .OrderBy(item => item.ContractYear)
                 .ThenBy(item => item.ExpectedInvoiceDate)
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            // An unexercised option is commercially useful context, but it is not awarded value.
-            var chargeScheduleValue = chargeSchedule.Where(item => !item.IsOptionalExtension).Sum(item => item.ValueExVat);
-            var committedBaseValue = chargeScheduleValue > 0 ? chargeScheduleValue : invoicePlanValue;
-            var agreedChangeValue = database.ContractChanges
-                .Where(change => change.ContractId == contract.Id)
-                .Sum(change => change.IncrementalValueExVat);
-            var currentContractValue = contract.TotalContractValueExVat + agreedChangeValue;
-            var currentContractEndDate = database.ContractChanges
-                .Where(change => change.ContractId == contract.Id && change.Kind == ContractChangeKind.Extension)
-                .Select(change => change.EffectiveEndDate)
-                .Append(contract.EndDate)
-                .Max();
-            var plannedValue = committedBaseValue + agreedChangeValue;
-            var comparisonValue = plannedValue > 0 ? plannedValue : contract.TotalContractValueExVat;
+            var commercial = ContractPortfolioRules.CommercialPosition(contract, changesByContract[contract.Id].ToList());
+            var comparisonValue = ContractPortfolioRules.CommittedValue(contract, commercial, chargeSchedule, legacyPlan);
+            var hasSchedule = ContractPortfolioRules.ScheduledBaseValue(chargeSchedule, legacyPlan) > 0;
             var evidence = EvidenceForContract(database, contract);
             return new ContractProgress(
                 contract.Id,
@@ -2546,21 +2549,22 @@ public sealed class ReportingWorkspace(
                 contract.CustomerUrn,
                 contract.ReportMonth,
                 contract.StartDate,
-                currentContractEndDate,
+                commercial.EndDate,
                 contract.LotNumber,
                 contract.ServiceGroup,
                 contract.ServiceGroupLevel2,
                 contract.ServiceDescription,
                 contract.OrderChannel,
                 contract.DigitalMarketplaceServiceId,
-                currentContractValue,
+                commercial.ContractValueExVat,
                 reportedInvoiceCount,
                 reportedInvoiceValue,
                 comparisonValue,
-                plannedValue > 0,
+                hasSchedule,
                 comparisonValue == 0 ? 0 : reportedInvoiceValue / comparisonValue,
                 chargeSchedule,
-                evidence);
+                evidence,
+                commercial.UnconfirmedChangeCount);
         })
         .OrderBy(item => item.CompletionRatio)
         .ThenBy(item => item.EndDate)
@@ -2743,30 +2747,6 @@ public sealed class ReportingWorkspace(
                                };
         contracts.AddRange(changedContracts);
         return contracts;
-    }
-
-    private static bool HasOutstandingPaymentPositions(RemiDatabase database, ContractRecord contract)
-    {
-        var committedValue = CommittedValue(database, contract);
-        if (committedValue <= 0) return false;
-
-        var invoicedValue = database.Invoices
-            .Where(item => item.Framework == contract.Framework &&
-                ReportingRules.NormaliseReference(item.SupplierReference) == ReportingRules.NormaliseReference(contract.SupplierReference))
-            .Sum(item => item.TotalCostExVat);
-        return invoicedValue < committedValue;
-    }
-
-    private static decimal CommittedValue(RemiDatabase database, ContractRecord contract)
-    {
-        var scheduledValue = database.ChargeScheduleItems
-            .Where(item => item.ContractId == contract.Id && !item.IsOptionalExtension)
-            .Sum(item => item.ValueExVat);
-        var committedBaseValue = scheduledValue > 0 ? scheduledValue : contract.TotalContractValueExVat;
-        var agreedChangeValue = database.ContractChanges
-            .Where(change => change.ContractId == contract.Id)
-            .Sum(change => change.IncrementalValueExVat);
-        return committedBaseValue + agreedChangeValue;
     }
 
     private static bool AddEvidence(RemiDatabase database, EvidenceRecord evidence)
@@ -3175,7 +3155,7 @@ public sealed class ReportingWorkspace(
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private DateOnly Today() => DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime);
+    private DateOnly Today() => ContractPortfolioRules.Today(timeProvider);
 
     private static void ValidateReportingMonth(string reportingMonth)
     {

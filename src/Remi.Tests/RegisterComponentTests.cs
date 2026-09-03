@@ -188,7 +188,7 @@ public sealed partial class RegisterComponentTests
     }
 
     [Fact]
-    public void Contract_status_filter_offers_only_the_three_requested_statuses()
+    public void Contract_status_filter_distinguishes_live_future_and_unknown_dates()
     {
         using var context = CreateContext();
         var contracts = context.Render<ContractsRegister>();
@@ -197,7 +197,7 @@ public sealed partial class RegisterComponentTests
         contracts.Find("button[role='combobox'][aria-label='Contract status']").Click();
 
         Assert.Equal(
-            ["Ongoing", "Ending soon", "Ended"],
+            ["Live", "Ongoing", "Ending within 180 days", "Not started", "Ended", "Dates need review"],
             contracts.FindAll("#contract-status-filter-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
@@ -1538,8 +1538,10 @@ public sealed partial class RegisterComponentTests
         bool includeContractExtension = false,
         bool includeContractEvidence = false,
         bool includeInvoiceContract = false,
-        string? attachmentTestDirectory = null)
+        string? attachmentTestDirectory = null,
+        TimeProvider? timeProvider = null)
     {
+        var clock = timeProvider ?? TimeProvider.System;
         var database = new RemiDatabase
         {
             DigitalMarketplaceServices = [new DigitalMarketplaceService("115981361947474", "StatMap Cluster")],
@@ -1601,7 +1603,7 @@ public sealed partial class RegisterComponentTests
         }
         if (includeContractExtension)
         {
-            var originalEndDate = DateOnly.FromDateTime(DateTime.Today).AddMonths(-3);
+            var originalEndDate = ContractPortfolioRules.Today(clock).AddMonths(-3);
             database.Contracts[0] = database.Contracts[0] with
             {
                 EndDate = originalEndDate,
@@ -1717,7 +1719,7 @@ public sealed partial class RegisterComponentTests
                 new ChargeScheduleItem(Guid.NewGuid(), SampleContractId, null, 2, "Annual licence and maintenance", new DateOnly(2027, 1, 1), 30683.40m, true, DateTimeOffset.UtcNow),
             ]);
         }
-        var reportingPeriod = new ReportingPeriodContext(TimeProvider.System);
+        var reportingPeriod = new ReportingPeriodContext(clock);
         reportingPeriod.Synchronise(["2026-07"], "2026-07");
         var context = new BunitContext();
         var clipboardModule = context.JSInterop.SetupModule("/clipboard-image-evidence.js");
@@ -1725,6 +1727,7 @@ public sealed partial class RegisterComponentTests
         clipboardModule.SetupVoid("dispose", _ => true).SetVoidResult();
         clipboardModule.Setup<DocumentState>(invocation => invocation.Identifier is "getState" or "prepare" or "archive", isCatchAllHandler: true).SetResult(new DocumentState());
         context.Services.AddSingleton(reportingPeriod);
+        context.Services.AddSingleton(clock);
         context.Services.AddSingleton<IRemiDataTransfer>(new StubDataTransfer());
         IRemiStore registerStore = new InMemoryStore(database);
         IEvidenceArchive archive = new NoOpEvidenceArchive();
@@ -1752,7 +1755,7 @@ public sealed partial class RegisterComponentTests
             null!,
             archive,
             new InMemoryCustomerUrnDirectory(CustomerDirectoryEntries),
-            TimeProvider.System));
+            clock));
         return context;
     }
 
