@@ -1418,3 +1418,77 @@ main { min-width: 0; }
     .clipboard-instruction-mobile { display: inline; }
     .contract-registration-evidence .clipboard-document-dropzone { min-height: 4.8rem; }
 }
+
+/* Operational Home and the date-coverage-aware planned billing register. */
+.home-header .remi-picklist { width: 180px; flex: 0 0 180px; }
+.home-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; padding: 10px 0; border-block: 1px solid var(--color-border); }
+.home-facts > div { min-width: 0; padding: 0 16px; border-right: 1px solid var(--color-border); }
+.home-facts > div:first-child { padding-left: 0; }
+.home-facts > div:last-child { border-right: 0; }
+.home-facts dt { color: var(--color-text-muted); font-size: 0.78rem; line-height: 1.4; }
+.home-facts dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin: 5px 0 3px; font-variant-numeric: tabular-nums; }
+.home-facts dd > a { font-size: 1.35rem; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.home-facts dd > span { font-size: 0.9rem; color: var(--color-navy); }
+.home-facts small { display: block; color: var(--color-text-muted); font-size: 0.7rem; line-height: 1.45; }
+.home-coverage { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 0; font-size: 0.76rem; color: var(--color-text-muted); }
+.home-coverage a, .home-section-footer > a:not(.remi-action), .home-review-note a { text-decoration: underline; text-underline-offset: 3px; }
+.home-working-sections { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 8px; align-items: start; }
+.home-section { min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-surface); background: var(--color-surface); overflow: hidden; }
+.home-section .dashboard-section-heading { padding: 14px 16px; }
+.home-table-scroll { min-width: 0; max-width: 100%; overflow-x: auto; }
+.home-table-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--color-teal); outline: none; }
+.home-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 0.8rem; }
+.home-table th { position: static; background: var(--color-canvas); color: var(--color-text-muted); font-size: 0.73rem; text-align: left; }
+.home-table th, .home-table td { padding: 10px 12px; vertical-align: top; border-bottom: 1px solid var(--color-border); }
+.home-table td > span { display: block; color: var(--color-text-muted); margin-top: 3px; font-size: 0.74rem; }
+.home-table td > a:not(.remi-action) { font-weight: 650; }
+.home-table tr:last-child td { border-bottom: 0; }
+.home-table .home-date, .home-table .home-money { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.home-table .home-money { text-align: right; }
+.home-table .home-warning { color: var(--color-warning); }
+.home-view-links { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }
+.home-view-links a { display: inline-flex; align-items: center; min-height: 40px; padding: 4px 2px; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-size: 0.8rem; }
+.home-view-links a[aria-current='page'] { color: var(--color-teal); border-bottom-color: var(--color-teal); font-weight: 650; }
+.home-section-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 9px 12px; border-top: 1px solid var(--color-border); font-size: 0.76rem; }
+.home-billing-note { margin: 10px 0; color: var(--color-text-muted); font-size: 0.76rem; line-height: 1.5; }
+.home-review-note { margin: 0; padding: 10px 16px; color: var(--color-text-muted); font-size: 0.78rem; line-height: 1.5; border-bottom: 1px solid var(--color-border); }
+.home-reporting { margin-top: 16px; }
+.home-report-summary { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 10px 16px; margin: 0; font-size: 0.8rem; border-bottom: 1px solid var(--color-border); }
+.home-report-summary strong { color: var(--color-navy); }
+.home-report-table { min-width: 680px; }
+.home-report-table td > .readiness-status { display: inline-flex; margin: 0; }
+.home-page .dashboard-activity { margin-top: 16px; }
+.home-page .dashboard-activity-list { padding: 0 16px; }
+.invoice-view-links { margin-bottom: 14px; padding-left: 0; }
+.planned-filters { display: grid; grid-template-columns: 190px 240px minmax(160px, 1fr); gap: 12px; padding: 16px; }
+.planned-table { min-width: 740px; }
+.home-filter-context { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 0 16px 12px; color: var(--color-text-muted); font-size: 0.8rem; }
+.home-filter-context .remi-picklist { width: 180px; }
+#contract-payment-schedule { scroll-margin-top: 90px; }
+@media (max-width: 1100px) {
+    .home-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 0; }
+    .home-facts > div:nth-child(3) { border-right: 0; }
+    .home-facts > div:nth-child(4) { padding-left: 0; }
+    .home-working-sections { grid-template-columns: 1fr; }
+}
+@media (max-width: 780px) {
+    .home-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .home-facts > div { border-right: 0; padding-left: 0; }
+    .home-facts > div:nth-child(odd) { border-right: 1px solid var(--color-border); }
+    .home-facts > div:nth-child(even) { padding-left: 14px; }
+    .home-facts > div:last-child { border-right: 0; }
+    .planned-filters { grid-template-columns: 1fr 1fr; }
+    .planned-filters > label:last-child { grid-column: 1 / -1; }
+    .home-header { gap: 12px; }
+    .home-section .dashboard-section-heading { flex-wrap: wrap; gap: 8px; }
+}
+@media (max-width: 430px) {
+    .home-facts { grid-template-columns: 1fr; gap: 0; padding: 0; }
+    .home-facts > div, .home-facts > div:nth-child(n) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; padding: 10px 0; border-right: 0; border-bottom: 1px solid var(--color-border); }
+    .home-facts > div:last-child { border-bottom: 0; }
+    .home-facts dd { margin: 0; }
+    .home-facts small { grid-column: 1 / -1; margin-top: 3px; }
+    .planned-filters { grid-template-columns: 1fr; }
+    .home-header .remi-picklist { width: 100%; }
+    .home-coverage { gap: 8px 16px; }
+}

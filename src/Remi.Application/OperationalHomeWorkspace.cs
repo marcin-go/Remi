@@ -16,7 +16,7 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
         return store.ReadAsync(database => Build(database, today, endingWithinDays), cancellationToken);
     }
 
-    private static OperationalHomeModel Build(RemiDatabase database, DateOnly today, int horizon)
+    internal static OperationalHomeModel Build(RemiDatabase database, DateOnly today, int horizon)
     {
         var changes = database.ContractChanges.ToLookup(item => item.ContractId);
         var schedules = database.ChargeScheduleItems.ToLookup(item => item.ContractId);

@@ -3,6 +3,7 @@
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
 @inject TimeProvider Clock
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>Remi · Contracts</PageTitle>
@@ -36,6 +37,10 @@ else
                     <RemiPicklist Id="contract-status-filter-options" Label="Contract status" Items="@StatusFilterItems" Value="@statusFilter" ValueChanged="SetStatusFilter" ItemLabel="StatusFilterLabel" Placeholder="All statuses" />
                     <div class="filter-actions"><button class="remi-action remi-action--compact register-reset" @onclick="ResetFilters">Reset</button></div>
                 </div>
+                @if (statusFilter.StartsWith("ending", StringComparison.Ordinal))
+                {
+                    <div class="home-filter-context"><span>Ending within @horizon days · earliest end first by default</span><RemiPicklist Id="contract-ending-horizon" Label="Ending within" Items="@HorizonItems" Value="@horizon.ToString()" ValueChanged="SetHorizon" ItemLabel="@(value => $"{value} days")" /></div>
+                }
 
                 <div class="register-table-scroll">
                     <table class="register-table contract-register-table">
@@ -60,7 +65,7 @@ else
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
                                 <td class="register-date">@DisplayDate(contract.StartDate)</td>
                                 <td class="register-date">@DisplayDate(contract.EndDate)</td>
-                                <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span>@if (contract.UnconfirmedChangeCount > 0) { <span>@contract.UnconfirmedChangeCount agreement(s) awaiting confirmation</span> }</td>
+                                <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span>@if (contract.UnconfirmedChangeCount > 0) { <span>@contract.UnconfirmedChangeCount agreement(s) awaiting confirmation</span> }@if (statusFilter.StartsWith("ending", StringComparison.Ordinal) && operational.TryGetValue(contract.ContractId, out var context)) { <span>@HomeRoutes.OptionLabel(context)</span> }</td>
                                 <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
                             </tr>
@@ -79,6 +84,15 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "q")] public string? Query { get; set; }
+    [SupplyParameterFromQuery(Name = "framework")] public string? FrameworkQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "documents")] public string? DocumentsQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "progress")] public string? ProgressQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "horizon")] public int? HorizonQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "sort")] public string? SortQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "descending")] public bool? DescendingQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? PageQuery { get; set; }
     private const int PageSize = 10;
     private static readonly IReadOnlyList<string> FrameworkFilterItems =
     [
@@ -87,7 +101,10 @@ else
     ];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private static readonly IReadOnlyList<string> ProgressFilterItems = [string.Empty, "not-started", "in-progress", "complete"];
-    private static readonly IReadOnlyList<string> StatusFilterItems = ["live", "ongoing", "ending-soon", "future", "ended", "unknown"];
+    private static readonly IReadOnlyList<string> StatusFilterItems = ["live", "ongoing", "ending-soon", "ending-no-option", "ending-options", "ending-review", "future", "ended", "ended-value", "unknown", "no-schedule", "undated", "extension-review"];
+    private static readonly IReadOnlyList<string> HorizonItems = ["30", "90", "180"];
+    private IReadOnlyDictionary<Guid, OperationalContract> operational = new Dictionary<Guid, OperationalContract>();
+    private int horizon = 180;
     private DashboardModel? model;
     private string searchTerm = string.Empty;
     private string frameworkFilter = string.Empty;
@@ -106,6 +123,20 @@ else
 
     public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
 
+    protected override void OnParametersSet()
+    {
+        searchTerm = Query ?? "";
+        frameworkFilter = FrameworkFilterItems.Contains(FrameworkQuery ?? "") ? FrameworkQuery ?? "" : "";
+        evidenceFilter = DocumentFilterItems.Contains(DocumentsQuery ?? "") ? DocumentsQuery ?? "" : "";
+        progressFilter = ProgressFilterItems.Contains(ProgressQuery ?? "") ? ProgressQuery ?? "" : "";
+        statusFilter = StatusFilterItems.Contains(StatusQuery ?? "") ? StatusQuery! : "";
+        horizon = HomeRoutes.Horizon(HorizonQuery);
+        sortColumn = SortQuery is "reference" or "customer" or "startDate" or "endDate" or "value" or "progress" ? SortQuery
+            : statusFilter.StartsWith("ending", StringComparison.Ordinal) ? "endDate" : "startDate";
+        sortDescending = DescendingQuery ?? sortColumn == "startDate";
+        page = Math.Clamp(PageQuery ?? 1, 1, TotalPages);
+    }
+
     private async void ReportingPeriodChanged()
     {
         await InvokeAsync(async () =>
@@ -115,7 +146,12 @@ else
         });
     }
 
-    private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
+    private async Task ReloadAsync()
+    {
+        model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
+        operational = model.Portfolio!.Contracts.ToDictionary(item => item.Contract.Id);
+        page = Math.Clamp(page, 1, TotalPages);
+    }
 
     private IReadOnlyList<ContractProgress> FilteredContracts => model is null
         ? []
@@ -149,18 +185,16 @@ else
         : Frameworks.Get(framework).IsHistorical ? "Historical" : "Live";
     private static string DocumentFilterLabel(string value) => value switch { "available" => "Documents linked", "missing" => "Documents missing", _ => "All documents" };
     private static string ProgressFilterLabel(string value) => value switch { "not-started" => "Not started", "in-progress" => "In progress", "complete" => "Complete", _ => "Any progress" };
-    private static string StatusFilterLabel(string value) => value switch { "live" => "Live", "ongoing" => "Ongoing", "ending-soon" => "Ending within 180 days", "future" => "Not started", "ended" => "Ended", "unknown" => "Dates need review", _ => "All statuses" };
-    private bool MatchesStatusFilter(ContractProgress contract, DateOnly today) => statusFilter switch
+    private string StatusFilterLabel(string value) => value switch
     {
-        "live" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Live,
-        "ongoing" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Live
-            && !ContractPortfolioRules.IsEndingWithin(contract.StartDate, contract.EndDate, today, 180),
-        "ending-soon" => ContractPortfolioRules.IsEndingWithin(contract.StartDate, contract.EndDate, today, 180),
-        "future" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Future,
-        "ended" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Ended,
-        "unknown" => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, today) == ContractLifecycle.Unknown,
-        _ => true,
+        "live" => "Live", "ongoing" => "Ongoing", "ending-soon" => $"Ending within {horizon} days", "future" => "Not started", "ended" => "Ended", "unknown" => "Dates need review",
+        "ending-no-option" => "Ending · no further extension recorded", "ending-options" => "Ending · extension decisions", "ending-review" => "Ending · options need review",
+        "ended-value" => "Ended · value still to invoice", "no-schedule" => "No schedule", "undated" => "Undated schedule", "extension-review" => "Extension associations to review", _ => "All statuses",
     };
+    private bool MatchesStatusFilter(ContractProgress contract, DateOnly today) => operational.TryGetValue(contract.ContractId, out var item)
+        && (statusFilter == "ongoing" ? item.Lifecycle == ContractLifecycle.Live && !ContractPortfolioRules.IsEndingWithin(contract.StartDate, contract.EndDate, today, horizon)
+            : item.Matches(HomeRoutes.Filter(statusFilter), model!.Portfolio!.AsAtDate, horizon));
+    private void SetHorizon(string value) { horizon = int.Parse(value); ResetPage(); }
     private void SortBy(string column)
     {
         if (sortColumn == column) sortDescending = !sortDescending;
@@ -187,10 +221,15 @@ else
         ("progress", true) => contracts.OrderByDescending(contract => contract.CompletionRatio),
         _ => contracts.OrderBy(contract => contract.SupplierReference, StringComparer.OrdinalIgnoreCase),
     };
-    private void ResetPage() => page = 1;
+    private void ResetPage() { page = 1; SaveQuery(); }
     private void ResetFilters() { searchTerm = frameworkFilter = evidenceFilter = progressFilter = statusFilter = string.Empty; ResetPage(); }
-    private void PreviousPage() => page = Math.Max(1, page - 1);
-    private void NextPage() => page = Math.Min(TotalPages, page + 1);
+    private void PreviousPage() { page = Math.Max(1, page - 1); SaveQuery(); }
+    private void NextPage() { page = Math.Min(TotalPages, page + 1); SaveQuery(); }
+    private void SaveQuery() => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(Navigation.ToAbsoluteUri("/contracts").AbsoluteUri,
+        new Dictionary<string, object?> { ["q"] = EmptyToNull(searchTerm), ["framework"] = EmptyToNull(frameworkFilter), ["documents"] = EmptyToNull(evidenceFilter),
+            ["progress"] = EmptyToNull(progressFilter), ["status"] = EmptyToNull(statusFilter), ["horizon"] = horizon, ["sort"] = sortColumn,
+            ["descending"] = sortDescending, ["page"] = page, ["period"] = ReportingPeriod.SelectedPeriod }));
+    private static string? EmptyToNull(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
     private ContractLifecycle Lifecycle(ContractProgress contract) => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, ContractPortfolioRules.Today(Clock));
     private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
     private string LifecycleStatus(ContractProgress contract) => Lifecycle(contract) switch
@@ -212,7 +251,8 @@ else
     private static bool IsOverrun(ContractProgress contract) => contract.ComparisonValueExVat > 0 && contract.ReportedInvoiceValueExVat > contract.ComparisonValueExVat;
     private static string ProgressSummary(ContractProgress contract) => IsOverrun(contract) ? $"{Percentage(contract.CompletionRatio)} reported. Reported invoice value exceeds the planned or contract value." : $"{Percentage(contract.CompletionRatio)} reported against the planned or contract value.";
     private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
-    private static string ContractRoute(Guid contractId) => $"/contracts/{contractId}";
+    private string ContractRoute(Guid contractId) => Navigation.Uri.Contains('?')
+        ? HomeRoutes.Contract(contractId, "overview", "/" + Navigation.ToBaseRelativePath(Navigation.Uri)) : $"/contracts/{contractId}";
     private string PeriodRoute(string path) => ReportingRoutes.WithPeriod($"/{path.TrimStart('/')}", ReportingPeriod.SelectedPeriod);
     private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
 }

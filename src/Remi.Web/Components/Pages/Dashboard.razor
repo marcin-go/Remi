@@ -1,323 +1,144 @@
 @page "/home"
 @inject ReportingWorkspace Workspace
 @inject ReportingPeriodContext ReportingPeriod
+@inject NavigationManager Navigation
+@inject ILogger<Dashboard> Logger
 @implements IDisposable
 
 <PageTitle>Remi · Home</PageTitle>
-
-@if (model is not null)
+@if (error)
 {
-    <section class="dashboard-page">
-        <header class="dashboard-header">
-            <div>
-                <h1>Reporting overview</h1>
-                <p class="lede">Review return readiness, resolve exceptions and retain a clear audit trail for <strong>@DisplayPeriod(model.CurrentReportingMonth)</strong>.</p>
-            </div>
-            <a class="remi-action remi-action--primary" href="@PeriodRoute("/reports")">Prepare</a>
-        </header>
-
-        <section class="dashboard-period-summary" aria-label="Current reporting period">
-            <div class="dashboard-period-current"><span>Reporting period</span><strong>@DisplayPeriod(model.CurrentReportingMonth)</strong></div>
-            <dl class="dashboard-metrics">
-                <div><dt>Contracts</dt><dd>@model.FrameworkReadiness.Sum(item => item.ContractCount)</dd></div>
-                <div><dt>Invoices</dt><dd>@model.FrameworkReadiness.Sum(item => item.InvoiceCount)</dd></div>
-                <div><dt>Ready</dt><dd>@model.FrameworkReadiness.Count(IsReady)</dd></div>
-                <div class="@ExceptionMetricClass()"><dt>Exceptions</dt><dd>@model.Findings.Count</dd></div>
-            </dl>
-        </section>
-
-        <section class="dashboard-layout">
-            <article class="dashboard-readiness">
-                <header class="dashboard-section-heading">
-                    <div><h2>Return readiness</h2><p>Frameworks included in the @DisplayPeriod(model.CurrentReportingMonth) reporting period.</p></div>
-                </header>
-                <div class="dashboard-table-scroll">
-                    <table class="dashboard-table">
-                        <thead><tr><th>Framework</th><th>Contracts</th><th>Invoices</th><th>Readiness</th><th class="table-action-cell"><span class="visually-hidden">Action</span></th></tr></thead>
-                        <tbody>
-                            @foreach (var summary in model.FrameworkReadiness)
-                            {
-                                <tr>
-                                    <td><strong>@summary.Framework.DisplayName</strong><span>@summary.Framework.AgreementNumber</span></td>
-                                    <td>@summary.ContractCount</td>
-                                    <td>@summary.InvoiceCount</td>
-                                    <td><span class="@ReadinessClass(summary)">@ReadinessLabel(summary)</span></td>
-                                    <td class="table-action-cell"><a class="remi-action remi-action--table dashboard-row-action" href="@ReturnWorkspaceRoute(summary)">@ReadinessAction(summary)</a></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </article>
-
-            <div class="dashboard-secondary">
-                <article class="dashboard-attention">
-                    <header class="dashboard-section-heading">
-                        <div><h2>Needs attention</h2></div>
-                    </header>
-                    @if (model.AttentionItems.Count == 0)
-                    {
-                        <p class="dashboard-empty">No validation issues have been found for this reporting period.</p>
-                    }
-                    else
-                    {
-                        @if (BlockingItems.Count != 0)
-                        {
-                            <section class="attention-group blocking"><h3>Blocking preparation</h3><ul>
-                                @foreach (var attention in BlockingItems)
-                                {
-                                    <li><a href="@PeriodRoute(attention.Route)"><strong>@FriendlyFinding(attention.Finding.Code)</strong><span>@attention.Finding.Message</span></a></li>
-                                }
-                            </ul></section>
-                        }
-                        @if (ReviewItems.Count != 0)
-                        {
-                            <section class="attention-group review"><h3>Review recommended</h3><ul>
-                                @foreach (var attention in ReviewItems)
-                                {
-                                    <li><a href="@PeriodRoute(attention.Route)"><strong>@FriendlyFinding(attention.Finding.Code)</strong><span>@attention.Finding.Message</span></a></li>
-                                }
-                            </ul></section>
-                        }
-                    }
-                </article>
-
-                <article class="dashboard-activity">
-                    <header class="dashboard-section-heading">
-                        <div><h2>Recent activity</h2></div>
-                        <a class="remi-action remi-action--section" href="@PeriodRoute("/settings?section=audit")">View</a>
-                    </header>
-                    @if (model.RecentActivity.Count == 0)
-                    {
-                        <p class="dashboard-empty">No material activity has been recorded yet.</p>
-                    }
-                    else
-                    {
-                        <ol class="dashboard-activity-list">
-                            @foreach (var activity in model.RecentActivity)
-                            {
-                                <li><time>@activity.OccurredAtUtc.LocalDateTime.ToString("dd MMM, HH:mm")</time><span><strong>@FriendlyActivity(activity.Action)</strong>@activity.Summary</span></li>
-                            }
-                        </ol>
-                    }
-                </article>
-            </div>
-        </section>
-    </section>
+    <section class="empty-state" role="alert"><h1>Home could not be loaded</h1><p>Your register is unchanged. Try loading the overview again.</p><button class="remi-action" @onclick="ReloadAsync">Retry</button></section>
 }
 else if (model is null)
 {
-    <p class="loading">Loading your reporting workspace…</p>
+    <p class="loading" role="status">Loading your operational overview…</p>
 }
 else
 {
-    <section class="page-heading">
-        <div>
-            <h1>Keep every return defensible.</h1>
-            <p class="lede">Remi keeps the contract, invoice and submission trail together. The current reporting month is <strong>@model.CurrentReportingMonth</strong>.</p>
+    <section class="dashboard-page home-page">
+        <header class="dashboard-header home-header">
+            <div><h1>Home</h1><p class="lede">Contract portfolio · As at <strong>@Portfolio.AsAtDate.ToString("d MMM yyyy")</strong></p></div>
+            <RemiPicklist Id="home-ending-horizon" Label="Ending within" Items="@Horizons" Value="@Horizon.ToString()" ValueChanged="SetHorizon" ItemLabel="@(value => $"{value} days")" />
+        </header>
+        <dl class="home-facts" aria-label="Operational overview">
+            <div><dt>Live contracts</dt><dd><a href="@ContractList("live")">@Count(PortfolioFilter.Live)</a></dd><small>Within the agreed contract term</small></div>
+            <div><dt>Ending · no further extension recorded</dt><dd><a href="@ContractList("ending-no-option")">@Count(PortfolioFilter.EndingNoOptionRecorded)</a></dd><small>Option information is unreviewed</small></div>
+            <div><dt>Ending · extension decisions</dt><dd><a href="@ContractList("ending-options")">@Count(PortfolioFilter.EndingOptionsRecorded)</a></dd><small>Options recorded without an extension agreement</small></div>
+            @foreach (var month in new[] { Portfolio.ThisMonth, Portfolio.NextMonth })
+            {
+                <div><dt>Scheduled positions · @month.Month.ToString("MMMM")</dt><dd><a href="@Planned(month.Month)">@month.PositionCount</a> <span>@Currency(month.ValueExVat)</span></dd><small>Known dated positions, ex VAT</small></div>
+            }
+        </dl>
+        <div class="home-coverage" aria-label="Schedule and contract coverage">
+            <span><strong>@Portfolio.FullyDatedSchedules / @(Portfolio.Contracts.Count - Portfolio.ContractsWithoutSchedule)</strong> schedules fully dated</span>
+            <a href="@Planned(Portfolio.ThisMonth.Month, "undated")">@Portfolio.UndatedPositionCount positions without dates</a>
+            <a href="@ContractList("no-schedule")">@Portfolio.ContractsWithoutSchedule contracts without a schedule</a>
+            <a href="@ContractList("extension-review")">@Portfolio.ContractsNeedingExtensionAssociation extension associations to review</a>
+            <a href="@ContractList("unknown")">@Count(PortfolioFilter.UnknownDates) contracts with dates to review</a>
         </div>
-        <a class="button primary" href="/reports">Prepare</a>
-    </section>
-
-    <section class="framework-grid" aria-label="Framework reporting summary">
-        @foreach (var summary in model.Frameworks)
-        {
-            <article class="framework-card">
-                <h2>@summary.Framework.DisplayName</h2>
-                <p class="muted">@summary.Framework.AgreementNumber</p>
-                <p class="muted">@ReturnLabel(summary.CurrentReturnStatus)</p>
-                <dl class="metric-list">
-                    <div><dt>Contracts</dt><dd>@summary.ContractCount</dd></div>
-                    <div><dt>Invoices</dt><dd>@summary.InvoiceCount</dd></div>
-                    <div><dt>Submitted</dt><dd>@summary.SubmittedReturnCount</dd></div>
-                </dl>
+        <div class="home-working-sections">
+            <article class="home-section">
+                <header class="dashboard-section-heading"><div><h2>Contract endings</h2><p>Live contracts ending within @Horizon days, earliest first.</p></div><a class="remi-action remi-action--section" href="@ContractList("ending-soon")">View contracts</a></header>
+                @if (Count(PortfolioFilter.EndingOptionsNeedReview) > 0)
+                {
+                    <p class="home-review-note"><a href="@ContractList("ending-review")">@Count(PortfolioFilter.EndingOptionsNeedReview) ending contracts need option association review</a>. Recorded agreements are not counted as another extension opportunity.</p>
+                }
+                <div class="home-table-scroll" tabindex="0" role="region" aria-label="Contract endings table">
+                    <table class="home-table"><thead><tr><th>Contract / customer</th><th>Current end</th><th>Extension context</th></tr></thead><tbody>
+                    @foreach (var item in Portfolio.MatchingContracts(PortfolioFilter.Ending).Take(5))
+                    {
+                        <tr><td><a href="@Record(item.Contract.Id, "changes")">@item.Contract.SupplierReference</a><span>@item.Contract.CustomerName</span></td><td class="home-date">@item.Commercial.EndDate?.ToString("d MMM yyyy")</td><td>@HomeRoutes.OptionLabel(item)@if (item.Commercial.UnconfirmedChangeCount > 0) { <span class="home-warning">@item.Commercial.UnconfirmedChangeCount awaiting confirmation</span> }</td></tr>
+                    }
+                    @if (Count(PortfolioFilter.Ending) == 0) { <tr><td colspan="3" class="register-empty">No live contracts end within this window.</td></tr> }
+                    </tbody></table>
+                </div>
             </article>
-        }
-    </section>
-
-    <section class="two-column">
-        <article class="panel">
-            <div class="panel-heading">
-                <div>
-                    <h2>Reported invoicing</h2>
-                </div>
-                <a href="contracts">View all contracts</a>
-            </div>
-            @if (model.ContractProgress.Count == 0)
-            {
-                <div class="empty-state">
-                    <p>No contract data yet.</p>
-                    <a class="button secondary" href="/reports">Import</a>
-                </div>
-            }
-            else
-            {
-                <div class="progress-list">
-                    @foreach (var contract in model.ContractProgress.OrderByDescending(IsOverrun).ThenBy(item => item.CompletionRatio).Take(6))
+            <article class="home-section">
+                <header class="dashboard-section-heading"><div><h2>Billing outlook</h2><p>Known payment positions. Invoice grouping and reconciliation are pending.</p></div></header>
+                <nav class="home-view-links" aria-label="Billing outlook view">
+                    <a href="@BillingLink("current")" aria-current="@(BillingMode == "current" ? "page" : null)">@Portfolio.ThisMonth.Month.ToString("MMMM")</a>
+                    <a href="@BillingLink("next")" aria-current="@(BillingMode == "next" ? "page" : null)">@Portfolio.NextMonth.Month.ToString("MMMM")</a>
+                    <a href="@BillingLink("review")" aria-current="@(BillingMode == "review" ? "page" : null)">Missing dates</a>
+                </nav>
+                <div class="home-table-scroll" tabindex="0" role="region" aria-label="Billing outlook table">
+                    <table class="home-table"><thead><tr><th>Contract / position</th><th>Expected date</th><th>Ex VAT</th><th>State</th></tr></thead><tbody>
+                    @foreach (var position in BillingPositions.Take(5))
                     {
-                        <div class="progress-row @(IsOverrun(contract) ? "overrun-progress" : null)">
-                            <div class="progress-label">
-                                <strong><a href="@($"/contracts/{contract.ContractId}")">@contract.SupplierReference</a></strong>
-                                <span>@contract.CustomerName</span>
-                            </div>
-                            <div class="progress-track" aria-label="@contract.SupplierReference">
-                                <span class="progress-fill @(IsOverrun(contract) ? "overrun" : null)" style="width: @ProgressWidth(contract.CompletionRatio)"></span>
-                            </div>
-                            <div class="progress-value">@Percentage(contract.CompletionRatio)</div>
-                        </div>
+                        <tr><td><a href="@Record(position.ContractId, "schedule")">@position.SupplierReference</a><span>@position.Description</span></td><td class="home-date">@(position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(position.ValueExVat)</td><td>@(position.IsOptionalExtension ? "Optional · agreement needed" : "Needs reconciliation")</td></tr>
                     }
+                    @if (BillingPositions.Count == 0) { <tr><td colspan="4" class="register-empty">@(BillingMode == "review" ? "No undated positions recorded." : "No committed positions have explicit dates in this month. Check schedule coverage before treating this as a complete forecast.")</td></tr> }
+                    </tbody></table>
                 </div>
-                    <p class="caption">Progress compares reported invoices with the contract value until an invoice plan is added. Values above 100% need review.</p>
-            }
+                <footer class="home-section-footer"><a class="remi-action remi-action--section" href="@Planned(BillingMonth, BillingMode == "review" ? "undated" : null)">View planned positions</a><a href="@Planned(Portfolio.ThisMonth.Month, "overdue")">Review past expected dates</a></footer>
+            </article>
+        </div>
+        <p class="home-billing-note">Remi records accounting invoices; it does not issue them or establish whether an unregistered invoice exists elsewhere. Optional charges are excluded from dated forecasts until their agreements are associated.</p>
+        <div class="home-coverage home-secondary-facts">
+            <span>Live contract value <strong>@Currency(Portfolio.MatchingContracts(PortfolioFilter.Live).Sum(item => item.Commercial.ContractValueExVat))</strong> ex VAT</span>
+            <a href="@ContractList("future")">@Count(PortfolioFilter.Future) contracts not started</a>
+            <a href="@ContractList("ended-value")">@Count(PortfolioFilter.EndedValue) ended contracts with @Currency(Portfolio.MatchingContracts(PortfolioFilter.EndedValue).Sum(item => item.RemainingCommittedValueExVat ?? 0)) still to invoice against recorded committed value</a>
+            @if (Portfolio.AmbiguousInvoiceMatches > 0) { <span>@Portfolio.AmbiguousInvoiceMatches ambiguous contract matches excluded from invoice balances</span> }
+        </div>
+        <article class="home-section home-reporting">
+            <header class="dashboard-section-heading"><div><h2>Reporting preparation · @DisplayPeriod(model.ReportingMonth)</h2><p>Reporting month selection applies to preparation only.</p></div><a class="remi-action remi-action--section" href="@ReportingRoutes.WithPeriod("/reports", model.ReportingMonth)">Open reports</a></header>
+            <p class="home-report-summary"><span>Submitted <strong>@model.SubmittedCount / @model.Reports.Count</strong></span><span>Ready to review <strong>@model.ReadyToReviewCount</strong></span><span>Blocked <strong>@model.BlockedCount</strong></span><span>Earliest unfinished deadline <strong>@(model.EarliestUnfinishedDeadline?.ToString("d MMM yyyy") ?? "None configured / all submitted")</strong></span></p>
+            <div class="home-table-scroll" tabindex="0" role="region" aria-label="Reporting preparation table">
+                <table class="home-table home-report-table"><thead><tr><th>Framework</th><th>State</th><th>Findings</th><th>Configured deadline</th><th><span class="visually-hidden">Action</span></th></tr></thead><tbody>
+                @foreach (var report in model.Reports)
+                {
+                    <tr><td>@report.Framework.DisplayName</td><td><span class="@ReportClass(report)">@ReportLabel(report)</span></td><td>@report.BlockingFindingCount blocking · @report.ReviewFindingCount review</td><td>@(report.Framework.ReportingDeadline?.Calculate(model.ReportingMonth)?.ToString("d MMM yyyy") ?? "Not configured")</td><td><a class="remi-action remi-action--table" aria-label="@($"Open {report.Framework.DisplayName} report for {DisplayPeriod(model.ReportingMonth)}")" href="@($"/reports/{(int)report.Framework.Code}/{model.ReportingMonth}?period={model.ReportingMonth}")">Open</a></td></tr>
+                }
+                @if (model.Reports.Count == 0) { <tr><td colspan="5" class="register-empty">No configured frameworks for this reporting month.</td></tr> }
+                </tbody></table>
+            </div>
         </article>
-
-        <article class="panel findings-panel">
-            <div class="panel-heading">
-                <div>
-                    <h2>Needs attention</h2>
-                </div>
-                <a href="/reports">Review returns</a>
-            </div>
-            @if (model.Findings.Count == 0)
-            {
-                <div class="empty-state compact"><p>No validation issues have been found.</p></div>
-            }
-            else
-            {
-                <ul class="findings">
-                    @foreach (var attention in model.AttentionItems.Take(6))
-                    {
-                        <li class="@attention.Finding.Severity.ToString().ToLowerInvariant()">
-                            <a class="finding-link" href="@attention.Route">
-                                <strong>@FriendlyFinding(attention.Finding.Code)</strong>
-                                <span>@attention.Finding.Message</span>
-                            </a>
-                        </li>
-                    }
-                </ul>
-            }
+        <article class="home-section dashboard-activity">
+            <header class="dashboard-section-heading"><h2>Recent activity</h2><a class="remi-action remi-action--section" href="/settings?section=audit">View audit</a></header>
+            @if (model.RecentActivity.Count == 0) { <p class="dashboard-empty">No material activity has been recorded yet.</p> }
+            else { <ol class="dashboard-activity-list">@foreach (var activity in model.RecentActivity) { <li><time>@activity.OccurredAtUtc.LocalDateTime.ToString("dd MMM, HH:mm")</time><span>@activity.Summary</span></li> }</ol> }
         </article>
     </section>
 }
-
 @code {
-    private DashboardModel? model;
-
-    private IReadOnlyList<AttentionItem> BlockingItems => model?.AttentionItems
-        .Where(item => item.Finding.Severity == FindingSeverity.Error)
-        .ToList() ?? [];
-
-    private IReadOnlyList<AttentionItem> ReviewItems => model?.AttentionItems
-        .Where(item => item.Finding.Severity == FindingSeverity.Warning)
-        .ToList() ?? [];
-
-    protected override async Task OnInitializedAsync()
+    [SupplyParameterFromQuery(Name = "horizon")] public int? RequestedHorizon { get; set; }
+    [SupplyParameterFromQuery(Name = "billing")] public string? RequestedBilling { get; set; }
+    private static readonly IReadOnlyList<string> Horizons = ["30", "90", "180"];
+    private HomeDashboardModel? model;
+    private bool error;
+    private int loadVersion;
+    private OperationalHomeModel Portfolio => model!.Portfolio;
+    private int Horizon => HomeRoutes.Horizon(RequestedHorizon);
+    private string BillingMode => RequestedBilling is "next" or "review" ? RequestedBilling : "current";
+    private DateOnly BillingMonth => BillingMode == "next" ? Portfolio.NextMonth.Month : Portfolio.ThisMonth.Month;
+    private IReadOnlyList<ScheduledPaymentPosition> BillingPositions => Portfolio.MatchingPositions(BillingMonth, BillingMode == "review" ? "undated" : null);
+    private int Count(PortfolioFilter filter) => Portfolio.MatchingContracts(filter).Count;
+    private string ContractList(string status) => ReportingRoutes.WithPeriod(HomeRoutes.Contracts(status, Horizon), ReportingPeriod.SelectedPeriod);
+    private string Planned(DateOnly month, string? review = null) => ReportingRoutes.WithPeriod(HomeRoutes.Planned(month, review), ReportingPeriod.SelectedPeriod);
+    private string Record(Guid id, string section) => HomeRoutes.Contract(id, section, "/" + Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string BillingLink(string mode) => Navigation.GetUriWithQueryParameter("billing", mode);
+    private void SetHorizon(string value) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("horizon", int.Parse(value)));
+    protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+    public void Dispose() { loadVersion++; ReportingPeriod.Changed -= ReportingPeriodChanged; }
+    private async void ReportingPeriodChanged() => await InvokeAsync(async () => { await ReloadAsync(); StateHasChanged(); });
+    private async Task ReloadAsync()
     {
-        ReportingPeriod.Changed += ReportingPeriodChanged;
-        await ReloadAsync();
+        var version = ++loadVersion;
+        try { var loaded = await Workspace.GetHomeDashboardAsync(ReportingPeriod.SelectedPeriod, Horizon); if (version == loadVersion) { model = loaded; error = false; } }
+        catch (Exception exception) { Logger.LogError(exception, "Could not load the operational Home overview"); if (version == loadVersion) error = true; }
     }
-
-    public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
-
-    private async void ReportingPeriodChanged()
+    private static string Currency(decimal value) => value.ToString("C0", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+    private static string DisplayPeriod(string value) => DateOnly.ParseExact($"{value}-01", "yyyy-MM-dd").ToString("MMMM yyyy");
+    private static string ReportLabel(MonthlyReturnRegisterEntry item) => item.LifecycleStatus switch
     {
-        await InvokeAsync(async () =>
-        {
-            await ReloadAsync();
-            StateHasChanged();
-        });
-    }
-
-    private async Task ReloadAsync() => model = await Workspace.GetDashboardAsync(ReportingPeriod.SelectedPeriod);
-
-    private string PeriodRoute(string path)
-        => ReportingRoutes.WithPeriod(path, ReportingPeriod.SelectedPeriod);
-
-    private string ReturnWorkspaceRoute(FrameworkReadiness summary)
-        => $"/reports/{(int)summary.Framework.Code}/{model!.CurrentReportingMonth}?period={model.CurrentReportingMonth}";
-
-    private static bool IsReady(FrameworkReadiness summary) =>
-        summary.BlockingFindingCount == 0
-        && summary.ContractCount + summary.InvoiceCount > 0
-        && summary.ReturnStatus is not ReturnStatus.Submitted;
-
-    private static string ReadinessClass(FrameworkReadiness summary) =>
-        summary.BlockingFindingCount > 0 ? "readiness-status error"
-        : summary.ReviewFindingCount > 0 ? "readiness-status warning"
-        : summary.ReturnStatus == ReturnStatus.Submitted ? "readiness-status complete"
-        : summary.ContractCount + summary.InvoiceCount == 0 ? "readiness-status neutral"
-        : "readiness-status ready";
-
-    private static string ReadinessLabel(FrameworkReadiness summary)
-    {
-        if (summary.BlockingFindingCount > 0)
-        {
-            return $"{summary.BlockingFindingCount} blocking issue{(summary.BlockingFindingCount == 1 ? string.Empty : "s")}";
-        }
-
-        if (summary.ReviewFindingCount > 0)
-        {
-            return $"{summary.ReviewFindingCount} exception{(summary.ReviewFindingCount == 1 ? string.Empty : "s")}";
-        }
-
-        return summary.ReturnStatus switch
-        {
-            ReturnStatus.Submitted => "Submitted",
-            ReturnStatus.NilReturn => "Nil return recorded",
-            ReturnStatus.CorrectionRequired => "Correction required",
-            ReturnStatus.Draft => "In progress",
-            _ when summary.ContractCount + summary.InvoiceCount == 0 => "Not started",
-            _ => "Ready to review",
-        };
-    }
-
-    private static string ReadinessAction(FrameworkReadiness summary) =>
-        summary.BlockingFindingCount + summary.ReviewFindingCount > 0 ? "Review" : "Open";
-
-    private string? ExceptionMetricClass() =>
-        BlockingItems.Count != 0 ? "has-blocking-exceptions"
-        : ReviewItems.Count != 0 ? "has-review-exceptions"
-        : null;
-
-    private static string DisplayPeriod(string period) =>
-        DateOnly.ParseExact($"{period}-01", "yyyy-MM-dd").ToString("MMMM yyyy");
-
-    private static string ReturnLabel(ReturnStatus? status) => status switch
-    {
-        ReturnStatus.Draft => "This month: draft return",
-        ReturnStatus.Submitted => "This month: submitted",
-        ReturnStatus.NilReturn => "This month: nil return recorded",
-        ReturnStatus.CorrectionRequired => "This month: correction required",
-        _ => "This month: not started",
+        ReportLifecycleStatus.Submitted => item.IsNilReturn ? "Submitted · NIL" : "Submitted",
+        ReportLifecycleStatus.CorrectionRequired => "Correction required",
+        _ when item.BlockingFindingCount > 0 => "Blocked",
+        _ when item.ContractCount + item.InvoiceCount == 0 => "No activity · review NIL",
+        _ => "Ready to review",
     };
-
-    private static bool IsOverrun(ContractProgress contract) => contract.ComparisonValueExVat > 0 && contract.ReportedInvoiceValueExVat > contract.ComparisonValueExVat;
-
-    private static string Percentage(decimal ratio) => $"{Math.Max(ratio * 100, 0):0}%";
-
-    private static string ProgressWidth(decimal ratio) => $"{Math.Clamp(ratio * 100, 0, 100):0}%";
-
-    private static string FriendlyFinding(string code) => code switch
-    {
-        "ContractEndBeforeStart" => "Contract dates need correcting",
-        "InvoiceContractNotFound" => "Invoice needs a matching contract",
-        "ContractMissingSupplierReference" => "Contract is missing a supplier reference",
-        "ContractMissingCustomer" => "Contract is missing a customer",
-        "ContractMissingValue" => "Contract value needs correcting",
-        _ => "Data quality issue",
-    };
-
-    private static string FriendlyActivity(string action) => action switch
-    {
-        "ContractCreated" => "Contract registered",
-        "ContractUpdated" => "Contract updated",
-        "InvoiceImported" => "Invoice imported",
-        "InvoiceRecorded" => "Invoice registered",
-        "InvoiceUpdated" => "Invoice updated",
-        "ReturnExported" => "Review workbook generated",
-        "ReturnSubmitted" => "Return submitted",
-        "NilReturnRecorded" => "Nil return recorded",
-        "CorrectionRequested" => "Correction requested",
-        _ => action,
-    };
+    private static string ReportClass(MonthlyReturnRegisterEntry item) => item.LifecycleStatus == ReportLifecycleStatus.Submitted ? "readiness-status complete"
+        : item.BlockingFindingCount > 0 ? "readiness-status error"
+        : item.LifecycleStatus == ReportLifecycleStatus.CorrectionRequired || item.ReviewFindingCount > 0 ? "readiness-status warning" : "readiness-status neutral";
 }

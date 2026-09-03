@@ -20,6 +20,7 @@ else
                 <p class="contract-hero-context">@details.Contract.CustomerName <span aria-hidden="true">·</span> @Frameworks.Get(details.Contract.Framework).DisplayName</p>
             </div>
             <div class="contract-hero-actions">
+                @if (HomeRoutes.SafeReturn(ReturnTo) is string back) { <a class="remi-action remi-action--section" href="@back">Back</a> }
                 @if (editingContract)
                 {
                     <button class="button primary" disabled="@(!CanSaveContract || contractWorking)" @onclick="SaveContractAsync">@(contractWorking ? "Saving…" : "Save")</button>
@@ -263,7 +264,7 @@ else
                                 @if (!string.IsNullOrWhiteSpace(operationsMailMessage)) { <p class="notice @(operationsMailSucceeded ? "success" : "error")" role="status">@operationsMailMessage</p> }
                             </section>
                             <section class="contract-detail-section">
-                                <h3>Payment schedule</h3>
+                                <h3 id="contract-payment-schedule">Payment schedule</h3>
                                 <div class="contract-section-actions">
                                     @if (editingSchedule)
                                     {
@@ -472,6 +473,8 @@ else
 }
 
 @code {
+    [Parameter] public string? Section { get; set; }
+    [Parameter] public string? ReturnTo { get; set; }
     [Parameter] public Guid ContractId { get; set; }
     private ContractDetailsModel? details;
     private IReadOnlyList<AuditEventSummary> history = [];
@@ -663,7 +666,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        activeTab = "overview";
+        activeTab = Section is "changes" or "invoices" or "evidence" or "history" ? Section : "overview";
         showInvoiceForm = false;
         details = await Workspace.GetContractDetailsAsync(ContractId);
         history = await Workspace.GetContractAuditEventsAsync(ContractId);

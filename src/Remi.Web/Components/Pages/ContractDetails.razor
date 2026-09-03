@@ -2,8 +2,10 @@
 
 <PageTitle>Remi · Contract</PageTitle>
 
-<ContractRecordView ContractId="@ContractId" />
+<ContractRecordView ContractId="@ContractId" Section="@Section" ReturnTo="@ReturnTo" />
 
 @code {
     [Parameter] public Guid ContractId { get; set; }
+    [SupplyParameterFromQuery(Name = "section")] public string? Section { get; set; }
+    [SupplyParameterFromQuery(Name = "returnTo")] public string? ReturnTo { get; set; }
 }

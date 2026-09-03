@@ -9,7 +9,8 @@ public sealed record DashboardModel(
     IReadOnlyList<AttentionItem> AttentionItems,
     string CurrentReportingMonth,
     IReadOnlyList<FrameworkReadiness> FrameworkReadiness,
-    IReadOnlyList<AuditEventSummary> RecentActivity);
+    IReadOnlyList<AuditEventSummary> RecentActivity,
+    OperationalHomeModel? Portfolio = null);
 
 public sealed record AttentionItem(ValidationFinding Finding, string Route);
 

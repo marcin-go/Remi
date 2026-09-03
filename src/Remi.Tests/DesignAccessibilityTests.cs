@@ -148,7 +148,7 @@ public sealed class DesignAccessibilityTests
         Assert.Contains("register-search floating-field floating-field--static", invoices, StringComparison.Ordinal);
         Assert.DoesNotContain("<select", contracts, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("<select", invoices, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(4, contracts.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
+        Assert.Equal(5, contracts.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
         Assert.Equal(3, invoices.Split("<RemiPicklist", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("quick-filters", contracts, StringComparison.Ordinal);
         Assert.DoesNotContain("<datalist", razor, StringComparison.OrdinalIgnoreCase);

@@ -197,7 +197,7 @@ public sealed partial class RegisterComponentTests
         contracts.Find("button[role='combobox'][aria-label='Contract status']").Click();
 
         Assert.Equal(
-            ["Live", "Ongoing", "Ending within 180 days", "Not started", "Ended", "Dates need review"],
+            ["Live", "Ongoing", "Ending within 180 days", "Ending · no further extension recorded", "Ending · extension decisions", "Ending · options need review", "Not started", "Ended", "Ended · value still to invoice", "Dates need review", "No schedule", "Undated schedule", "Extension associations to review"],
             contracts.FindAll("#contract-status-filter-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 
@@ -797,22 +797,20 @@ public sealed partial class RegisterComponentTests
         {
             var dashboardHeader = cut.Find(".dashboard-header");
             Assert.Null(dashboardHeader.QuerySelector(".eyebrow"));
-            Assert.Equal("Prepare", dashboardHeader.QuerySelector("a.remi-action--primary")?.TextContent.Trim());
-
-            var readinessHeader = cut.Find(".dashboard-readiness .dashboard-section-heading");
-            Assert.Equal("Return readiness", readinessHeader.QuerySelector("h2")?.TextContent.Trim());
-            Assert.Contains("Frameworks included in the July 2026 reporting period.", readinessHeader.TextContent);
-
-            var attentionHeader = cut.Find(".dashboard-attention .dashboard-section-heading");
-            Assert.Equal("Needs attention", attentionHeader.QuerySelector("h2")?.TextContent.Trim());
+            Assert.Equal("Home", dashboardHeader.QuerySelector("h1")?.TextContent.Trim());
+            Assert.Equal(5, cut.FindAll(".home-facts > div").Count);
+            Assert.Contains("Contract endings", cut.Find(".home-working-sections").TextContent);
+            Assert.Contains("Billing outlook", cut.Find(".home-working-sections").TextContent);
+            Assert.Contains("Reporting preparation · July 2026", cut.Find(".home-reporting h2").TextContent);
+            Assert.True(cut.Markup.IndexOf("home-facts", StringComparison.Ordinal) < cut.Markup.IndexOf("home-reporting", StringComparison.Ordinal));
 
             var activityHeader = cut.Find(".dashboard-activity .dashboard-section-heading");
             Assert.Equal("Recent activity", activityHeader.QuerySelector("h2")?.TextContent.Trim());
-            Assert.Equal("View", activityHeader.QuerySelector("a.remi-action--section")?.TextContent.Trim());
+            Assert.Equal("View audit", activityHeader.QuerySelector("a.remi-action--section")?.TextContent.Trim());
 
-            var tableHeaders = cut.FindAll(".dashboard-table th").Select(header => header.TextContent.Trim()).ToList();
-            Assert.Equal(["Framework", "Contracts", "Invoices", "Readiness", "Action"], tableHeaders);
-            Assert.All(cut.FindAll(".dashboard-row-action"), action =>
+            var tableHeaders = cut.FindAll(".home-report-table th").Select(header => header.TextContent.Trim()).ToList();
+            Assert.Equal(["Framework", "State", "Findings", "Configured deadline", "Action"], tableHeaders);
+            Assert.All(cut.FindAll(".home-report-table a"), action =>
                 Assert.Matches("^/reports/\\d+/2026-07\\?period=2026-07$", action.GetAttribute("href")));
             Assert.All(cut.FindAll(".dashboard-table td.table-action-cell"), cell =>
                 Assert.DoesNotContain("→", cell.TextContent));
@@ -1748,6 +1746,7 @@ public sealed partial class RegisterComponentTests
             archive = new Remi.Infrastructure.FileEvidenceArchive(Path.Combine(attachmentTestDirectory, "evidence"));
         }
         context.Services.AddSingleton(registerStore);
+        context.Services.AddSingleton(new OperationalHomeWorkspace(registerStore, clock));
         context.Services.AddSingleton(archive);
         context.Services.AddSingleton(new ReportingWorkspace(
             registerStore,

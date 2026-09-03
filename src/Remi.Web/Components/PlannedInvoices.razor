@@ -1,0 +1,72 @@
+@inject OperationalHomeWorkspace Workspace
+@inject NavigationManager Navigation
+@inject ILogger<PlannedInvoices> Logger
+
+<section class="register-page planned-invoices">
+    <header class="dashboard-header"><div><h1>Invoices</h1><p class="lede">Known payment positions and billing information to review.</p></div></header>
+    <InvoiceViewNavigation Planned="true" Month="@(model?.ThisMonth.Month)" />
+    @if (error)
+    {
+        <section class="empty-state" role="alert"><p>Planned positions could not be loaded. Try again.</p><button class="remi-action" @onclick="LoadAsync">Retry</button></section>
+    }
+    else if (model is null)
+    {
+        <p class="loading" role="status">Loading planned positions…</p>
+    }
+    else
+    {
+        <article class="register-card">
+            <header class="register-card-header"><div><h2>@Heading</h2><p>Payment positions are not invoice counts. Registered invoices have not yet been reconciled to these positions.</p></div><div class="register-result-count"><strong>@Filtered.Count</strong><span>matching positions</span></div></header>
+            <div class="planned-filters">
+                <label class="floating-field floating-field--static"><input type="month" value="@HomeRoutes.Month(Month)" @onchange="SetMonth" disabled="@(Review.Length > 0)" /><span class="floating-label">Expected month</span></label>
+                <RemiPicklist Id="planned-review-filter" Label="Show" Items="@Views" Value="@Review" ValueChanged="SetReview" ItemLabel="ViewLabel" />
+                <label class="floating-field floating-field--static"><input value="@Search" @oninput="SetSearch" placeholder="Contract, customer or position" /><span class="floating-label">Search positions</span></label>
+            </div>
+            <p class="home-review-note">@model.FullyDatedSchedules of @(model.Contracts.Count - model.ContractsWithoutSchedule) schedules fully dated; <a href="@ReviewRoute("undated")">@model.UndatedPositionCount positions without dates</a>. Known value in this view: @Currency(Filtered.Sum(item => item.ValueExVat)) ex VAT.</p>
+            @if (Review == "overdue") { <p class="home-review-note">Expected dates before @model.AsAtDate.ToString("d MMM yyyy") need reconciliation. This does not establish that the invoices were never issued.</p> }
+            <div class="home-table-scroll" tabindex="0" role="region" aria-label="Planned positions table">
+                <table class="home-table planned-table"><thead><tr><th>Contract / customer</th><th>Payment position</th><th>Expected date</th><th>Ex VAT</th><th>State</th></tr></thead><tbody>
+                @foreach (var item in Filtered.Skip((Page - 1) * PageSize).Take(PageSize))
+                {
+                    <tr><td><a href="@HomeRoutes.Contract(item.ContractId, "schedule", ReturnPath)">@item.SupplierReference</a><span>@item.CustomerName</span></td><td>@item.Description</td><td>@(item.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(item.ValueExVat)</td><td>@(item.IsOptionalExtension ? "Optional · agreement needed" : "Needs reconciliation")@if (item.Source == BillingPositionSource.LegacyPlan) { <span>Legacy plan</span> }</td></tr>
+                }
+                @if (Filtered.Count == 0) { <tr><td colspan="5" class="register-empty">No positions match this view. Missing dates and unassociated options can leave the forecast incomplete.</td></tr> }
+                </tbody></table>
+            </div>
+            <footer class="register-pagination"><span>Showing @(Filtered.Count == 0 ? 0 : (Page - 1) * PageSize + 1)–@Math.Min(Page * PageSize, Filtered.Count) of @Filtered.Count positions</span><div><button disabled="@(Page == 1)" @onclick="@(() => SetPage(Page - 1))" aria-label="Previous page">‹</button><strong>@Page</strong><span>of @Pages</span><button disabled="@(Page == Pages)" @onclick="@(() => SetPage(Page + 1))" aria-label="Next page">›</button></div></footer>
+        </article>
+        <p class="home-billing-note">Review dates in the contract payment schedule. Optional positions are excluded from monthly forecasts; extension agreements need explicit associations. Remi records accounting invoices and does not issue them or prove that an unregistered invoice does not exist elsewhere.</p>
+    }
+</section>
+@code {
+    [Parameter] public string? MonthQuery { get; set; }
+    [Parameter] public string? ReviewQuery { get; set; }
+    [Parameter] public string? Search { get; set; }
+    [Parameter] public int? PageQuery { get; set; }
+    private const int PageSize = 20;
+    private static readonly IReadOnlyList<string> Views = ["", "undated", "overdue"];
+    private OperationalHomeModel? model;
+    private bool error;
+    private DateOnly Month => HomeRoutes.ParseMonth(MonthQuery, model!.ThisMonth.Month);
+    private string Review => ReviewQuery is "undated" or "overdue" ? ReviewQuery : "";
+    private string Heading => Review switch { "undated" => "Positions without dates", "overdue" => "Past expected dates · needs reconciliation", _ => $"Scheduled positions · {Month:MMMM yyyy}" };
+    private IReadOnlyList<ScheduledPaymentPosition> Filtered => model!.MatchingPositions(Month, Review)
+        .Where(item => string.IsNullOrWhiteSpace(Search) || item.SupplierReference.Contains(Search, StringComparison.OrdinalIgnoreCase)
+            || item.CustomerName.Contains(Search, StringComparison.OrdinalIgnoreCase) || item.Description.Contains(Search, StringComparison.OrdinalIgnoreCase)).ToList();
+    private int Pages => Math.Max(1, (int)Math.Ceiling(Filtered.Count / (double)PageSize));
+    private int Page => Math.Clamp(PageQuery ?? 1, 1, Pages);
+    private string ReturnPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+    private static string ViewLabel(string value) => value switch { "undated" => "Missing dates · all months", "overdue" => "Past expected dates", _ => "Selected month" };
+    private string ReviewRoute(string value) => Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["review"] = value, ["page"] = null, ["q"] = null });
+    private void SetMonth(ChangeEventArgs args) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["month"] = args.Value?.ToString(), ["page"] = null }));
+    private void SetReview(string value) => Navigation.NavigateTo(ReviewRoute(value));
+    private void SetPage(int value) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("page", value));
+    private void SetSearch(ChangeEventArgs args) => Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(new Dictionary<string, object?> { ["q"] = args.Value?.ToString(), ["page"] = null }), replace: true);
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        try { model = await Workspace.GetAsync(); error = false; }
+        catch (Exception exception) { Logger.LogError(exception, "Could not load planned positions"); error = true; }
+    }
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}

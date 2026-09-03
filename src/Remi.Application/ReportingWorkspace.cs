@@ -11,6 +11,19 @@ public sealed class ReportingWorkspace(
     ICustomerUrnDirectory customerUrnDirectory,
     TimeProvider timeProvider)
 {
+    public Task<HomeDashboardModel> GetHomeDashboardAsync(string? reportingMonth, int endingWithinDays = 180,
+        CancellationToken cancellationToken = default)
+    {
+        if (endingWithinDays is not (30 or 90 or 180)) throw new ArgumentOutOfRangeException(nameof(endingWithinDays));
+        var today = Today();
+        var month = IsValidReportingMonth(reportingMonth) ? reportingMonth! : new DateOnly(today.Year, today.Month, 1).AddMonths(-1).ToString("yyyy-MM");
+        return store.ReadAsync(database => new HomeDashboardModel(
+            OperationalHomeWorkspace.Build(database, today, endingWithinDays), month,
+            BuildMonthlyReturnEntries(database, month, ReportingRules.Validate(database)),
+            database.AuditEvents.OrderByDescending(item => item.OccurredAtUtc).Take(3)
+                .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor)).ToList()), cancellationToken);
+    }
+
     public Task<DashboardModel> GetDashboardAsync(CancellationToken cancellationToken = default) =>
         GetDashboardAsync(null, cancellationToken);
 
@@ -2578,7 +2591,8 @@ public sealed class ReportingWorkspace(
             .Take(5)
             .Select(item => new AuditEventSummary(item.Id, item.OccurredAtUtc, item.Action, item.EntityType, item.Summary, item.Reason, item.Actor))
             .ToList();
-        return new DashboardModel(summaries, progress, findings, attentionItems, currentReportingMonth, readiness, recentActivity);
+        return new DashboardModel(summaries, progress, findings, attentionItems, currentReportingMonth, readiness, recentActivity,
+            OperationalHomeWorkspace.Build(database, today, 180));
     }
 
     private static MonthlyReturnRegisterModel BuildMonthlyReturnRegister(RemiDatabase database, DateOnly today)
@@ -2595,8 +2609,13 @@ public sealed class ReportingWorkspace(
             .OrderByDescending(month => month, StringComparer.Ordinal)
             .ToList();
         var findings = ReportingRules.Validate(database);
-        var entries = reportingMonths
-            .SelectMany(reportingMonth => FrameworksForReportingMonth(database, reportingMonth).Select(framework =>
+        var entries = reportingMonths.SelectMany(month => BuildMonthlyReturnEntries(database, month, findings)).ToList();
+        return new MonthlyReturnRegisterModel(reportingMonths, entries);
+    }
+
+    private static IReadOnlyList<MonthlyReturnRegisterEntry> BuildMonthlyReturnEntries(
+        RemiDatabase database, string reportingMonth, IReadOnlyList<ValidationFinding> findings) =>
+        FrameworksForReportingMonth(database, reportingMonth).Select(framework =>
             {
                 var monthlyReturn = database.MonthlyReturns.SingleOrDefault(item =>
                     item.Framework == framework.Code && item.ReportMonth == reportingMonth);
@@ -2626,11 +2645,8 @@ public sealed class ReportingWorkspace(
                     monthlyReturn?.OriginalWorkbookName,
                     monthlyReturn?.UpdatedAtUtc,
                     monthlyReturn?.Id);
-            }))
+            })
             .ToList();
-
-        return new MonthlyReturnRegisterModel(reportingMonths, entries);
-    }
 
     private static IReadOnlyList<FrameworkDefinition> FrameworksForReportingMonth(
         RemiDatabase database,

@@ -4,7 +4,7 @@ namespace Remi.Application;
 
 /// <summary>No state implies an option has been exercised or conclusively exhausted.</summary>
 public enum RecordedOptionState { NoOptionRecorded, OptionsRecorded, AssociationNeedsReview }
-public enum PortfolioFilter { All, Live, Future, UnknownDates, Ended, Ending, EndingNoOptionRecorded, EndingOptionsRecorded, EndingOptionsNeedReview }
+public enum PortfolioFilter { All, Live, Future, UnknownDates, Ended, Ending, EndingNoOptionRecorded, EndingOptionsRecorded, EndingOptionsNeedReview, NoSchedule, ExtensionReview, EndedValue, UndatedSchedule }
 public enum BillingPositionSource { ChargeSchedule, LegacyPlan }
 
 public sealed record OperationalContract(
@@ -32,6 +32,10 @@ public sealed record OperationalContract(
         PortfolioFilter.Future => Lifecycle == ContractLifecycle.Future,
         PortfolioFilter.UnknownDates => Lifecycle == ContractLifecycle.Unknown,
         PortfolioFilter.Ended => Lifecycle == ContractLifecycle.Ended,
+        PortfolioFilter.NoSchedule => !HasSchedule,
+        PortfolioFilter.ExtensionReview => ExtensionsNeedingAssociation.Count > 0,
+        PortfolioFilter.EndedValue => Lifecycle == ContractLifecycle.Ended && RemainingCommittedValueExVat > 0,
+        PortfolioFilter.UndatedSchedule => UndatedPositionCount > 0,
         _ => ContractPortfolioRules.IsEndingWithin(Contract.StartDate, Commercial.EndDate, today, endingWithinDays)
             && (filter == PortfolioFilter.Ending
                 || filter == PortfolioFilter.EndingNoOptionRecorded && OptionState == RecordedOptionState.NoOptionRecorded
@@ -71,4 +75,28 @@ public sealed record OperationalHomeModel(
     public int UndatedPositionCount => PaymentPositions.Count(item => item.ExpectedInvoiceDate is null);
     public int ContractsNeedingExtensionAssociation => Contracts.Count(item => item.ExtensionsNeedingAssociation.Count > 0);
     public int AmbiguousInvoiceMatches => Contracts.Count(item => item.HasAmbiguousInvoiceMatch);
+
+    public IReadOnlyList<ScheduledPaymentPosition> MatchingPositions(DateOnly month, string? review = null) => PaymentPositions
+        .Where(item => review switch
+        {
+            "undated" => item.ExpectedInvoiceDate is null,
+            "overdue" => !item.IsOptionalExtension && item.ExpectedInvoiceDate < AsAtDate,
+            _ => !item.IsOptionalExtension && item.ExpectedInvoiceDate is DateOnly date && date.Year == month.Year && date.Month == month.Month,
+        })
+        .OrderBy(item => item.ExpectedInvoiceDate)
+        .ThenBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList();
+}
+
+public sealed record HomeDashboardModel(
+    OperationalHomeModel Portfolio,
+    string ReportingMonth,
+    IReadOnlyList<MonthlyReturnRegisterEntry> Reports,
+    IReadOnlyList<AuditEventSummary> RecentActivity)
+{
+    public int SubmittedCount => Reports.Count(item => item.LifecycleStatus == ReportLifecycleStatus.Submitted);
+    public int BlockedCount => Reports.Count(item => item.LifecycleStatus != ReportLifecycleStatus.Submitted && item.BlockingFindingCount > 0);
+    public int ReadyToReviewCount => Reports.Count(item => item.LifecycleStatus == ReportLifecycleStatus.Draft
+        && item.BlockingFindingCount == 0 && item.ContractCount + item.InvoiceCount > 0);
+    public DateOnly? EarliestUnfinishedDeadline => Reports.Where(item => item.LifecycleStatus != ReportLifecycleStatus.Submitted)
+        .Select(item => item.Framework.ReportingDeadline?.Calculate(ReportingMonth)).Min();
 }

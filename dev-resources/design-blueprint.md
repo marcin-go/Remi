@@ -146,10 +146,12 @@ For linked reference data such as the GCA customer directory:
 
 ### Home
 
-1. Page header with `Reporting overview`, one sentence naming the active month, and `Prepare`.
-2. One compact fact strip for period, contract count, invoice count, ready count and exceptions.
-3. Return readiness table as the main surface.
-4. Needs-attention and recent-activity surfaces alongside it when space permits.
+1. Page header with `Home`, the local business date and a compact `Ending within` selector (30/90/180 days; default 180).
+2. One responsive fact strip: Live contracts, endings with no further extension recorded, extension decisions, and scheduled billing for the current and next calendar months. Use **scheduled payment positions** until explicit invoice groups and allocations support invoice counts. Keep date/association coverage directly below the facts.
+3. Contract endings and Billing outlook are the main working surfaces, with at most five rows each and links to the exact full results. Keep ambiguous exercised options in a separate review count; never imply no option exists merely because none is recorded.
+4. Reporting preparation is a compact selected-month summary below the operational work, with submitted/ready/blocked counts, configured deadlines and framework links. Submitted NIL returns are submitted. Empty unsubmitted months remain actionable. Changing this reporting month must not change the operational date or billing months.
+5. At most three recent audit events, with `View audit`. Preserve compact tables, visible keyboard focus and horizontal table scrolling within each section at narrow widths.
+6. Home fact links use URL-backed filters in Contracts and the Planned view of Invoices. The Registered invoice view remains the default. Preserve month, ending horizon, search/sort/page and the relevant contract section in navigation and return links.
 
 ### Contract and invoice registers
 

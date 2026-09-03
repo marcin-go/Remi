@@ -1,6 +1,6 @@
 # Home dashboard redesign plan
 
-Date: 3 September 2026. Status: implementation started; shared operational foundation implemented, dashboard layout and persistent forecast work pending.
+Date: 3 September 2026. Status: steps 1–2 implemented in source; portable release verification and persistent forecast work pending.
 
 ## Implementation progress — 3 September 2026
 
@@ -18,7 +18,29 @@ Verification covers date and horizon boundaries, leap-day/year rollover and loca
 
 Validation: `dotnet test src/Remi.Tests/Remi.Tests.csproj --no-restore --verbosity minimal` passed all **183 tests**, with none skipped. An earlier full run hit the existing attachment retry test's render timeout; the final full run passed without modifying that test. `git diff --check -- src` also passed. Tests built the application assemblies but did not launch an application instance.
 
-Still pending: the Home page rewrite and removal of its obsolete branch, URL-backed drill-downs, Planned invoices view, compact reporting summary, and updating the Home design blueprint alongside that UI. Planned-invoice groups, allocations, explicit option associations and audited data review remain steps 3–4. Portable publishing, complete-folder backup and browser verification at the specified widths remain the release gate. This slice makes no schema change and does not publish, start or alter the operational instance.
+The foundation was committed as `a13e1d1` (`Add shared operational dashboard foundation`).
+
+### Second slice — operational page and navigation
+
+The Home page now has five compact fact groups, date-coverage links, Contract endings and Billing outlook, a separate reporting-preparation summary and at most three recent audit events. The unreachable reporting-first branch has been removed and the Home design blueprint updated. Home reads the portfolio, selected-period reporting entries and audit events in one store read, reusing the Reports lifecycle projection and existing deadline policy. Submitted NIL returns stay submitted; corrections, blockers, review findings and unsubmitted empty periods stay distinguishable.
+
+Contracts supports URL-backed status, 30/90/180-day horizon, search, framework, documents, progress, sort direction and pagination. The same portfolio predicates supply Home counts and matching records. Invoices still defaults to Registered; its Planned view lists dated positions by month, undated positions (including optional rows for review) and past expected dates needing reconciliation. It supports URL-backed month, review view, search and pagination. These are payment positions, not exact invoice counts or proof of outstanding invoices.
+
+Contract links target the Changes tab or Payment schedule and carry a validated local return link to the source filters. New tests exercise all five fact drill-downs, filter/page restoration, month independence, submitted NIL/correction states, schedule navigation, missing-date review, and loading/error/retry/empty states. The portable package has built successfully in `.remi-build/home-dashboard`, but has not yet replaced the published files. Windows denied stopping the running Remi process on port 5243; its console needs to be closed before the complete-folder backup, portable update and browser checks.
+
+Second-slice validation: the focused component/operational suite passed **107/107** tests. The final full-suite run passed **193/194**; the remaining failure was an intermittent final-render timeout in the pre-existing attachment workflow theory. All **16/16** attachment workflow cases passed when rerun together. The design assertion was updated for the additional ending-horizon selector. Release publishing to the staging directory and `git diff --check` passed. No operational records or published application files were changed during this slice.
+
+Still pending: planned-invoice groups, allocations, explicit option associations and audited data review (steps 3–4). This second slice makes no schema change. Portable publishing, complete-folder backup and browser verification at the specified widths remain the release gate.
+
+### User-authorised payment-date update — 3 September 2026
+
+Following the separate explicit request to update schedules in bulk, `fill_payment_schedule_dates_v1.py` filled **134 missing expected dates across 38 contracts** in the existing published register. For entirely undated schedules, year 1 uses the contract start date and subsequent years use annual increments by contract year. For partially dated schedules, the operation uses the last supplied contract year's date to fill later years only; existing dates and earlier gaps are preserved. Leap-day anniversaries use the last valid day of February. The live data contained no partially dated schedules or ambiguous cases, so all 134 changes used contract starts.
+
+All **145 positions now have dates**. The 11 previously supplied dates and all 31 optional flags remain unchanged. The operation appended 134 position audit events and 38 contract-history events; dating an optional position does not exercise it. No amounts, invoices, contracts, evidence, reference data, protection keys or schema records were changed.
+
+Before applying the transaction, the complete data folder was backed up to `backups/payment-schedule-dates-v1-20260903T120941-0e482368/data`. SQLite's native backup incorporated committed WAL contents into the recoverable database; all 175 backup files were hash-verified. Validation passed six focused tests, a populated schema-9 rehearsal with rollback and idempotence checks, database integrity and foreign-key checks, and an exact before/after comparison allowing only the planned dates and appended audit events. Local preview, applied and verification reports are in `.remi-build/payment-schedule-dates-v1/`.
+
+This explicitly authorised correction is separate from deployment and does not add automatic date filling to application reads or upgrades. Planned-invoice grouping, allocations, extension associations and portable UI release verification remain pending.
 
 ## Recommendation
 

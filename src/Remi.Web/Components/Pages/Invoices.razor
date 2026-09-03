@@ -6,7 +6,11 @@
 
 <PageTitle>Remi · Invoices</PageTitle>
 
-@if (invoices is null)
+@if (View == "planned")
+{
+    <PlannedInvoices MonthQuery="@MonthQuery" ReviewQuery="@ReviewQuery" Search="@SearchQuery" PageQuery="@PageQuery" />
+}
+else if (invoices is null)
 {
     <p class="loading">Loading invoice register…</p>
 }
@@ -20,6 +24,7 @@ else
             <a class="remi-action remi-action--primary" href="@PeriodRoute("invoices/new")">Register</a>
         </header>
 
+        <InvoiceViewNavigation />
         <section class="register-workspace register-workspace-full" id="invoice-register">
             <article class="register-card">
                 <header class="register-card-header register-card-header-compact">
@@ -90,6 +95,11 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "view")] public string? View { get; set; }
+    [SupplyParameterFromQuery(Name = "month")] public string? MonthQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "review")] public string? ReviewQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "q")] public string? SearchQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? PageQuery { get; set; }
     private const int PageSize = 10;
     private static readonly IReadOnlyList<string> FrameworkFilterItems =
     [
@@ -116,6 +126,7 @@ else
     }
 
     public void Dispose() => ReportingPeriod.Changed -= ReportingPeriodChanged;
+    protected override async Task OnParametersSetAsync() { if (View != "planned" && invoices is null) await ReloadAsync(); }
 
     private async void ReportingPeriodChanged()
     {
@@ -128,7 +139,7 @@ else
 
     private async Task ReloadAsync()
     {
-        invoices = await Workspace.GetInvoiceRegisterAsync();
+        if (View != "planned") invoices = await Workspace.GetInvoiceRegisterAsync();
         reportingMonth = ReportingPeriod.SelectedPeriod;
     }
 

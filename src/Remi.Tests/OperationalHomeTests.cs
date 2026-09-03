@@ -331,6 +331,28 @@ public sealed class OperationalHomeTests
         Assert.Equal(1500, progress.TotalContractValueExVat);
     }
 
+    [Fact]
+    public async Task Home_loads_operational_reporting_and_audit_information_in_one_read()
+    {
+        var database = new RemiDatabase
+        {
+            MonthlyReturns = [new(Guid.NewGuid(), FrameworkCode.GCloud13, "2026-08", ReturnStatus.NilReturn, Now, "submitted", null, Now)],
+            AuditEvents = Enumerable.Range(0, 5).Select(index => new AuditEvent(Guid.NewGuid(), Now.AddMinutes(index), "Read fixture", "Contract", null, "Example", null, "Test")).ToList(),
+        };
+        var store = new ReadOnlyStore(database);
+        var before = JsonSerializer.Serialize(database);
+        var home = await Reporting(store, new FixedClock(Now)).GetHomeDashboardAsync("2026-08", 90);
+        Assert.Equal(1, store.ReadCount);
+        Assert.Equal(90, home.Portfolio.EndingWithinDays);
+        Assert.Equal(1, home.SubmittedCount);
+        Assert.Equal(0, home.ReadyToReviewCount);
+        Assert.Equal(0, home.BlockedCount);
+        Assert.Equal(new DateOnly(2026, 9, 7), home.EarliestUnfinishedDeadline);
+        Assert.Equal(3, home.RecentActivity.Count);
+        Assert.Equal(Now.AddMinutes(4), home.RecentActivity[0].OccurredAtUtc);
+        Assert.Equal(before, JsonSerializer.Serialize(database));
+    }
+
     private static OperationalHomeWorkspace Home(RemiDatabase database) => new(new ReadOnlyStore(database), new FixedClock(Now));
     private static ReportingWorkspace Reporting(IRemiStore store, TimeProvider clock) => new(store, null!, null!, null!, null!, clock);
     private static ContractRecord Contract(string reference, DateOnly? end) => new(Guid.NewGuid(), FrameworkCode.GCloud14,
