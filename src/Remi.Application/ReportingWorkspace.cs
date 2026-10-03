@@ -1319,6 +1319,10 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected invoice no longer exists.", []);
             }
 
+            var assignedContract = database.Contracts.SingleOrDefault(contract => contract.Framework == existing.Framework &&
+                ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(existing.SupplierReference));
+            entry = entry with { Framework = assignedContract?.Framework ?? existing.Framework };
+
             var linkedChange = entry.ContractChangeId is Guid contractChangeId
                 ? database.ContractChanges.SingleOrDefault(change => change.Id == contractChangeId)
                 : null;

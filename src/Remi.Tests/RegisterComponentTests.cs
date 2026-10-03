@@ -1087,12 +1087,78 @@ public sealed partial class RegisterComponentTests
         cut.WaitForAssertion(() =>
         {
             Assert.Empty(cut.FindAll(".record-display-grid"));
-            Assert.Equal(19, cut.FindAll(".contract-edit-panel .floating-field").Count);
+            Assert.Equal(18, cut.FindAll(".contract-edit-panel .floating-field").Count);
             Assert.Equal(["Cancel", "Save"], cut.Find(".contract-edit-panel .invoice-overview-actions").QuerySelectorAll("button").Select(button => button.TextContent.Trim()));
             Assert.Single(cut.FindAll(".invoice-edit-evidence-layout .clipboard-document-dropzone input[accept*='image']"));
             Assert.Equal("LABEL", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TagName);
             Assert.Contains("press Ctrl+V to paste", cut.Find(".invoice-edit-evidence-layout .clipboard-document-dropzone").TextContent);
         });
+    }
+
+    [Theory]
+    [InlineData(FrameworkCode.GCloud13)]
+    [InlineData(FrameworkCode.GCloud14)]
+    [InlineData(FrameworkCode.GCloud15)]
+    [InlineData(FrameworkCode.VerticalApplicationSolutions)]
+    public async Task Invoice_overview_and_editor_show_only_framework_specific_classification_fields(FrameworkCode invoiceFramework)
+    {
+        using var context = CreateContext(invoiceFramework: invoiceFramework);
+        var store = context.Services.GetRequiredService<IRemiStore>();
+        await store.UpdateAsync(database =>
+        {
+            database.Invoices[0] = database.Invoices[0] with { DigitalMarketplaceServiceId = "123456", OrderChannel = "Direct Award" };
+            return true;
+        });
+        var cut = context.Render<InvoiceRecordView>(parameters => parameters.Add(component => component.InvoiceId, SampleInvoiceId));
+        string[] vasFields = ["Service group / level 2", "Service description", "Order channel", "Original vendor", "Subcontractor name"];
+
+        void AssertFields(string selector, bool isVas)
+        {
+            var labels = cut.FindAll(selector).Select(element => element.TextContent.Trim()).ToList();
+            foreach (var field in vasFields)
+                Assert.Equal(isVas, labels.Contains(field));
+            Assert.Equal(!isVas, labels.Contains("Digital Marketplace service ID"));
+            Assert.Contains("Lot", labels);
+            Assert.Contains("Service group / level 1", labels);
+        }
+
+        var isVas = invoiceFramework == FrameworkCode.VerticalApplicationSolutions;
+        cut.WaitForAssertion(() => AssertFields(".record-display-grid dt", isVas));
+        cut.Find(".invoice-record .contract-hero-actions button.secondary").Click();
+        cut.WaitForAssertion(() => AssertFields(".contract-edit-panel .floating-label", isVas));
+
+        Assert.Empty(cut.FindAll("button[aria-label='Framework']"));
+        Assert.Equal(Frameworks.Get(invoiceFramework).DisplayName, cut.Find(".contract-edit-panel input[readonly]").GetAttribute("value"));
+
+        cut.Find(".invoice-overview-actions button.secondary").Click();
+        cut.WaitForAssertion(() => AssertFields(".record-display-grid dt", isVas));
+        var invoice = await context.Services.GetRequiredService<ReportingWorkspace>().GetInvoiceDetailsAsync(SampleInvoiceId);
+        Assert.Equal("123456", invoice!.Invoice.DigitalMarketplaceServiceId);
+        Assert.Equal("Direct Award", invoice.Invoice.OrderChannel);
+        Assert.Equal("Software", invoice.Invoice.ServiceGroupLevel2);
+    }
+
+    [Fact]
+    public async Task Invoice_update_keeps_the_assigned_contract_framework_even_if_a_different_framework_is_submitted()
+    {
+        using var context = CreateContext(includeInvoiceContract: true);
+        var workspace = context.Services.GetRequiredService<ReportingWorkspace>();
+        var before = await workspace.GetInvoiceDetailsAsync(SampleInvoiceId);
+        var invoice = before!.Invoice;
+        Assert.Equal(SampleInvoiceContractId, before.Contract!.Id);
+
+        var result = await workspace.UpdateInvoiceAsync(SampleInvoiceId, new InvoiceEntry(
+            FrameworkCode.GCloud14, invoice.SupplierReference, invoice.CustomerName, invoice.CustomerUrn,
+            invoice.InvoiceDate, invoice.InvoiceNumber, invoice.LotNumber, invoice.ServiceGroup,
+            invoice.ServiceGroupLevel2, invoice.ServiceDescription, invoice.OrderChannel, "123456",
+            invoice.UnitOfMeasure, invoice.Quantity, invoice.PricePerUnitExVat, invoice.TotalCostExVat,
+            invoice.OriginalVendor, invoice.SubcontractorName, invoice.ReportMonth, "Edited in Remi"));
+
+        Assert.True(result.Succeeded, result.Message);
+        var after = await workspace.GetInvoiceDetailsAsync(SampleInvoiceId);
+        Assert.Equal(before.Contract.Framework, after!.Invoice.Framework);
+        Assert.Equal(SampleInvoiceContractId, after.Contract!.Id);
+        Assert.Equal(invoice.ServiceGroupLevel2, after.Invoice.ServiceGroupLevel2);
     }
 
     [Fact]
@@ -1537,7 +1603,8 @@ public sealed partial class RegisterComponentTests
         bool includeContractEvidence = false,
         bool includeInvoiceContract = false,
         string? attachmentTestDirectory = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        FrameworkCode invoiceFramework = FrameworkCode.VerticalApplicationSolutions)
     {
         var clock = timeProvider ?? TimeProvider.System;
         var database = new RemiDatabase
@@ -1568,7 +1635,7 @@ public sealed partial class RegisterComponentTests
             [
                 new InvoiceRecord(
                     SampleInvoiceId,
-                    FrameworkCode.VerticalApplicationSolutions,
+                    invoiceFramework,
                     "RM-001",
                     "Example customer",
                     "URN-001",

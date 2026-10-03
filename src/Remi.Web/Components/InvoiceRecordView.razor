@@ -34,7 +34,7 @@ else
 
         <section class="contract-summary-grid" aria-label="Invoice summary">
             <div class="contract-summary-item"><span>Total cost, ex VAT</span><strong>@Currency(details.Invoice.TotalCostExVat)</strong><small>@(IsCreditNote ? "Credit note" : "Invoice")</small></div>
-            <div class="contract-summary-item"><span>Reporting month</span><strong>@DisplayPeriod(details.Invoice.ReportMonth)</strong><small>@Frameworks.Get(details.Invoice.Framework).DisplayName</small></div>
+            <div class="contract-summary-item"><span>Reporting month</span><strong>@DisplayPeriod(details.Invoice.ReportMonth)</strong><small>@Frameworks.Get(InvoiceFramework).DisplayName</small></div>
             <div class="contract-summary-item"><span>Supporting evidence</span><strong>@details.Evidence.Count</strong><small>file@(details.Evidence.Count == 1 ? string.Empty : "s") archived</small></div>
             <div class="contract-summary-item"><span>Invoice date</span><strong>@Display(details.Invoice.InvoiceDate)</strong><small>@(details.Contract is null ? "Contract link required" : details.Contract.SupplierReference)</small></div>
         </section>
@@ -60,7 +60,7 @@ else
                         <section class="contract-edit-panel">
                             <div class="panel-heading invoice-overview-header"><h2>Invoice overview</h2><div class="invoice-overview-actions"><button class="button secondary" @onclick="ToggleEditor">Cancel</button><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button></div></div>
                             <div class="invoice-details-grid record-edit-fields">
-                                <RemiPicklist Id="invoice-edit-framework-picklist-options" Label="Framework" Items="@FrameworkOptions" Value="@framework.ToString()" ValueChanged="SetFramework" ItemLabel="FrameworkLabel" ItemGroup="FrameworkGroup" />
+                                <label class="floating-field floating-field--static"><input readonly value="@Frameworks.Get(InvoiceFramework).DisplayName" /><span class="floating-label">Framework</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="reportMonth" /><span class="floating-label">Reporting month</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="supplierReference" /><span class="floating-label">Supplier reference</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="customerName" /><span class="floating-label">Customer</span></label>
@@ -69,16 +69,22 @@ else
                                 <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" /><span class="floating-label">Invoice or credit note number</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="lotNumber" /><span class="floating-label">Lot</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="serviceGroup" /><span class="floating-label">Service group / level 1</span></label>
+                                @if (IsVas)
+                                {
                                 <label class="floating-field"><input placeholder=" " @bind="serviceGroupLevel2" /><span class="floating-label">Service group / level 2</span></label>
                                 <label class="floating-field"><input placeholder=" " @bind="serviceDescription" /><span class="floating-label">Service description</span></label>
                                 <label class="floating-field"><input placeholder=" " @bind="orderChannel" /><span class="floating-label">Order channel</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="originalVendor" /><span class="floating-label">Original vendor</span></label>
+                                <label class="floating-field"><input placeholder=" " @bind="subcontractorName" /><span class="floating-label">Subcontractor name</span></label>
+                                }
+                                else
+                                {
                                 <label class="floating-field"><input placeholder=" " @bind="marketplaceServiceId" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                }
                                 <label class="floating-field"><input placeholder=" " @bind="unitOfMeasure" /><span class="floating-label">Unit of measure</span></label>
                                 <label class="floating-field"><input type="number" step="0.01" @bind="quantity" /><span class="floating-label">Quantity</span></label>
                                 <label class="floating-field floating-field--currency"><b aria-hidden="true">&pound;</b><input type="number" step="0.01" @bind="pricePerUnitExVat" /><span class="floating-label">Price per unit, ex VAT</span></label>
                                 <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">&pound;</b><input required type="number" step="0.01" @bind="totalCostExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="originalVendor" /><span class="floating-label">Original vendor</span></label>
-                                <label class="floating-field"><input placeholder=" " @bind="subcontractorName" /><span class="floating-label">Subcontractor name</span></label>
                             </div>
                             @if (submission is not null) { <p class="notice @(submission.Succeeded ? "success" : "error")" role="status">@submission.Message</p> }
                         </section>
@@ -92,7 +98,7 @@ else
                             <section class="contract-detail-section">
                                 <h3>Invoice and parties</h3>
                                 <dl class="record-display-grid">
-                                    <div><dt>Framework</dt><dd>@Frameworks.Get(details.Invoice.Framework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div>
+                                    <div><dt>Framework</dt><dd>@Frameworks.Get(InvoiceFramework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div>
                                     <div><dt>Supplier reference</dt><dd>@details.Invoice.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Invoice.CustomerName</dd></div>
                                     <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Invoice.CustomerUrn)">@Display(details.Invoice.CustomerUrn)</dd></div><div><dt>Invoice date</dt><dd>@Display(details.Invoice.InvoiceDate)</dd></div>
                                     <div><dt>Invoice number</dt><dd>@details.Invoice.InvoiceNumber</dd></div>
@@ -109,9 +115,16 @@ else
                                 <h3>Service classification</h3>
                                 <dl class="record-display-grid">
                                     <div><dt>Lot</dt><dd class="@NotRecordedClass(details.Invoice.LotNumber)">@Display(details.Invoice.LotNumber)</dd></div><div><dt>Service group / level 1</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroup)">@Display(details.Invoice.ServiceGroup)</dd></div>
+                                    @if (IsVas)
+                                    {
                                     <div><dt>Service group / level 2</dt><dd class="@NotRecordedClass(details.Invoice.ServiceGroupLevel2)">@Display(details.Invoice.ServiceGroupLevel2)</dd></div><div><dt>Service description</dt><dd class="@NotRecordedClass(details.Invoice.ServiceDescription)">@Display(details.Invoice.ServiceDescription)</dd></div>
-                                    <div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Invoice.OrderChannel)">@Display(details.Invoice.OrderChannel)</dd></div><div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Invoice.DigitalMarketplaceServiceId)">@Display(details.Invoice.DigitalMarketplaceServiceId)</dd></div>
+                                    <div><dt>Order channel</dt><dd class="@NotRecordedClass(details.Invoice.OrderChannel)">@Display(details.Invoice.OrderChannel)</dd></div>
                                     <div><dt>Original vendor</dt><dd class="@NotRecordedClass(details.Invoice.OriginalVendor)">@Display(details.Invoice.OriginalVendor)</dd></div><div><dt>Subcontractor name</dt><dd class="@NotRecordedClass(details.Invoice.SubcontractorName)">@Display(details.Invoice.SubcontractorName)</dd></div>
+                                    }
+                                    else
+                                    {
+                                    <div><dt>Digital Marketplace service ID</dt><dd class="@NotRecordedClass(details.Invoice.DigitalMarketplaceServiceId)">@Display(details.Invoice.DigitalMarketplaceServiceId)</dd></div>
+                                    }
                                 </dl>
                             </section>
                         </article>
@@ -162,7 +175,6 @@ else
     private DeletionImpact? deletionImpact;
     private ReturnActionResult? submission;
     private ReturnActionResult? deleteResult;
-    private FrameworkCode framework;
     private string supplierReference = string.Empty, customerName = string.Empty, customerUrn = string.Empty, invoiceNumber = string.Empty, lotNumber = string.Empty, serviceGroup = string.Empty, serviceGroupLevel2 = string.Empty, serviceDescription = string.Empty, orderChannel = string.Empty, marketplaceServiceId = string.Empty, unitOfMeasure = string.Empty, originalVendor = string.Empty, subcontractorName = string.Empty, reportMonth = string.Empty;
     private DateOnly? invoiceDate;
     private decimal? quantity, pricePerUnitExVat;
@@ -171,9 +183,9 @@ else
     private int invoiceClipboardImageCount;
 
     private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
-    private static readonly IReadOnlyList<string> FrameworkOptions = Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()).ToList();
+    private FrameworkCode InvoiceFramework => details!.Contract?.Framework ?? details.Invoice.Framework;
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
-    private bool IsVas => framework == FrameworkCode.VerticalApplicationSolutions;
+    private bool IsVas => InvoiceFramework == FrameworkCode.VerticalApplicationSolutions;
     private bool HasRequiredMiFields => !string.IsNullOrWhiteSpace(customerUrn) && !string.IsNullOrWhiteSpace(lotNumber)
         && (IsVas
             ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(serviceGroupLevel2) && !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(originalVendor) && !string.IsNullOrWhiteSpace(subcontractorName)
@@ -205,14 +217,11 @@ else
         confirmingDelete = deletionImpact is not null;
     }
     private void CancelDelete() { confirmingDelete = false; deletionImpact = null; deleteResult = null; }
-    private void SetFramework(string value) { if (Enum.TryParse<FrameworkCode>(value, out var selected)) framework = selected; }
-    private static string FrameworkLabel(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).DisplayName : value;
-    private static string? FrameworkGroup(string value) => Enum.TryParse<FrameworkCode>(value, out var selected) ? Frameworks.Get(selected).IsHistorical ? "Historical" : "Live" : null;
     private void PopulateEditor()
     {
         if (details is null) return;
         var invoice = details.Invoice;
-        framework = invoice.Framework; supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
+        supplierReference = invoice.SupplierReference; customerName = invoice.CustomerName; customerUrn = invoice.CustomerUrn ?? string.Empty; invoiceDate = invoice.InvoiceDate; invoiceNumber = invoice.InvoiceNumber; lotNumber = invoice.LotNumber ?? string.Empty; serviceGroup = invoice.ServiceGroup ?? string.Empty; serviceGroupLevel2 = invoice.ServiceGroupLevel2 ?? string.Empty; serviceDescription = invoice.ServiceDescription ?? string.Empty; orderChannel = invoice.OrderChannel ?? string.Empty; marketplaceServiceId = invoice.DigitalMarketplaceServiceId ?? string.Empty; unitOfMeasure = invoice.UnitOfMeasure ?? string.Empty; quantity = invoice.Quantity; pricePerUnitExVat = invoice.PricePerUnitExVat; totalCostExVat = invoice.TotalCostExVat; originalVendor = invoice.OriginalVendor ?? string.Empty; subcontractorName = invoice.SubcontractorName ?? string.Empty; reportMonth = invoice.ReportMonth;
     }
 
     private async Task SaveAsync()
@@ -224,7 +233,7 @@ else
         try
         {
             await invoiceClipboardEvidence!.PrepareAsync();
-            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(framework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi", details.ContractChange?.Id));
+            submission = await Workspace.UpdateInvoiceAsync(InvoiceId, new InvoiceEntry(InvoiceFramework, supplierReference, customerName, customerUrn, invoiceDate, invoiceNumber, lotNumber, serviceGroup, serviceGroupLevel2, serviceDescription, orderChannel, marketplaceServiceId, unitOfMeasure, quantity, pricePerUnitExVat, totalCostExVat, originalVendor, subcontractorName, reportMonth, "Edited in Remi", details.ContractChange?.Id));
             if (submission.Succeeded)
             {
                 invoiceUpdated = true;
