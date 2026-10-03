@@ -10,6 +10,7 @@
     --color-control-border-hover: #8FA7B4;
     --color-text: #172D3C;
     --color-text-muted: #5E7482;
+    --color-placeholder: #71808C;
     --color-success: #1B704B;
     --color-warning: #895100;
     --color-error: #A93636;
@@ -840,6 +841,19 @@ select { min-height: 0; padding: 0.25rem 0.55rem; }
 .register-filters select { min-height: 1.875rem; padding: 0.25rem 0.55rem; }
 
 /* Remi form-control convention: quiet neutral controls, with teal reserved for active interaction. */
+input::placeholder,
+textarea::placeholder {
+    color: var(--color-placeholder);
+    font-weight: 300;
+    opacity: 1;
+}
+
+.floating-field:not(.floating-field--static) > input:placeholder-shown:not(:focus) + .floating-label,
+.floating-field:not(.floating-field--static) > textarea:placeholder-shown:not(:focus) + .floating-label {
+    color: var(--color-placeholder);
+    font-weight: 300;
+}
+
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="hidden"]), select, textarea) {
     color: var(--color-navy) !important;
     caret-color: var(--color-teal);
