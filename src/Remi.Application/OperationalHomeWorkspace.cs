@@ -23,6 +23,8 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
         var legacyPlans = database.InvoicePlanItems.ToLookup(item => item.ContractId);
         var parts = database.ContractServiceParts.ToLookup(item => item.ContractId);
         var invoices = database.Invoices.ToLookup(item => Key(item.Framework, item.SupplierReference));
+        var allocations = database.InvoicePaymentAllocations.ToLookup(item => (item.PositionId, item.Source));
+        var committedExtensions = ReportingWorkspace.CommittedExtensionPositions(database);
         var contractsByKey = database.Contracts.ToLookup(item => Key(item.Framework, item.SupplierReference));
         var positions = new List<ScheduledPaymentPosition>();
         var contracts = new List<OperationalContract>();
@@ -47,6 +49,11 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
                 : legacy.Select(item => new ScheduledPaymentPosition(item.Id, contract.Id, contract.SupplierReference,
                     contract.CustomerName, item.Label, item.ExpectedInvoiceDate, item.ExpectedValueExVat,
                     false, BillingPositionSource.LegacyPlan)).ToList();
+            contractPositions = contractPositions.Select(item => item with
+            {
+                AllocatedValueExVat = allocations[(item.PositionId, item.Source)].Sum(allocation => allocation.ValueExVat),
+                IsExtensionCommitted = committedExtensions.Contains((item.PositionId, item.Source)),
+            }).ToList();
             positions.AddRange(contractPositions);
             var key = Key(contract.Framework, contract.SupplierReference);
             contracts.Add(new OperationalContract(contract, commercial,
@@ -62,7 +69,7 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
         // Final bills on ended contracts remain visible. Optional rows are retained for review but
         // cannot enter committed forecasts until the user explicitly associates their agreement.
         ScheduledPaymentMonth Month(DateOnly start) => new(start, positions
-            .Where(item => !item.IsOptionalExtension && item.ExpectedInvoiceDate is DateOnly date
+            .Where(item => item.IsEligibleForBilling && item.ExpectedInvoiceDate is DateOnly date
                 && date.Year == start.Year && date.Month == start.Month)
             .OrderBy(item => item.ExpectedInvoiceDate)
             .ThenBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList());

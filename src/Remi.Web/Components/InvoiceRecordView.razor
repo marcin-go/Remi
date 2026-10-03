@@ -134,6 +134,7 @@ else
                             <section><h2>Related contract</h2>@if (details.Contract is not null) { <a class="contract-source-file" href="@ContractRoute(details.Contract.Id)"><span>▧</span><strong>@details.Contract.SupplierReference<small>@details.Contract.CustomerName</small></strong><b aria-hidden="true">›</b></a> } else { <p class="muted">No registered contract matches this invoice reference.</p> }</section>
                         </aside>
                     </div>
+                    <InvoicePaymentReconciliation InvoiceId="@InvoiceId" Changed="ReloadAsync" />
                     }
                 </div>
             }

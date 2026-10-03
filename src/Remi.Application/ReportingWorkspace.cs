@@ -3,7 +3,7 @@ using Remi.Domain;
 
 namespace Remi.Application;
 
-public sealed class ReportingWorkspace(
+public sealed partial class ReportingWorkspace(
     IRemiStore store,
     IWorkbookImporter workbookImporter,
     IMiWorkbookExporter workbookExporter,
@@ -1190,6 +1190,9 @@ public sealed class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "A contract change cannot be moved to a different contract.", []);
             }
+            var linkedInvoiceIds = database.InvoiceContractChangeLinks.Where(item => item.ContractChangeId == changeId).Select(item => item.InvoiceId).ToHashSet();
+            if (entry.Kind != existing.Kind && database.InvoicePaymentAllocations.Any(item => linkedInvoiceIds.Contains(item.InvoiceId)))
+                return new ReturnActionResult(false, "Remove the linked invoice payment allocations before changing this agreement's kind.", []);
 
             var contract = database.Contracts.SingleOrDefault(item => item.Id == existing.ContractId);
             if (contract is null)
@@ -1282,6 +1285,12 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
 
+            var reconciledPositionIds = database.ChargeScheduleItems.Where(item => item.ContractId == contractId).Select(item => item.Id)
+                .Concat(database.InvoicePlanItems.Where(item => item.ContractId == contractId).Select(item => item.Id)).ToHashSet();
+            if ((entry.Framework != existing.Framework || ReportingRules.NormaliseReference(entry.SupplierReference) != ReportingRules.NormaliseReference(existing.SupplierReference))
+                && database.InvoicePaymentAllocations.Any(item => reconciledPositionIds.Contains(item.PositionId)))
+                return new ReturnActionResult(false, "Remove the payment allocations before changing this contract's framework or supplier reference.", []);
+
             if (ValidateContractFrameworkWindow(database, entry) is { } frameworkDateError)
             {
                 return new ReturnActionResult(false, frameworkDateError, []);
@@ -1322,6 +1331,17 @@ public sealed class ReportingWorkspace(
             var assignedContract = database.Contracts.SingleOrDefault(contract => contract.Framework == existing.Framework &&
                 ReportingRules.NormaliseReference(contract.SupplierReference) == ReportingRules.NormaliseReference(existing.SupplierReference));
             entry = entry with { Framework = assignedContract?.Framework ?? existing.Framework };
+
+            var paymentAllocations = database.InvoicePaymentAllocations.Where(item => item.InvoiceId == invoiceId).ToList();
+            var existingAgreementId = database.InvoiceContractChangeLinks.SingleOrDefault(item => item.InvoiceId == invoiceId)?.ContractChangeId;
+            if (entry.ContractChangeId != existingAgreementId && paymentAllocations.Any(allocation => allocation.Source == BillingPositionSource.ChargeSchedule
+                && database.ChargeScheduleItems.Any(item => item.Id == allocation.PositionId && item.IsOptionalExtension)))
+                return new ReturnActionResult(false, "Remove the optional-position allocations before changing this invoice's extension agreement.", []);
+            if (paymentAllocations.Count > 0 &&
+                (ReportingRules.NormaliseReference(entry.SupplierReference) != ReportingRules.NormaliseReference(existing.SupplierReference)
+                 || Math.Sign(entry.TotalCostExVat) != Math.Sign(existing.TotalCostExVat)
+                 || Math.Abs(entry.TotalCostExVat) < Math.Abs(paymentAllocations.Sum(item => item.ValueExVat))))
+                return new ReturnActionResult(false, "Remove or adjust this invoice's payment allocations before changing its contract or reducing its value below the allocated amount.", []);
 
             var linkedChange = entry.ContractChangeId is Guid contractChangeId
                 ? database.ContractChanges.SingleOrDefault(change => change.Id == contractChangeId)
@@ -1370,6 +1390,9 @@ public sealed class ReportingWorkspace(
                     new ReturnActionResult(false, "The selected invoice no longer exists.", []),
                     []);
             }
+
+            if (database.InvoicePaymentAllocations.Any(item => item.InvoiceId == invoiceId))
+                return new InvoiceDeletionResult(new ReturnActionResult(false, "Remove this invoice's payment allocations before deleting it.", []), []);
 
             var invoiceOnlyEvidence = database.Evidence
                 .Where(item => IsClipboardEvidenceFor(item, "invoice", invoiceId))
@@ -1437,6 +1460,10 @@ public sealed class ReportingWorkspace(
             }
 
             var changes = database.ContractChanges.Where(item => item.ContractId == contractId).ToList();
+            var allocatedPositions = database.ChargeScheduleItems.Where(item => item.ContractId == contractId).Select(item => item.Id)
+                .Concat(database.InvoicePlanItems.Where(item => item.ContractId == contractId).Select(item => item.Id)).ToHashSet();
+            if (database.InvoicePaymentAllocations.Any(item => allocatedPositions.Contains(item.PositionId)))
+                return new ContractDeletionResult(new ReturnActionResult(false, "Remove this contract's payment allocations before deleting it.", []), []);
             var changeIds = changes.Select(item => item.Id).ToHashSet();
             var privateEvidence = database.Evidence
                 .Where(item => IsClipboardEvidenceFor(item, "contract", contractId) ||
@@ -1578,6 +1605,11 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract part no longer exists.", []);
             }
 
+            var legacyIds = database.InvoicePlanItems.Where(item => item.ContractId == entry.ContractId).Select(item => item.Id).ToHashSet();
+            if (!database.ChargeScheduleItems.Any(item => item.ContractId == entry.ContractId)
+                && database.InvoicePaymentAllocations.Any(item => item.Source == BillingPositionSource.LegacyPlan && legacyIds.Contains(item.PositionId)))
+                return new ReturnActionResult(false, "Remove the legacy payment allocations before replacing the legacy plan with a charge schedule.", []);
+
             var now = timeProvider.GetUtcNow();
             var item = new ChargeScheduleItem(
                 Guid.NewGuid(),
@@ -1628,6 +1660,10 @@ public sealed class ReportingWorkspace(
                 IsOptionalExtension = entry.IsOptionalExtension,
                 ContractServicePartId = entry.ContractServicePartId,
             };
+            var reconciledValue = database.InvoicePaymentAllocations.Where(item => item.PositionId == scheduleItemId && item.Source == BillingPositionSource.ChargeSchedule).Sum(item => item.ValueExVat);
+            if (database.InvoicePaymentAllocations.Any(item => item.PositionId == scheduleItemId && item.Source == BillingPositionSource.ChargeSchedule)
+                && (entry.IsOptionalExtension && !existing.IsOptionalExtension || entry.ValueExVat < reconciledValue || entry.ValueExVat <= 0))
+                return new ReturnActionResult(false, "Remove or adjust payment allocations before making this position optional or reducing its value below the reconciled amount.", []);
             var index = database.ChargeScheduleItems.IndexOf(existing);
             database.ChargeScheduleItems[index] = updated;
             var errors = ReportingRules.Validate(database).Where(finding => finding.Severity == FindingSeverity.Error && finding.EntityId == scheduleItemId).ToList();
@@ -1654,6 +1690,8 @@ public sealed class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected payment position no longer exists.", []);
             }
 
+            if (database.InvoicePaymentAllocations.Any(item => item.PositionId == scheduleItemId && item.Source == BillingPositionSource.ChargeSchedule))
+                return new ReturnActionResult(false, "Remove the invoice allocations before deleting this payment position.", []);
             database.ChargeScheduleItems.Remove(existing);
             RecordAudit(database, timeProvider.GetUtcNow(), "ChargeScheduleDeleted", "ChargeSchedule", scheduleItemId, $"Removed contract-year {existing.ContractYear} charge: {existing.Description}.", null, actor);
             return new ReturnActionResult(true, "The payment position has been removed.", []);

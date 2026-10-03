@@ -25,6 +25,14 @@ The first delivery is a Blazor web application designed to run as a portable Win
 
 The application does not alter an imported workbook. A reviewer registers the approved official template and its guidance URL, then Remi generates a review copy by updating only its Contracts and Invoices Raised tables.
 
+## Payment schedule reconciliation
+
+Open an existing registered invoice and use **Overview → Payment schedule reconciliation**. Choose a payment position from the invoice's contract, enter the amount excluding VAT, then select **Allocate**. An invoice can cover several positions, and several invoices can cover one position. Amounts cannot exceed the invoice's available value or the position's scheduled value. Use negative allocations for credit notes against previously allocated positions.
+
+Fully reconciled positions disappear from **Past expected dates · needs reconciliation**. Partial allocations leave the outstanding balance visible. Removing an allocation or allocating a credit note can reopen a position. Registering an invoice alone does not create a match; Remi never guesses historical allocations or changes expected dates to clear the list. For an optional extension position, choose its confirmed **Extension agreement** when allocating the invoice. An existing invoice extension link is retained; otherwise the chosen agreement is linked explicitly. Only the selected position enters committed billing views, while unrelated optional years remain optional.
+
+Schema version 10 adds allocation storage without changing existing register rows or creating matches. Before an upgraded portable build first opens operational data, stop the published instance and create and verify a recoverable backup of its complete `publish\Remi\data` folder, including evidence, reference data and application keys. The migration's additional SQLite backup is not a substitute for that complete backup.
+
 ## Run it locally
 
 ```powershell

@@ -9,6 +9,63 @@ namespace Remi.Tests;
 public sealed class SchemaMigrationTests
 {
     [Fact]
+    public async Task Payment_allocation_upgrade_from_v9_preserves_the_register_and_starts_without_guessed_matches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "remi-data.db");
+        try
+        {
+            var contract = MigrationContract(Guid.NewGuid(), "ALLOC-UPGRADE", new DateOnly(2025, 1, 1));
+            var store = new SqliteRemiStore(path);
+            await store.UpdateAsync(database =>
+            {
+                database.Contracts.Add(contract);
+                database.Invoices.Add(new(Guid.NewGuid(), contract.Framework, contract.SupplierReference, contract.CustomerName,
+                    "10000001", new DateOnly(2026, 7, 1), "INV-KEEP", "2", "Cloud Software", null, null, null,
+                    "123456", "Per Unit", 1, 100, 100, "Vendor", "N/A", "2026-07", "source.xlsx", DateTimeOffset.UtcNow));
+                database.ChargeScheduleItems.Add(new(Guid.NewGuid(), contract.Id, null, 1, "Keep past position", new DateOnly(2026, 7, 1), 100, false, DateTimeOffset.UtcNow));
+                database.InvoicePlanItems.Add(new(Guid.NewGuid(), contract.Id, "Keep legacy plan", new DateOnly(2026, 8, 1), 100));
+                database.Evidence.Add(new(Guid.NewGuid(), EvidenceKind.ContractDocument, contract.Framework, "2026-07",
+                    "contract.pdf", "source/contract.pdf", "contract.pdf", "application/pdf", 10, "original-hash", contract.SupplierReference, DateTimeOffset.UtcNow));
+                database.MonthlyReturns.Add(new(Guid.NewGuid(), contract.Framework, "2026-07", ReturnStatus.NilReturn, null, null, null, DateTimeOffset.UtcNow));
+                return true;
+            });
+            var before = await store.ReadAsync(database => System.Text.Json.JsonSerializer.Serialize(database));
+            var evidenceFile = Path.Combine(root, "contract.pdf");
+            await File.WriteAllTextAsync(evidenceFile, "original evidence");
+            await using (var connection = await OpenAsync(path))
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "DROP TABLE invoice_payment_allocations; DELETE FROM remi_schema_migrations WHERE version = 10;";
+                await command.ExecuteNonQueryAsync();
+            }
+            var upgraded = new SqliteRemiStore(path);
+            Assert.Equal(before, await upgraded.ReadAsync(database => System.Text.Json.JsonSerializer.Serialize(database)));
+            Assert.Empty(await upgraded.ReadAsync(database => database.InvoicePaymentAllocations));
+            Assert.Equal("original evidence", await File.ReadAllTextAsync(evidenceFile));
+            var backupPath = Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v10-*.db"));
+            await using (var backup = await OpenAsync(backupPath, readOnly: true))
+            await using (var command = backup.CreateCommand())
+            {
+                command.CommandText = "PRAGMA integrity_check;";
+                Assert.Equal("ok", await command.ExecuteScalarAsync());
+                command.CommandText = "SELECT MAX(version) FROM remi_schema_migrations;";
+                Assert.Equal(9L, await command.ExecuteScalarAsync());
+                command.CommandText = "SELECT invoice_number FROM invoices;";
+                Assert.Equal("INV-KEEP", await command.ExecuteScalarAsync());
+            }
+            Assert.Equal(before, await new SqliteRemiStore(path).ReadAsync(database => System.Text.Json.JsonSerializer.Serialize(database)));
+            Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v10-*.db"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task Single_body_upgrade_preserves_custom_copy_event_state_and_recipients()
     {
         var root = Path.Combine(Path.GetTempPath(), "Remi.Tests", Guid.NewGuid().ToString("N"));
@@ -228,7 +285,7 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
             Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
             Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));

@@ -55,7 +55,7 @@ else
                 </div>
             </article>
             <article class="home-section">
-                <header class="dashboard-section-heading"><div><h2>Billing outlook</h2><p>Known payment positions. Invoice grouping and reconciliation are pending.</p></div></header>
+                <header class="dashboard-section-heading"><div><h2>Billing outlook</h2><p>Known payment positions. Reconcile them by allocating registered invoices.</p></div></header>
                 <nav class="home-view-links" aria-label="Billing outlook view">
                     <a href="@BillingLink("current")" aria-current="@(BillingMode == "current" ? "page" : null)">@Portfolio.ThisMonth.Month.ToString("MMMM")</a>
                     <a href="@BillingLink("next")" aria-current="@(BillingMode == "next" ? "page" : null)">@Portfolio.NextMonth.Month.ToString("MMMM")</a>
@@ -65,7 +65,7 @@ else
                     <table class="home-table"><thead><tr><th>Contract / position</th><th>Expected date</th><th>Ex VAT</th><th>State</th></tr></thead><tbody>
                     @foreach (var position in BillingPositions.Take(5))
                     {
-                        <tr><td><a href="@Record(position.ContractId, "schedule")">@position.SupplierReference</a><span>@position.Description</span></td><td class="home-date">@(position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(position.ValueExVat)</td><td>@(position.IsOptionalExtension ? "Optional · agreement needed" : "Needs reconciliation")</td></tr>
+                        <tr><td><a href="@Record(position.ContractId, "schedule")">@position.SupplierReference</a><span>@position.Description</span></td><td class="home-date">@(position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(position.ValueExVat)<span>@Currency(position.OutstandingValueExVat) outstanding</span></td><td>@position.ReconciliationState</td></tr>
                     }
                     @if (BillingPositions.Count == 0) { <tr><td colspan="4" class="register-empty">@(BillingMode == "review" ? "No undated positions recorded." : "No committed positions have explicit dates in this month. Check schedule coverage before treating this as a complete forecast.")</td></tr> }
                     </tbody></table>

@@ -1161,6 +1161,41 @@ public sealed partial class RegisterComponentTests
         Assert.Equal(invoice.ServiceGroupLevel2, after.Invoice.ServiceGroupLevel2);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Invoice_overview_can_allocate_and_remove_a_payment_position_and_refresh_the_overdue_list(bool optional)
+    {
+        using var context = CreateContext(includeInvoiceContract: true);
+        var store = context.Services.GetRequiredService<IRemiStore>();
+        var positionId = Guid.NewGuid();
+        await store.UpdateAsync(database =>
+        {
+            database.ChargeScheduleItems.Add(new(positionId, SampleInvoiceContractId, null, 1, "Annual licence", new DateOnly(2026, 7, 1), 500, optional, DateTimeOffset.UtcNow));
+            if (optional) database.ContractChanges.Add(new(Guid.NewGuid(), SampleInvoiceContractId, ContractChangeKind.Extension,
+                new DateOnly(2026, 6, 1), new DateOnly(2026, 7, 1), new DateOnly(2027, 6, 30), 500, true, true, "Extension agreement", DateTimeOffset.UtcNow));
+            return true;
+        });
+        var cut = context.Render<InvoiceRecordView>(parameters => parameters.Add(component => component.InvoiceId, SampleInvoiceId));
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("button[aria-label='Payment position']")));
+        cut.Find("button[aria-label='Payment position']").Click();
+        cut.Find("#invoice-reconciliation-position-options [role='option']").Click();
+        if (optional)
+        {
+            cut.Find("button[aria-label='Extension agreement']").Click();
+            cut.Find("#invoice-reconciliation-extension-options [role='option']").Click();
+        }
+        Assert.Equal("500", cut.Find("input[aria-label='Allocation amount, ex VAT']").GetAttribute("value"));
+        cut.Find(".invoice-payment-reconciliation button.remi-action--primary").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Payment allocation saved", cut.Find(".invoice-payment-reconciliation [role='status']").TextContent));
+        var home = await context.Services.GetRequiredService<OperationalHomeWorkspace>().GetAsync();
+        Assert.DoesNotContain(home.MatchingPositions(home.ThisMonth.Month, "overdue"), item => item.PositionId == positionId);
+        cut.Find("button[aria-label='Remove allocation to Annual licence']").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Payment allocation removed", cut.Find(".invoice-payment-reconciliation [role='status']").TextContent));
+        home = await context.Services.GetRequiredService<OperationalHomeWorkspace>().GetAsync();
+        Assert.Equal(!optional, home.MatchingPositions(home.ThisMonth.Month, "overdue").Any(item => item.PositionId == positionId));
+    }
+
     [Fact]
     public void Invoice_workflows_link_to_contract_details_without_a_reporting_period()
     {

@@ -11,7 +11,7 @@ namespace Remi.Infrastructure;
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 9;
+    internal const int CurrentSchemaVersion = 10;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -336,6 +336,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DROP TABLE IF EXISTS charge_schedule_items;
             DROP TABLE IF EXISTS invoice_plan_items;
             DROP TABLE IF EXISTS invoice_contract_change_links;
+            DROP TABLE IF EXISTS invoice_payment_allocations;
             DROP TABLE IF EXISTS contract_changes;
             DROP TABLE IF EXISTS invoices;
             DROP TABLE IF EXISTS contracts;
@@ -352,6 +353,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             Invoices = await LoadInvoicesAsync(connection, cancellationToken),
             ContractChanges = await LoadContractChangesAsync(connection, cancellationToken),
             InvoiceContractChangeLinks = await LoadInvoiceContractChangeLinksAsync(connection, cancellationToken),
+            InvoicePaymentAllocations = await LoadInvoicePaymentAllocationsAsync(connection, cancellationToken),
             InvoicePlanItems = await LoadInvoicePlanItemsAsync(connection, cancellationToken),
             ChargeScheduleItems = await LoadChargeScheduleItemsAsync(connection, cancellationToken),
             ContractServiceParts = await LoadContractServicePartsAsync(connection, cancellationToken),
@@ -519,6 +521,16 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         }
 
         return links;
+    }
+
+    private static async Task<List<InvoicePaymentAllocation>> LoadInvoicePaymentAllocationsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = CreateCommand(connection, "SELECT invoice_id, position_id, source, value_ex_vat, created_at_utc FROM invoice_payment_allocations ORDER BY invoice_id, position_id, source;");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var items = new List<InvoicePaymentAllocation>();
+        while (await reader.ReadAsync(cancellationToken))
+            items.Add(new(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), (BillingPositionSource)reader.GetInt32(2), Number(reader.GetString(3)), Timestamp(reader.GetString(4))));
+        return items;
     }
 
     private static async Task<List<InvoicePlanItem>> LoadInvoicePlanItemsAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -730,6 +742,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DELETE FROM charge_schedule_items;
             DELETE FROM invoice_plan_items;
             DELETE FROM invoice_contract_change_links;
+            DELETE FROM invoice_payment_allocations;
             DELETE FROM contract_changes;
             DELETE FROM invoices;
             DELETE FROM contracts;
@@ -758,6 +771,17 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         foreach (var item in database.InvoicePlanItems)
         {
             await InsertInvoicePlanItemAsync(connection, transaction, item, cancellationToken);
+        }
+
+        foreach (var allocation in database.InvoicePaymentAllocations)
+        {
+            await using var command = CreateCommand(connection, transaction, "INSERT INTO invoice_payment_allocations (invoice_id, position_id, source, value_ex_vat, created_at_utc) VALUES ($invoice, $position, $source, $value, $created);");
+            command.Parameters.AddWithValue("$invoice", allocation.InvoiceId.ToString("D"));
+            command.Parameters.AddWithValue("$position", allocation.PositionId.ToString("D"));
+            command.Parameters.AddWithValue("$source", (int)allocation.Source);
+            command.Parameters.AddWithValue("$value", allocation.ValueExVat.ToString(CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$created", allocation.CreatedAtUtc.ToString("O", CultureInfo.InvariantCulture));
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         foreach (var item in database.ChargeScheduleItems)
@@ -1462,6 +1486,27 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 cancellationToken);
             transaction.Commit();
             applied.Add(9);
+        }
+
+        if (!applied.Contains(10))
+        {
+            if (existingDatabase)
+                await CreateAutomaticMigrationBackupAsync(connection, 10, cancellationToken);
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE IF NOT EXISTS invoice_payment_allocations (
+                    invoice_id TEXT NOT NULL,
+                    position_id TEXT NOT NULL,
+                    source INTEGER NOT NULL CHECK (source IN (0, 1)),
+                    value_ex_vat TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (invoice_id, position_id, source)
+                );
+                CREATE INDEX IF NOT EXISTS ix_invoice_payment_allocations_position
+                    ON invoice_payment_allocations (position_id, source);
+                """, cancellationToken);
+            await RecordMigrationAsync(connection, transaction, 10, "Explicit invoice payment-position allocations", cancellationToken);
+            transaction.Commit();
         }
     }
 

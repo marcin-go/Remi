@@ -16,7 +16,7 @@
     else
     {
         <article class="register-card">
-            <header class="register-card-header"><div><h2>@Heading</h2><p>Payment positions are not invoice counts. Registered invoices have not yet been reconciled to these positions.</p></div><div class="register-result-count"><strong>@Filtered.Count</strong><span>matching positions</span></div></header>
+            <header class="register-card-header"><div><h2>@Heading</h2><p>Allocate registered invoices from their Overview page to reconcile payment positions. Fully reconciled positions are excluded from past expected dates.</p></div><div class="register-result-count"><strong>@Filtered.Count</strong><span>matching positions</span></div></header>
             <div class="planned-filters">
                 <label class="floating-field floating-field--static"><input type="month" value="@HomeRoutes.Month(Month)" @onchange="SetMonth" disabled="@(Review.Length > 0)" /><span class="floating-label">Expected month</span></label>
                 <RemiPicklist Id="planned-review-filter" Label="Show" Items="@Views" Value="@Review" ValueChanged="SetReview" ItemLabel="ViewLabel" />
@@ -28,7 +28,7 @@
                 <table class="home-table planned-table"><thead><tr><th>Contract / customer</th><th>Payment position</th><th>Expected date</th><th>Ex VAT</th><th>State</th></tr></thead><tbody>
                 @foreach (var item in Filtered.Skip((Page - 1) * PageSize).Take(PageSize))
                 {
-                    <tr><td><a href="@HomeRoutes.Contract(item.ContractId, "schedule", ReturnPath)">@item.SupplierReference</a><span>@item.CustomerName</span></td><td>@item.Description</td><td>@(item.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(item.ValueExVat)</td><td>@(item.IsOptionalExtension ? "Optional · agreement needed" : "Needs reconciliation")@if (item.Source == BillingPositionSource.LegacyPlan) { <span>Legacy plan</span> }</td></tr>
+                    <tr><td><a href="@HomeRoutes.Contract(item.ContractId, "schedule", ReturnPath)">@item.SupplierReference</a><span>@item.CustomerName</span></td><td>@item.Description</td><td>@(item.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(item.ValueExVat)<span>@Currency(item.OutstandingValueExVat) outstanding</span></td><td>@item.ReconciliationState@if (item.Source == BillingPositionSource.LegacyPlan) { <span>Legacy plan</span> }<a href="@HomeRoutes.Contract(item.ContractId, "invoices", ReturnPath)">Reconcile invoices</a></td></tr>
                 }
                 @if (Filtered.Count == 0) { <tr><td colspan="5" class="register-empty">No positions match this view. Missing dates and unassociated options can leave the forecast incomplete.</td></tr> }
                 </tbody></table>

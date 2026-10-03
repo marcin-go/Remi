@@ -49,7 +49,7 @@ public sealed partial class RegisterComponentTests
             {
                 using var planned = context.Render<Invoices>();
                 planned.WaitForAssertion(() => Assert.Equal(count, planned.Find(".register-result-count strong").TextContent));
-                Assert.Single(planned.FindAll(".planned-table tbody a"));
+                Assert.Single(planned.FindAll(".planned-table tbody td:first-child a"));
             }
         }
     }

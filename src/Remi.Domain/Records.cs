@@ -100,6 +100,12 @@ public sealed record ContractChangeRecord(
 /// </summary>
 public sealed record InvoiceContractChangeLink(Guid InvoiceId, Guid ContractChangeId);
 
+public enum BillingPositionSource { ChargeSchedule, LegacyPlan }
+
+/// <summary>An explicit signed ex-VAT allocation; credit notes reduce the reconciled value.</summary>
+public sealed record InvoicePaymentAllocation(
+    Guid InvoiceId, Guid PositionId, BillingPositionSource Source, decimal ValueExVat, DateTimeOffset CreatedAtUtc);
+
 public sealed record InvoicePlanItem(
     Guid Id,
     Guid ContractId,
@@ -229,6 +235,8 @@ public sealed class RemiDatabase
     public List<ContractChangeRecord> ContractChanges { get; init; } = [];
 
     public List<InvoiceContractChangeLink> InvoiceContractChangeLinks { get; init; } = [];
+
+    public List<InvoicePaymentAllocation> InvoicePaymentAllocations { get; init; } = [];
 
     public List<InvoicePlanItem> InvoicePlanItems { get; init; } = [];
 

@@ -5,7 +5,6 @@ namespace Remi.Application;
 /// <summary>No state implies an option has been exercised or conclusively exhausted.</summary>
 public enum RecordedOptionState { NoOptionRecorded, OptionsRecorded, AssociationNeedsReview }
 public enum PortfolioFilter { All, Live, Future, UnknownDates, Ended, Ending, EndingNoOptionRecorded, EndingOptionsRecorded, EndingOptionsNeedReview, NoSchedule, ExtensionReview, EndedValue, UndatedSchedule }
-public enum BillingPositionSource { ChargeSchedule, LegacyPlan }
 
 public sealed record OperationalContract(
     ContractRecord Contract,
@@ -48,7 +47,14 @@ public sealed record OperationalContract(
 public sealed record ScheduledPaymentPosition(
     Guid PositionId, Guid ContractId, string SupplierReference, string CustomerName,
     string Description, DateOnly? ExpectedInvoiceDate, decimal ValueExVat, bool IsOptionalExtension,
-    BillingPositionSource Source);
+    BillingPositionSource Source, decimal AllocatedValueExVat = 0, bool IsExtensionCommitted = false)
+{
+    public bool IsEligibleForBilling => !IsOptionalExtension || IsExtensionCommitted;
+    public decimal OutstandingValueExVat => Math.Max(0, ValueExVat - AllocatedValueExVat);
+    public bool IsReconciled => ValueExVat > 0 && AllocatedValueExVat >= ValueExVat;
+    public string ReconciliationState => !IsEligibleForBilling ? "Optional · agreement needed"
+        : IsReconciled ? "Reconciled" : AllocatedValueExVat > 0 ? "Partially reconciled" : "Needs reconciliation";
+}
 
 public sealed record ScheduledPaymentMonth(DateOnly Month, IReadOnlyList<ScheduledPaymentPosition> Positions)
 {
@@ -80,8 +86,8 @@ public sealed record OperationalHomeModel(
         .Where(item => review switch
         {
             "undated" => item.ExpectedInvoiceDate is null,
-            "overdue" => !item.IsOptionalExtension && item.ExpectedInvoiceDate < AsAtDate,
-            _ => !item.IsOptionalExtension && item.ExpectedInvoiceDate is DateOnly date && date.Year == month.Year && date.Month == month.Month,
+            "overdue" => item.IsEligibleForBilling && !item.IsReconciled && item.ExpectedInvoiceDate < AsAtDate,
+            _ => item.IsEligibleForBilling && item.ExpectedInvoiceDate is DateOnly date && date.Year == month.Year && date.Month == month.Month,
         })
         .OrderBy(item => item.ExpectedInvoiceDate)
         .ThenBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList();

@@ -1,0 +1,133 @@
+@inject ReportingWorkspace Workspace
+@inject ILogger<InvoicePaymentReconciliation> Logger
+
+<article class="contract-content-card invoice-payment-reconciliation">
+    <header class="contract-card-head"><h2>Payment schedule reconciliation</h2></header>
+    <section class="contract-detail-section">
+        @if (model is null)
+        {
+            <p class="muted">Payment reconciliation is unavailable.</p>
+        }
+        else if (model.Contract is null)
+        {
+            <p class="muted">A unique matching contract is required before this invoice can be reconciled.</p>
+        }
+        else
+        {
+            <p>Match this invoice to its contract's payment positions. Fully reconciled positions leave the past expected dates list; credit notes can reopen them.</p>
+            <p><strong>Unallocated invoice value, ex VAT: @Currency(model.UnallocatedValueExVat)</strong></p>
+            @if (model.Allocations.Count > 0)
+            {
+                <div class="table-wrap"><table><thead><tr><th>Payment position</th><th>Expected date</th><th>Allocated from this invoice, ex VAT</th><th>Outstanding position value, ex VAT</th><th></th></tr></thead><tbody>
+                @foreach (var allocation in model.Allocations)
+                {
+                    var position = model.Positions.SingleOrDefault(item => item.PositionId == allocation.PositionId && item.Source == allocation.Source);
+                    <tr><td>@(position?.Description ?? "Position unavailable")</td><td>@(position?.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td>@Currency(allocation.ValueExVat)</td><td>@(position is null ? "Unavailable" : Currency(position.OutstandingValueExVat))</td><td><button type="button" class="remi-action" disabled="@busy" @onclick="@(() => RemoveAsync(allocation))" aria-label="@($"Remove allocation to {position?.Description ?? "payment position"}")">Remove</button></td></tr>
+                }
+                </tbody></table></div>
+            }
+            @if (Options.Count > 0 && model.UnallocatedValueExVat != 0)
+            {
+                <div class="invoice-details-grid">
+                    <RemiPicklist Id="invoice-reconciliation-position-options" Label="Payment position" Items="@Options" Value="@selected" ValueChanged="SelectPosition" ItemLabel="PositionLabel" Placeholder="Choose a payment position" Disabled="@busy" />
+                    @if (SelectedPosition?.IsOptionalExtension == true)
+                    {
+                        <RemiPicklist Id="invoice-reconciliation-extension-options" Label="Extension agreement" Items="@ExtensionOptions" Value="@selectedExtension" ValueChanged="@(value => selectedExtension = value)" ItemLabel="ExtensionLabel" Placeholder="Choose the confirmed extension" Disabled="@busy" />
+                    }
+                    <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input type="number" step="0.01" aria-label="Allocation amount, ex VAT" @bind="amount" disabled="@busy" /><span class="floating-label">Allocation amount, ex VAT</span></label>
+                </div>
+                <button type="button" class="remi-action remi-action--primary" disabled="@(busy || SelectedPosition is null || amount == 0 || SelectedPosition.IsOptionalExtension && !Guid.TryParse(selectedExtension, out _))" @onclick="AllocateAsync">Allocate</button>
+            }
+            else if (model.Allocations.Count == 0)
+            {
+                <p class="muted">No eligible payment positions are available. Review the contract payment schedule.</p>
+            }
+        }
+        @if (result is not null) { <p class="notice @(result.Succeeded ? "success" : "error")" role="status">@result.Message</p> }
+    </section>
+</article>
+
+@code {
+    [Parameter] public Guid InvoiceId { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+    private Guid loadedInvoiceId;
+    private InvoiceReconciliationModel? model;
+    private ReturnActionResult? result;
+    private string selected = string.Empty;
+    private string selectedExtension = string.Empty;
+    private decimal amount;
+    private bool busy;
+    private IReadOnlyList<string> Options => model?.Positions.Where(item => (!item.IsOptionalExtension || ExtensionOptions.Count > 0) && item.ValueExVat > 0
+        && (model.Invoice.TotalCostExVat > 0 ? item.OutstandingValueExVat > 0 : item.AllocatedValueExVat > 0)
+        && !model.Allocations.Any(allocation => allocation.PositionId == item.PositionId && allocation.Source == item.Source))
+        .Select(Key).ToList() ?? [];
+    private ScheduledPaymentPosition? SelectedPosition => model?.Positions.SingleOrDefault(item => Key(item) == selected);
+    private IReadOnlyList<string> ExtensionOptions => model?.ConfirmedExtensions
+        .Where(item => model.LinkedExtensionId is null || item.Id == model.LinkedExtensionId)
+        .Select(item => item.Id.ToString("D")).ToList() ?? [];
+    private string ExtensionLabel(string key)
+    {
+        var extension = model!.ConfirmedExtensions.Single(item => item.Id.ToString("D") == key);
+        return $"{extension.Reference ?? "Extension"} · agreed {extension.AgreementDate:d MMM yyyy} · {Currency(extension.IncrementalValueExVat)}";
+    }
+    private static string Key(ScheduledPaymentPosition item) => $"{(int)item.Source}:{item.PositionId:D}";
+    private string PositionLabel(string key)
+    {
+        var position = model!.Positions.Single(item => Key(item) == key);
+        return $"{position.Description} · {position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "No date"} · {Currency(position.OutstandingValueExVat)} outstanding";
+    }
+    private void SelectPosition(string key)
+    {
+        selected = key;
+        var position = SelectedPosition;
+        amount = position is null ? 0 : model!.Invoice.TotalCostExVat > 0
+            ? Math.Min(model.UnallocatedValueExVat, position.OutstandingValueExVat)
+            : -Math.Min(Math.Abs(model.UnallocatedValueExVat), position.AllocatedValueExVat);
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedInvoiceId != InvoiceId)
+        {
+            loadedInvoiceId = InvoiceId;
+            try { await LoadAsync(); }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not load payment reconciliation for invoice {InvoiceId}", InvoiceId);
+                result = new(false, "Payment reconciliation could not be loaded. Reload the page to try again.", []);
+            }
+        }
+    }
+    private async Task LoadAsync()
+    {
+        model = await Workspace.GetInvoiceReconciliationAsync(InvoiceId);
+        selected = string.Empty;
+        selectedExtension = model?.LinkedExtensionId?.ToString("D") ?? string.Empty;
+        amount = 0;
+    }
+    private async Task AllocateAsync()
+    {
+        if (busy || SelectedPosition is not { } position) return;
+        await ApplyAsync(() => Workspace.AllocateInvoicePaymentAsync(InvoiceId, position.PositionId, position.Source, amount,
+            extensionId: Guid.TryParse(selectedExtension, out var extensionId) ? extensionId : null));
+    }
+    private Task RemoveAsync(InvoicePaymentAllocation allocation) => ApplyAsync(() =>
+        Workspace.RemoveInvoicePaymentAllocationAsync(InvoiceId, allocation.PositionId, allocation.Source));
+    private async Task ApplyAsync(Func<Task<ReturnActionResult>> action)
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            result = await action();
+            await LoadAsync();
+            if (result.Succeeded) await Changed.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not update payment reconciliation for invoice {InvoiceId}", InvoiceId);
+            result = new(false, "The allocation could not be confirmed. Reload the page to check the saved allocations before trying again.", []);
+        }
+        finally { busy = false; }
+    }
+    private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}
