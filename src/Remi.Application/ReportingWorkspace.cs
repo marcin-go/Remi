@@ -263,7 +263,10 @@ public sealed partial class ReportingWorkspace(
             var committedValue = ContractPortfolioRules.CommittedValue(contract, commercial, chargeSchedule,
                 database.InvoicePlanItems.Where(item => item.ContractId == contractId).ToList());
             return new ContractDetailsModel(contract, invoices, chargeSchedule, serviceParts, changes,
-                EvidenceForContract(database, contract), findings, committedValue);
+                EvidenceForContract(database, contract), findings, committedValue)
+            {
+                PaymentPositions = ReconciliationPositions(database, contract),
+            };
         }, cancellationToken);
 
     public Task<InvoiceDetailsModel?> GetInvoiceDetailsAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>

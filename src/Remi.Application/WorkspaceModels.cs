@@ -367,7 +367,10 @@ public sealed record ContractDetailsModel(
     IReadOnlyList<ContractChangeRecord> ContractChanges,
     IReadOnlyList<EvidenceLink> Evidence,
     IReadOnlyList<ValidationFinding> Findings,
-    decimal? CommittedValueExVat = null);
+    decimal? CommittedValueExVat = null)
+{
+    public IReadOnlyList<ScheduledPaymentPosition> PaymentPositions { get; init; } = [];
+}
 
 /// <summary>
 /// The complete register view for one invoice, including its linked contract when one exists.

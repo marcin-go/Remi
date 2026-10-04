@@ -48,7 +48,7 @@ else
                     <table class="home-table"><thead><tr><th>Contract / customer</th><th>Current end</th><th>Extension context</th></tr></thead><tbody>
                     @foreach (var item in Portfolio.MatchingContracts(PortfolioFilter.Ending).Take(5))
                     {
-                        <tr><td><a href="@Record(item.Contract.Id, "changes")">@item.Contract.SupplierReference</a><span>@item.Contract.CustomerName</span></td><td class="home-date">@item.Commercial.EndDate?.ToString("d MMM yyyy")</td><td>@HomeRoutes.OptionLabel(item)@if (item.Commercial.UnconfirmedChangeCount > 0) { <span class="home-warning">@item.Commercial.UnconfirmedChangeCount awaiting confirmation</span> }</td></tr>
+                        <tr><td><a class="register-reference" href="@Record(item.Contract.Id, "changes")">@item.Contract.SupplierReference</a><span>@item.Contract.CustomerName</span></td><td class="home-date">@item.Commercial.EndDate?.ToString("d MMM yyyy")</td><td>@HomeRoutes.OptionLabel(item)@if (item.Commercial.UnconfirmedChangeCount > 0) { <span class="home-warning">@item.Commercial.UnconfirmedChangeCount awaiting confirmation</span> }</td></tr>
                     }
                     @if (Count(PortfolioFilter.Ending) == 0) { <tr><td colspan="3" class="register-empty">No live contracts end within this window.</td></tr> }
                     </tbody></table>
@@ -65,7 +65,7 @@ else
                     <table class="home-table"><thead><tr><th>Contract / position</th><th>Expected date</th><th>Ex VAT</th><th>State</th></tr></thead><tbody>
                     @foreach (var position in BillingPositions.Take(5))
                     {
-                        <tr><td><a href="@Record(position.ContractId, "schedule")">@position.SupplierReference</a><span>@position.Description</span></td><td class="home-date">@(position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(position.ValueExVat)<span>@Currency(position.OutstandingValueExVat) outstanding</span></td><td>@position.ReconciliationState</td></tr>
+                        <tr><td><a class="register-reference" href="@Record(position.ContractId, "schedule")">@position.SupplierReference</a><span>@position.Description</span></td><td class="home-date">@(position.ExpectedInvoiceDate?.ToString("d MMM yyyy") ?? "Not recorded")</td><td class="home-money">@Currency(position.ValueExVat)<span>@Currency(position.OutstandingValueExVat) outstanding</span></td><td>@position.ReconciliationState</td></tr>
                     }
                     @if (BillingPositions.Count == 0) { <tr><td colspan="4" class="register-empty">@(BillingMode == "review" ? "No undated positions recorded." : "No committed positions have explicit dates in this month. Check schedule coverage before treating this as a complete forecast.")</td></tr> }
                     </tbody></table>

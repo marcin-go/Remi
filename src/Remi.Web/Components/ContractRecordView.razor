@@ -309,7 +309,29 @@ else
                                 }
                                 else
                                 {
-                                    <div class="table-wrap"><table><thead><tr><th>Year</th><th>Description</th>@if (HasStagedOperations) { <th>Contract part</th> }<th>Expected date</th><th>Value, ex VAT</th></tr></thead><tbody>@foreach (var yearGroup in details.ChargeSchedule.GroupBy(item => item.ContractYear).OrderBy(group => group.Key)) { @foreach (var item in yearGroup) { <tr class="@(item.IsOptionalExtension ? "optional-payment-position" : null)"><td>@item.ContractYear</td><td>@item.Description</td>@if (HasStagedOperations) { <td>@ContractPartName(item.ContractServicePartId)</td> }<td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td></tr> } @if (yearGroup.Count() > 1) { <tr class="contract-payment-total @(yearGroup.Any(item => item.IsOptionalExtension) ? "optional-payment-position" : null)"><td colspan="@(HasStagedOperations ? 4 : 3)">Year @yearGroup.Key total</td><td>@Currency(yearGroup.Sum(item => item.ValueExVat))</td></tr> } }</tbody></table></div>
+                                    <div class="table-wrap"><table class="contract-payment-schedule"><thead><tr><th>Year</th><th>Description</th>@if (HasStagedOperations) { <th>Contract part</th> }<th>Expected date</th><th>Value, ex VAT</th><th>Reconciliation</th></tr></thead><tbody>
+                                    @foreach (var yearGroup in details.ChargeSchedule.GroupBy(item => item.ContractYear).OrderBy(group => group.Key))
+                                    {
+                                        @foreach (var item in yearGroup)
+                                        {
+                                            var position = details.PaymentPositions.Single(position => position.PositionId == item.Id && position.Source == BillingPositionSource.ChargeSchedule);
+                                            <tr class="@(item.IsOptionalExtension ? "optional-payment-position" : null)">
+                                                <td>@item.ContractYear</td><td>@item.Description</td>@if (HasStagedOperations) { <td>@ContractPartName(item.ContractServicePartId)</td> }<td>@Display(item.ExpectedInvoiceDate)</td><td>@Currency(item.ValueExVat)</td>
+                                                <td><span class="register-status @(position.IsReconciled ? "good" : "warning")">@position.ReconciliationState</span>
+                                                    @if (position.AllocatedValueExVat != 0)
+                                                    {
+                                                        <small class="payment-reconciliation-amount">@Currency(position.AllocatedValueExVat) allocated</small>
+                                                        @if (!position.IsReconciled) { <small class="payment-reconciliation-amount">@Currency(position.OutstandingValueExVat) outstanding</small> }
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                        @if (yearGroup.Count() > 1)
+                                        {
+                                            <tr class="contract-payment-total @(yearGroup.Any(item => item.IsOptionalExtension) ? "optional-payment-position" : null)"><td colspan="@(HasStagedOperations ? 4 : 3)">Year @yearGroup.Key total</td><td>@Currency(yearGroup.Sum(item => item.ValueExVat))</td><td></td></tr>
+                                        }
+                                    }
+                                    </tbody></table></div>
                                 }
                             </section>
                         </article>
