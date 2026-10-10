@@ -1,0 +1,59 @@
+@inject ReportingWorkspace Workspace
+@inject TimeProvider Clock
+
+<section class="contract-content-card invoice-payment-tracking">
+    <header class="contract-card-head"><div><h2>Payment tracking</h2><p>Due 30 calendar days after the invoice date.</p></div></header>
+    <div class="payment-tracking-body">
+        <dl class="record-display-grid">
+            <div><dt>Due date</dt><dd>@Display(Invoice.DueDate)</dd></div>
+            <div><dt>Payment status</dt><dd>@Invoice.PaymentStatus@(Invoice.IsOverdue(Today) ? $" · {Invoice.DaysOverdue(Today)} days overdue" : "")</dd></div>
+            <div><dt>Date paid</dt><dd>@Display(Invoice.DatePaid)@(Invoice.IsPaymentDateAssumed ? " · assumed" : "")</dd></div>
+        </dl>
+        @if (Invoice.IsPaymentDateAssumed)
+        {
+            <p class="notice warning">This date was assumed during the initial migration as invoice date + 15 days. Review it when payment information becomes available.</p>
+        }
+        <div class="payment-tracking-controls">
+            <RemiPicklist Id="invoice-payment-status-options" Label="Payment status" Items="@StatusItems" Value="@status.ToString()" ValueChanged="SetStatus" Disabled="@saving" />
+            <label class="floating-field floating-field--static"><input aria-label="Date paid" type="date" @bind="datePaid" disabled="@(saving || status != InvoicePaymentStatus.Paid)" max="@Today.ToString("yyyy-MM-dd")" /><span class="floating-label">Date paid</span></label>
+            <button class="remi-action remi-action--primary" disabled="@(saving || status == InvoicePaymentStatus.Paid && datePaid is null)" @onclick="SaveAsync">Save payment</button>
+            <button class="remi-action" disabled="@saving" @onclick="MarkUnpaidAsync">Mark unpaid / clear date paid</button>
+        </div>
+        @if (result is not null) { <p role="status" class="@(result.Succeeded ? "notice" : "notice warning")">@result.Message</p> }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public InvoiceRecord Invoice { get; set; } = null!;
+    [Parameter] public EventCallback Changed { get; set; }
+    private InvoiceRecord? loaded;
+    private static readonly IReadOnlyList<string> StatusItems = ["Unknown", "Unpaid", "Paid"];
+    private InvoicePaymentStatus status;
+    private DateOnly? datePaid;
+    private bool saving;
+    private ReturnActionResult? result;
+    private DateOnly Today => ContractPortfolioRules.Today(Clock);
+    protected override void OnParametersSet()
+    {
+        if (loaded == Invoice) return;
+        if (loaded?.Id != Invoice.Id) result = null;
+        loaded = Invoice;
+        status = Invoice.PaymentStatus;
+        datePaid = Invoice.DatePaid;
+    }
+    private void SetStatus(string value) { status = Enum.Parse<InvoicePaymentStatus>(value); if (status != InvoicePaymentStatus.Paid) datePaid = null; }
+    private Task MarkUnpaidAsync() { status = InvoicePaymentStatus.Unpaid; datePaid = null; return SaveAsync(); }
+    private async Task SaveAsync()
+    {
+        if (saving) return;
+        saving = true;
+        try
+        {
+            var saved = await Workspace.UpdateInvoicePaymentAsync(Invoice.Id, status, datePaid);
+            if (saved.Succeeded) await Changed.InvokeAsync();
+            result = saved;
+        }
+        finally { saving = false; }
+    }
+    private static string Display(DateOnly? date) => date?.ToString("dd MMM yyyy") ?? "Not recorded";
+}

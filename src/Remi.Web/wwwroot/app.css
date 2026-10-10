@@ -1513,3 +1513,9 @@ main { min-width: 0; }
     .home-header .remi-picklist { width: 100%; }
     .home-coverage { gap: 8px 16px; }
 }
+
+.payment-tracking-body { padding: 1.25rem; }
+.payment-tracking-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-top: 1rem; }
+.payment-tracking-controls .floating-field { min-width: 180px; }
+.payment-report-summary { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 1rem 1.25rem; }
+.payment-report-summary strong { display: block; }

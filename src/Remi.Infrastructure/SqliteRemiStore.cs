@@ -11,7 +11,7 @@ namespace Remi.Infrastructure;
 /// </summary>
 public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 10;
+    internal const int CurrentSchemaVersion = 11;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -398,7 +398,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<InvoiceRecord>> LoadInvoicesAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, "SELECT id, framework, supplier_reference, customer_name, customer_urn, invoice_date, invoice_number, lot_number, service_group, service_group_level_2, service_description, order_channel, digital_marketplace_service_id, unit_of_measure, quantity, price_per_unit_ex_vat, total_cost_ex_vat, original_vendor, subcontractor_name, report_month, source_workbook, created_at_utc FROM invoices ORDER BY created_at_utc, id;");
+        await using var command = CreateCommand(connection, "SELECT id, framework, supplier_reference, customer_name, customer_urn, invoice_date, invoice_number, lot_number, service_group, service_group_level_2, service_description, order_channel, digital_marketplace_service_id, unit_of_measure, quantity, price_per_unit_ex_vat, total_cost_ex_vat, original_vendor, subcontractor_name, report_month, source_workbook, created_at_utc, payment_status, date_paid, payment_date_assumed FROM invoices ORDER BY created_at_utc, id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var invoices = new List<InvoiceRecord>();
         while (await reader.ReadAsync(cancellationToken))
@@ -425,7 +425,10 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 NullableString(reader, 18),
                 reader.GetString(19),
                 reader.GetString(20),
-                Timestamp(reader.GetString(21))));
+                Timestamp(reader.GetString(21)),
+                (InvoicePaymentStatus)reader.GetInt32(22),
+                NullableDate(reader, 23),
+                reader.GetInt32(24) != 0));
         }
 
         return invoices;
@@ -855,7 +858,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task InsertInvoiceAsync(SqliteConnection connection, SqliteTransaction transaction, InvoiceRecord item, CancellationToken cancellationToken)
     {
-        await using var command = CreateCommand(connection, transaction, "INSERT INTO invoices (id, framework, supplier_reference, customer_name, customer_urn, invoice_date, invoice_number, lot_number, service_group, service_group_level_2, service_description, order_channel, digital_marketplace_service_id, unit_of_measure, quantity, price_per_unit_ex_vat, total_cost_ex_vat, original_vendor, subcontractor_name, report_month, source_workbook, created_at_utc) VALUES ($id, $framework, $supplierReference, $customerName, $customerUrn, $invoiceDate, $invoiceNumber, $lotNumber, $serviceGroup, $serviceGroupLevel2, $serviceDescription, $orderChannel, $digitalMarketplaceServiceId, $unitOfMeasure, $quantity, $pricePerUnit, $totalCost, $originalVendor, $subcontractorName, $reportMonth, $sourceWorkbook, $createdAtUtc);");
+        await using var command = CreateCommand(connection, transaction, "INSERT INTO invoices (id, framework, supplier_reference, customer_name, customer_urn, invoice_date, invoice_number, lot_number, service_group, service_group_level_2, service_description, order_channel, digital_marketplace_service_id, unit_of_measure, quantity, price_per_unit_ex_vat, total_cost_ex_vat, original_vendor, subcontractor_name, report_month, source_workbook, created_at_utc, payment_status, date_paid, payment_date_assumed) VALUES ($id, $framework, $supplierReference, $customerName, $customerUrn, $invoiceDate, $invoiceNumber, $lotNumber, $serviceGroup, $serviceGroupLevel2, $serviceDescription, $orderChannel, $digitalMarketplaceServiceId, $unitOfMeasure, $quantity, $pricePerUnit, $totalCost, $originalVendor, $subcontractorName, $reportMonth, $sourceWorkbook, $createdAtUtc, $paymentStatus, $datePaid, $paymentDateAssumed);");
         AddParameter(command, "$id", item.Id.ToString("D"));
         AddParameter(command, "$framework", (int)item.Framework);
         AddParameter(command, "$supplierReference", item.SupplierReference);
@@ -878,6 +881,9 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         AddParameter(command, "$reportMonth", item.ReportMonth);
         AddParameter(command, "$sourceWorkbook", item.SourceWorkbook);
         AddParameter(command, "$createdAtUtc", Timestamp(item.CreatedAtUtc));
+        AddParameter(command, "$paymentStatus", (int)item.PaymentStatus);
+        AddParameter(command, "$datePaid", Date(item.DatePaid));
+        AddParameter(command, "$paymentDateAssumed", item.IsPaymentDateAssumed ? 1 : 0);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -1508,6 +1514,31 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             await RecordMigrationAsync(connection, transaction, 10, "Explicit invoice payment-position allocations", cancellationToken);
             transaction.Commit();
         }
+
+        if (!applied.Contains(11))
+        {
+            if (existingDatabase)
+                await CreateAutomaticMigrationBackupAsync(connection, 11, cancellationToken);
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                ALTER TABLE invoices ADD COLUMN payment_status INTEGER NOT NULL DEFAULT 0 CHECK (payment_status IN (0, 1, 2));
+                ALTER TABLE invoices ADD COLUMN date_paid TEXT NULL;
+                ALTER TABLE invoices ADD COLUMN payment_date_assumed INTEGER NOT NULL DEFAULT 0 CHECK (payment_date_assumed IN (0, 1));
+                UPDATE invoices
+                SET date_paid = date(invoice_date, '+15 days'), payment_status = 2, payment_date_assumed = 1
+                WHERE invoice_date IS NOT NULL AND date(invoice_date, '+15 days') IS NOT NULL;
+                INSERT INTO audit_events (id, occurred_at_utc, action, entity_type, entity_id, summary, reason, actor)
+                SELECT lower(hex(randomblob(16))), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    'InvoicePaymentDateAssumed', 'Invoice', id,
+                    'Initial payment migration: assumed date paid for invoice ' || invoice_number || ' is ' || date_paid || '.',
+                    'One-time user-requested assumption: invoice date + 15 calendar days. This is not confirmed payment evidence.',
+                    'Schema migration 11'
+                FROM invoices WHERE payment_date_assumed = 1;
+                """, cancellationToken);
+            await RecordMigrationAsync(connection, transaction, 11, "Invoice payment tracking; initial assumed payment dates at invoice date plus 15 days", cancellationToken);
+            transaction.Commit();
+        }
+
     }
 
     private async Task CreateAutomaticMigrationBackupAsync(

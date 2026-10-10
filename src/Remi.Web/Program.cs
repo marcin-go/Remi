@@ -349,6 +349,20 @@ app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
     return Results.Text(text, "text/plain; charset=utf-8");
 });
 
+app.MapGet("/invoices/payments.csv", async (string? status, string? q, string? framework,
+    ReportingWorkspace workspace, CancellationToken cancellationToken) =>
+{
+    Remi.Domain.FrameworkCode? code = null;
+    if (!string.IsNullOrEmpty(framework))
+    {
+        if (!Enum.TryParse<Remi.Domain.FrameworkCode>(framework, out var parsed) || !Enum.IsDefined(parsed)) return Results.BadRequest("Invalid framework.");
+        code = parsed;
+    }
+    if (status is not (null or "all" or "unpaid" or "overdue" or "unknown" or "paid" or "assumed")) return Results.BadRequest("Invalid payment status.");
+    var report = await workspace.GetInvoicePaymentReportAsync(cancellationToken);
+    return Results.File(report.ExportCsv(status ?? "unpaid", q, code), "text/csv; charset=utf-8", $"remi-invoice-payments-{status ?? "unpaid"}-{report.AsAtDate:yyyyMMdd}.csv");
+});
+
 app.MapGet("/", () => Results.Redirect("/home"));
 
 app.MapStaticAssets();

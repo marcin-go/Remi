@@ -1,0 +1,75 @@
+@inject ReportingWorkspace Workspace
+@inject ReportingPeriodContext ReportingPeriod
+
+<PageTitle>Remi · Invoice payments</PageTitle>
+<section class="register-page">
+    <header class="dashboard-header register-page-header-compact"><div><h1>Invoice payments</h1><p>Payment position as at @report?.AsAtDate.ToString("dd MMM yyyy").</p></div></header>
+    <InvoiceViewNavigation Payments="true" />
+    @if (report is null) { <p class="loading">Loading invoice payments…</p> }
+    else
+    {
+        <section class="register-workspace register-workspace-full">
+            <article class="register-card">
+                <header class="register-card-header"><div><h2>Unpaid and overdue reports</h2><p>All reporting periods. Positive invoice values in GBP, excluding VAT. Credit notes are excluded; totals are not a net account balance.</p></div><a class="remi-action" href="@ExportRoute">Download CSV</a></header>
+                <div class="register-filters">
+                    <label class="register-search floating-field floating-field--static"><input @bind="search" @bind:event="oninput" @bind:after="ResetPage" placeholder="Invoice, contract or customer" /><span class="floating-label">Search invoices</span></label>
+                    <RemiPicklist Id="payment-report-status" Label="Payment status" Items="@Statuses" Value="@status" ValueChanged="SetStatus" ItemLabel="StatusLabel" />
+                    <RemiPicklist Id="payment-report-framework" Label="Framework" Items="@FrameworkItems" Value="@framework" ValueChanged="SetFramework" ItemLabel="FrameworkLabel" />
+                    <div class="filter-actions"><button class="remi-action" @onclick="ResetFilters">Reset</button></div>
+                </div>
+                <div class="payment-report-summary" aria-live="polite">
+                    <span><strong>@Rows.Count</strong> matching invoices</span>
+                    <span><strong>@Money(Rows.Sum(item => item.TotalCostExVat))</strong> value ex VAT</span>
+                    <span><strong>@Rows.Count(item => item.IsOverdue(report.AsAtDate))</strong> overdue</span>
+                    <span><strong>@Rows.Count(item => item.PaymentStatus == InvoicePaymentStatus.Unknown)</strong> payment status unknown</span>
+                </div>
+                <div class="register-table-scroll">
+                    <table class="register-table">
+                        <thead><tr><th>Invoice</th><th>Customer &amp; contract</th><th>Framework</th><th>Invoice date</th><th>Due date</th><th>Status</th><th>Date paid</th><th>Days overdue</th><th>Value ex VAT</th></tr></thead>
+                        <tbody>
+                            @if (Rows.Count == 0) { <tr><td colspan="9" class="register-empty">No invoices match these filters.</td></tr> }
+                            @foreach (var invoice in Rows.Skip((page - 1) * PageSize).Take(PageSize))
+                            {
+                                <tr>
+                                    <td><a class="register-reference" href="@ReportingRoutes.WithPeriod($"/invoices/{invoice.Id}", ReportingPeriod.SelectedPeriod)">@invoice.InvoiceNumber</a></td>
+                                    <td><strong>@invoice.CustomerName</strong><span>@invoice.SupplierReference</span></td>
+                                    <td>@Frameworks.Get(invoice.Framework).DisplayName</td>
+                                    <td class="register-date">@Date(invoice.InvoiceDate)</td><td class="register-date">@Date(invoice.DueDate)</td>
+                                    <td><span class="register-status @(invoice.IsOverdue(report.AsAtDate) ? "error" : invoice.PaymentStatus == InvoicePaymentStatus.Paid ? "good" : "")">@(invoice.IsOverdue(report.AsAtDate) ? "Unpaid · overdue" : invoice.PaymentStatus.ToString())</span></td>
+                                    <td>@Date(invoice.DatePaid)@if (invoice.IsPaymentDateAssumed) { <span>Assumed · review needed</span> }</td>
+                                    <td>@(invoice.IsOverdue(report.AsAtDate) ? invoice.DaysOverdue(report.AsAtDate).ToString() : "—")</td>
+                                    <td class="register-currency">@Money(invoice.TotalCostExVat)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <footer class="register-pagination"><span>@Rows.Count matching invoices</span><div><button disabled="@(page == 1)" @onclick="PreviousPage" aria-label="Previous page">‹</button><strong>@(page)</strong><span>of @Pages</span><button disabled="@(page == Pages)" @onclick="NextPage" aria-label="Next page">›</button></div></footer>
+            </article>
+        </section>
+    }
+</section>
+
+@code {
+    private static readonly IReadOnlyList<string> Statuses = ["unpaid", "overdue", "unknown", "paid", "assumed", "all"];
+    private static readonly IReadOnlyList<string> FrameworkItems = ["", .. Frameworks.All.Select(item => item.Code.ToString())];
+    private const int PageSize = 20;
+    private InvoicePaymentReport? report;
+    private string status = "unpaid", search = "", framework = "";
+    private int page = 1;
+    protected override async Task OnInitializedAsync() => report = await Workspace.GetInvoicePaymentReportAsync();
+    private FrameworkCode? SelectedFramework => Enum.TryParse<FrameworkCode>(framework, out var value) ? value : null;
+    private IReadOnlyList<InvoiceRecord> Rows => report?.Filter(status, search, SelectedFramework) ?? [];
+    private int Pages => Math.Max(1, (Rows.Count + PageSize - 1) / PageSize);
+    private string ExportRoute => $"/invoices/payments.csv?status={Uri.EscapeDataString(status)}&q={Uri.EscapeDataString(search)}&framework={Uri.EscapeDataString(framework)}";
+    private void SetStatus(string value) { status = value; ResetPage(); }
+    private void SetFramework(string value) { framework = value; ResetPage(); }
+    private void ResetPage() => page = 1;
+    private void ResetFilters() { status = "unpaid"; search = framework = ""; ResetPage(); }
+    private void PreviousPage() => page = Math.Max(1, page - 1);
+    private void NextPage() => page = Math.Min(Pages, page + 1);
+    private static string StatusLabel(string value) => value switch { "unpaid" => "Unpaid", "overdue" => "Overdue", "unknown" => "Unknown · needs review", "paid" => "Paid", "assumed" => "Assumed paid · needs review", _ => "All invoices" };
+    private static string FrameworkLabel(string value) => Enum.TryParse<FrameworkCode>(value, out var code) ? Frameworks.Get(code).DisplayName : "All frameworks";
+    private static string Date(DateOnly? value) => value?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Money(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+}

@@ -134,6 +134,7 @@ else
                             <section><h2>Related contract</h2>@if (details.Contract is not null) { <a class="contract-source-file" href="@ContractRoute(details.Contract.Id)"><span>▧</span><strong>@details.Contract.SupplierReference<small>@details.Contract.CustomerName</small></strong><b aria-hidden="true">›</b></a> } else { <p class="muted">No registered contract matches this invoice reference.</p> }</section>
                         </aside>
                     </div>
+                    <InvoicePaymentTracking Invoice="@details.Invoice" Changed="ReloadAsync" />
                     <InvoicePaymentReconciliation InvoiceId="@InvoiceId" Changed="ReloadAsync" />
                     }
                 </div>
@@ -286,5 +287,5 @@ else
     private static string DisplayCurrency(decimal? value) => value is null ? "Not recorded" : Currency(value.Value);
     private static string Currency(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
     private static string DisplayPeriod(string value) => DateOnly.TryParseExact($"{value}-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy") : value;
-    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", _ => action };
+    private static string FriendlyAuditAction(string action) => action switch { "ContractImported" => "Contract imported", "ContractCreated" => "Contract registered", "ContractUpdated" => "Contract updated", "InvoiceImported" => "Invoice imported", "InvoiceRecorded" => "Invoice registered", "InvoiceUpdated" => "Invoice updated", "InvoicePaymentUpdated" => "Payment details reviewed", "InvoicePaymentDateAssumed" => "Initial payment date assumed", _ => action };
 }

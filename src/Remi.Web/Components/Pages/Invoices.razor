@@ -10,6 +10,10 @@
 {
     <PlannedInvoices MonthQuery="@MonthQuery" ReviewQuery="@ReviewQuery" Search="@SearchQuery" PageQuery="@PageQuery" />
 }
+else if (View == "payments")
+{
+    <InvoicePaymentReports />
+}
 else if (invoices is null)
 {
     <p class="loading">Loading invoice register…</p>

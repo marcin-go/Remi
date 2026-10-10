@@ -1041,7 +1041,8 @@ public sealed partial class ReportingWorkspace(
                 NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName,
                 entry.ReportMonth,
                 string.IsNullOrWhiteSpace(entry.SourceDescription) ? "Manual entry" : entry.SourceDescription.Trim(),
-                now);
+                now,
+                entry.TotalCostExVat > 0 ? InvoicePaymentStatus.Unpaid : InvoicePaymentStatus.Unknown);
             database.Invoices.Add(record);
             if (linkedChange is not null)
             {
@@ -1357,6 +1358,7 @@ public sealed partial class ReportingWorkspace(
             var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure) ?? InvoiceReportingDefaults.UnitOfMeasure, entry.Quantity ?? InvoiceReportingDefaults.Quantity, entry.PricePerUnitExVat ?? InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor, NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName, entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Invoices.IndexOf(existing);
             var previousLinks = database.InvoiceContractChangeLinks.Where(link => link.InvoiceId == invoiceId).ToList();
+            updated = updated with { PaymentStatus = existing.PaymentStatus, DatePaid = existing.DatePaid, IsPaymentDateAssumed = existing.IsPaymentDateAssumed };
             database.Invoices[index] = updated;
             database.InvoiceContractChangeLinks.RemoveAll(link => link.InvoiceId == invoiceId);
             if (linkedChange is not null)

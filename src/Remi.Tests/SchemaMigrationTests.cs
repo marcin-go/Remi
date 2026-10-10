@@ -37,11 +37,11 @@ public sealed class SchemaMigrationTests
             await using (var connection = await OpenAsync(path))
             await using (var command = connection.CreateCommand())
             {
-                command.CommandText = "DROP TABLE invoice_payment_allocations; DELETE FROM remi_schema_migrations WHERE version = 10;";
+                command.CommandText = "DROP TABLE invoice_payment_allocations; ALTER TABLE invoices DROP COLUMN payment_status; ALTER TABLE invoices DROP COLUMN date_paid; ALTER TABLE invoices DROP COLUMN payment_date_assumed; DELETE FROM remi_schema_migrations WHERE version >= 10;";
                 await command.ExecuteNonQueryAsync();
             }
             var upgraded = new SqliteRemiStore(path);
-            Assert.Equal(before, await upgraded.ReadAsync(database => System.Text.Json.JsonSerializer.Serialize(database)));
+            Assert.Equal(before, await upgraded.ReadAsync(SnapshotWithoutPaymentTracking));
             Assert.Empty(await upgraded.ReadAsync(database => database.InvoicePaymentAllocations));
             Assert.Equal("original evidence", await File.ReadAllTextAsync(evidenceFile));
             var backupPath = Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v10-*.db"));
@@ -55,7 +55,7 @@ public sealed class SchemaMigrationTests
                 command.CommandText = "SELECT invoice_number FROM invoices;";
                 Assert.Equal("INV-KEEP", await command.ExecuteScalarAsync());
             }
-            Assert.Equal(before, await new SqliteRemiStore(path).ReadAsync(database => System.Text.Json.JsonSerializer.Serialize(database)));
+            Assert.Equal(before, await new SqliteRemiStore(path).ReadAsync(SnapshotWithoutPaymentTracking));
             Assert.Single(Directory.GetFiles(Path.Combine(root, "migration-backups"), "remi-data-before-schema-v10-*.db"));
         }
         finally
@@ -285,7 +285,7 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
             Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
             Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));
@@ -363,6 +363,14 @@ public sealed class SchemaMigrationTests
                 Directory.Delete(root, recursive: true);
             }
         }
+    }
+
+    private static string SnapshotWithoutPaymentTracking(RemiDatabase database)
+    {
+        for (var index = 0; index < database.Invoices.Count; index++)
+            database.Invoices[index] = database.Invoices[index] with { PaymentStatus = InvoicePaymentStatus.Unknown, DatePaid = null, IsPaymentDateAssumed = false };
+        database.AuditEvents.RemoveAll(item => item.Action == "InvoicePaymentDateAssumed");
+        return System.Text.Json.JsonSerializer.Serialize(database);
     }
 
     private static async Task CreatePreMigrationDatabaseAsync(string databasePath)

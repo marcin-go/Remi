@@ -1072,7 +1072,7 @@ public sealed partial class RegisterComponentTests
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal(3, cut.FindAll(".record-display-grid").Count);
+            Assert.Equal(4, cut.FindAll(".record-display-grid").Count);
             Assert.Empty(cut.FindAll(".contract-edit-panel"));
             Assert.Empty(cut.FindAll(".invoice-record .contract-breadcrumbs"));
             Assert.Equal("Edit", cut.Find(".invoice-record .contract-hero-actions button.secondary").TextContent.Trim());

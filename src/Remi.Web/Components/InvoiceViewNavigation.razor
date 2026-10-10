@@ -1,10 +1,12 @@
 @inject ReportingPeriodContext ReportingPeriod
 @inject TimeProvider Clock
 <nav class="home-view-links invoice-view-links" aria-label="Invoices view">
-    <a href="@ReportingRoutes.WithPeriod("/invoices", ReportingPeriod.SelectedPeriod)" aria-current="@(!Planned ? "page" : null)">Registered</a>
+    <a href="@ReportingRoutes.WithPeriod("/invoices", ReportingPeriod.SelectedPeriod)" aria-current="@(!Planned && !Payments ? "page" : null)">Registered</a>
     <a href="@ReportingRoutes.WithPeriod(HomeRoutes.Planned(Month ?? ContractPortfolioRules.Today(Clock)), ReportingPeriod.SelectedPeriod)" aria-current="@(Planned ? "page" : null)">Planned</a>
+    <a href="@ReportingRoutes.WithPeriod("/invoices?view=payments", ReportingPeriod.SelectedPeriod)" aria-current="@(Payments ? "page" : null)">Payments</a>
 </nav>
 @code {
     [Parameter] public bool Planned { get; set; }
+    [Parameter] public bool Payments { get; set; }
     [Parameter] public DateOnly? Month { get; set; }
 }

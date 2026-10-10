@@ -33,6 +33,14 @@ Fully reconciled positions disappear from **Past expected dates · needs reconci
 
 Schema version 10 adds allocation storage without changing existing register rows or creating matches. Before an upgraded portable build first opens operational data, stop the published instance and create and verify a recoverable backup of its complete `publish\Remi\data` folder, including evidence, reference data and application keys. The migration's additional SQLite backup is not a substitute for that complete backup.
 
+## Invoice payment tracking
+
+Open a registered invoice and use **Overview → Payment tracking** to record its payment status and **Date paid**. **Mark unpaid / clear date paid** removes an assumed or previously recorded payment date. Payment corrections are audited and do not alter reporting or payment-schedule allocations. New positive invoices start unpaid; invoices whose payment status is unknown remain separate from unpaid invoices.
+
+Due dates are calculated as invoice date plus 30 calendar days. An unpaid positive invoice becomes overdue on the following day. **Invoices → Payments** provides unpaid, overdue, unknown, paid and assumed-paid views across all reporting periods, with customer/reference search, framework filters and a CSV download of the same results. Values exclude VAT; credit notes are excluded from these views, so report totals are not net customer account balances.
+
+Schema version 11 adds payment tracking. Its one-time migration marks existing dated invoices paid with an **assumed** date of invoice date plus 15 calendar days, as requested for the initial rollout. Undated invoices remain unknown. Each assumed date is audited; it can be corrected or cleared, and is never reapplied on restart. Before the upgraded published instance opens the register, create and verify a recoverable backup of the complete published data folder.
+
 ## Run it locally
 
 ```powershell

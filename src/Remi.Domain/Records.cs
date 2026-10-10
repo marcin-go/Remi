@@ -47,6 +47,8 @@ public sealed record ContractRecord(
     string SourceWorkbook,
     DateTimeOffset CreatedAtUtc);
 
+public enum InvoicePaymentStatus { Unknown, Unpaid, Paid }
+
 public sealed record InvoiceRecord(
     Guid Id,
     FrameworkCode Framework,
@@ -69,7 +71,19 @@ public sealed record InvoiceRecord(
     string? SubcontractorName,
     string ReportMonth,
     string SourceWorkbook,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    InvoicePaymentStatus PaymentStatus = InvoicePaymentStatus.Unknown,
+    DateOnly? DatePaid = null,
+    bool IsPaymentDateAssumed = false)
+{
+    public DateOnly? DueDate => InvoiceDate is { } date && date.DayNumber <= DateOnly.MaxValue.DayNumber - 30
+        ? date.AddDays(30) : null;
+
+    public bool IsOverdue(DateOnly today) => TotalCostExVat > 0 && PaymentStatus == InvoicePaymentStatus.Unpaid
+        && DueDate is { } due && due < today;
+
+    public int DaysOverdue(DateOnly today) => IsOverdue(today) ? today.DayNumber - DueDate!.Value.DayNumber : 0;
+}
 
 /// <summary>
 /// A separately agreed change to an existing call-off.  Options in a call-off's payment
