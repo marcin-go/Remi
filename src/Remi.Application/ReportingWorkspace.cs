@@ -266,6 +266,7 @@ public sealed partial class ReportingWorkspace(
                 EvidenceForContract(database, contract), findings, committedValue)
             {
                 PaymentPositions = ReconciliationPositions(database, contract),
+                AnnualReviews = database.NonFrameworkAnnualReviews.Where(item => item.ContractId == contract.Id).OrderBy(item => item.ContractYear).ToList(),
             };
         }, cancellationToken);
 
@@ -331,6 +332,8 @@ public sealed partial class ReportingWorkspace(
                 .ToList();
             var objects = new List<DeletionImpactItem>();
             objects.AddRange(changes.Select(item => new DeletionImpactItem("Contract change", $"{item.Kind} agreed {item.AgreementDate:dd MMM yyyy}")));
+            objects.AddRange(database.NonFrameworkAnnualReviews.Where(item => item.ContractId == contractId)
+                .OrderBy(item => item.ContractYear).Select(item => new DeletionImpactItem("Annual price review", $"Year {item.ContractYear}: {item.AnnualChargeExVat:N2} ex VAT from {item.EffectiveDate:dd MMM yyyy}")));
             objects.AddRange(database.ChargeScheduleItems
                 .Where(item => item.ContractId == contractId)
                 .OrderBy(item => item.ContractYear)
@@ -411,8 +414,8 @@ public sealed partial class ReportingWorkspace(
                 var committedValue = ContractPortfolioRules.CommittedValue(contract, commercial,
                     schedulesByContract[contract.Id].ToList(), legacyByContract[contract.Id].ToList());
                 var remainingValue = Math.Max(0, committedValue - invoicedValue);
-                if (!ContractPortfolioRules.CanRegisterInvoice(
-                    ContractPortfolioRules.Lifecycle(contract.StartDate, commercial.EndDate, today), remainingValue))
+                if (contract.Framework != FrameworkCode.NonFramework && !ContractPortfolioRules.CanRegisterInvoice(
+                    ContractPortfolioRules.ContractLifecycleFor(contract, commercial.EndDate, today), remainingValue))
                     return null;
                 return new InvoiceRegistrationContract(
                     contract.Id,
@@ -850,7 +853,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateReportingMonth(entry.ReportMonth);
+        if (entry.Framework != FrameworkCode.NonFramework) ValidateReportingMonth(entry.ReportMonth);
         var paymentPlanError = ValidatePaymentPlan(entry.PaymentPlan);
         if (paymentPlanError is not null)
         {
@@ -911,7 +914,7 @@ public sealed partial class ReportingWorkspace(
                     actor);
             }
 
-            EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
+            if (Frameworks.IsReportable(entry.Framework)) EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
             return new ReturnActionResult(true, "The contract has been added to the reporting register.", [], record.Id);
         }, cancellationToken);
     }
@@ -1008,7 +1011,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateReportingMonth(entry.ReportMonth);
+        if (entry.Framework != FrameworkCode.NonFramework) ValidateReportingMonth(entry.ReportMonth);
         return store.UpdateAsync(database =>
         {
             var now = timeProvider.GetUtcNow();
@@ -1039,7 +1042,7 @@ public sealed partial class ReportingWorkspace(
                 entry.TotalCostExVat,
                 NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor,
                 NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName,
-                entry.ReportMonth,
+                entry.Framework == FrameworkCode.NonFramework ? "" : entry.ReportMonth,
                 string.IsNullOrWhiteSpace(entry.SourceDescription) ? "Manual entry" : entry.SourceDescription.Trim(),
                 now,
                 entry.TotalCostExVat > 0 ? InvoicePaymentStatus.Unpaid : InvoicePaymentStatus.Unknown);
@@ -1059,7 +1062,7 @@ public sealed partial class ReportingWorkspace(
             }
 
             RecordAudit(database, now, "InvoiceRecorded", "Invoice", record.Id, $"Recorded invoice {record.InvoiceNumber} for {record.SupplierReference}.", null, actor);
-            EnsureReturn(database, entry.Framework, entry.ReportMonth, null, now);
+            if (Frameworks.IsReportable(entry.Framework)) EnsureReturn(database, entry.Framework, entry.Framework == FrameworkCode.NonFramework ? "" : entry.ReportMonth, null, now);
             return new ReturnActionResult(true, "The invoice has been recorded.", [], record.Id);
         }, cancellationToken);
     }
@@ -1075,6 +1078,8 @@ public sealed partial class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
+
+            if (contract.Framework == FrameworkCode.NonFramework) return new ReturnActionResult(false, "Use the non-framework agreement annual review and termination controls.", []);
 
             if (entry.AgreementDate is null)
             {
@@ -1280,7 +1285,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateReportingMonth(entry.ReportMonth);
+        if (entry.Framework != FrameworkCode.NonFramework) ValidateReportingMonth(entry.ReportMonth);
         return store.UpdateAsync(database =>
         {
             var existing = database.Contracts.SingleOrDefault(item => item.Id == contractId);
@@ -1288,6 +1293,8 @@ public sealed partial class ReportingWorkspace(
             {
                 return new ReturnActionResult(false, "The selected contract no longer exists.", []);
             }
+
+            if (existing.Framework == FrameworkCode.NonFramework || entry.Framework == FrameworkCode.NonFramework) return new ReturnActionResult(false, "Use the non-framework agreement editor. Existing framework contracts cannot be reclassified.", []);
 
             var reconciledPositionIds = database.ChargeScheduleItems.Where(item => item.ContractId == contractId).Select(item => item.Id)
                 .Concat(database.InvoicePlanItems.Where(item => item.ContractId == contractId).Select(item => item.Id)).ToHashSet();
@@ -1323,7 +1330,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateReportingMonth(entry.ReportMonth);
+        if (entry.Framework != FrameworkCode.NonFramework) ValidateReportingMonth(entry.ReportMonth);
         return store.UpdateAsync(database =>
         {
             var existing = database.Invoices.SingleOrDefault(item => item.Id == invoiceId);
@@ -1355,7 +1362,7 @@ public sealed partial class ReportingWorkspace(
                 return new ReturnActionResult(false, "The selected contract change does not belong to this invoice's contract.", []);
             }
 
-            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure) ?? InvoiceReportingDefaults.UnitOfMeasure, entry.Quantity ?? InvoiceReportingDefaults.Quantity, entry.PricePerUnitExVat ?? InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor, NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName, entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
+            var updated = new InvoiceRecord(existing.Id, entry.Framework, entry.SupplierReference.Trim(), entry.CustomerName.Trim(), NullIfWhiteSpace(entry.CustomerUrn), entry.InvoiceDate, entry.InvoiceNumber.Trim(), NullIfWhiteSpace(entry.LotNumber), NullIfWhiteSpace(entry.ServiceGroup), NullIfWhiteSpace(entry.ServiceGroupLevel2), NullIfWhiteSpace(entry.ServiceDescription), NullIfWhiteSpace(entry.OrderChannel), NullIfWhiteSpace(entry.DigitalMarketplaceServiceId), NullIfWhiteSpace(entry.UnitOfMeasure) ?? InvoiceReportingDefaults.UnitOfMeasure, entry.Quantity ?? InvoiceReportingDefaults.Quantity, entry.PricePerUnitExVat ?? InvoiceReportingDefaults.PricePerUnitExVat(entry.TotalCostExVat), entry.TotalCostExVat, NullIfWhiteSpace(entry.OriginalVendor) ?? InvoiceReportingDefaults.OriginalVendor, NullIfWhiteSpace(entry.SubcontractorName) ?? InvoiceReportingDefaults.SubcontractorName, entry.Framework == FrameworkCode.NonFramework ? "" : entry.ReportMonth, existing.SourceWorkbook, existing.CreatedAtUtc);
             var index = database.Invoices.IndexOf(existing);
             var previousLinks = database.InvoiceContractChangeLinks.Where(link => link.InvoiceId == invoiceId).ToList();
             updated = updated with { PaymentStatus = existing.PaymentStatus, DatePaid = existing.DatePaid, IsPaymentDateAssumed = existing.IsPaymentDateAssumed };
@@ -1475,6 +1482,7 @@ public sealed partial class ReportingWorkspace(
                     changeIds.Any(changeId => IsClipboardEvidenceFor(item, "contract-change", changeId)))
                 .ToList();
 
+            database.NonFrameworkAnnualReviews.RemoveAll(item => item.ContractId == contractId);
             database.Contracts.Remove(existing);
             database.ContractChanges.RemoveAll(item => changeIds.Contains(item.Id));
             database.InvoiceContractChangeLinks.RemoveAll(item => changeIds.Contains(item.ContractChangeId));
@@ -1890,6 +1898,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!Frameworks.IsReportable(framework)) return new TemplateRegistrationResult(false, "Non-framework agreements do not use MI templates.", null, []);
         await using var copiedWorkbook = new MemoryStream();
         await workbook.CopyToAsync(copiedWorkbook, cancellationToken);
         copiedWorkbook.Position = 0;
@@ -1949,6 +1958,7 @@ public sealed partial class ReportingWorkspace(
         string? actor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!Frameworks.IsReportable(framework)) return null;
         ValidateReportingMonth(reportingMonth);
         var exportContext = await store.ReadAsync(database =>
         {
@@ -2314,6 +2324,7 @@ public sealed partial class ReportingWorkspace(
         string? actor,
         CancellationToken cancellationToken)
     {
+        if (!Frameworks.IsReportable(framework)) return Task.FromResult(new ReturnActionResult(false, "Non-framework agreements are excluded from framework returns.", []));
         ValidateReportingMonth(reportingMonth);
         return store.UpdateAsync(database =>
         {
@@ -2447,6 +2458,7 @@ public sealed partial class ReportingWorkspace(
         FrameworkCode framework,
         string reportingMonth)
     {
+        if (!Frameworks.IsReportable(framework)) throw new InvalidOperationException("Non-framework agreements do not have framework reporting cards.");
         var contracts = ContractsForReportingMonth(database, framework, reportingMonth)
             .OrderBy(item => item.SupplierReference, StringComparer.OrdinalIgnoreCase)
             .Select(item => new ReportingCardItem(item.SupplierReference, ContractCardFields(item)))
@@ -2588,7 +2600,9 @@ public sealed partial class ReportingWorkspace(
         var changesByContract = database.ContractChanges.ToLookup(item => item.ContractId);
         var progress = database.Contracts.Select(contract =>
         {
-            var invoices = invoicesByContract[(contract.Framework, ReportingRules.NormaliseReference(contract.SupplierReference))];
+            var invoices = invoicesByContract[(contract.Framework, ReportingRules.NormaliseReference(contract.SupplierReference))]
+                .Where(item => contract.Framework != FrameworkCode.NonFramework || item.InvoiceDate is { } date
+                    && NonFrameworkContractRules.ContractYear(contract, date) == NonFrameworkContractRules.ContractYear(contract, today)).ToList();
             var reportedInvoiceValue = invoices.Sum(invoice => invoice.TotalCostExVat);
             var reportedInvoiceCount = invoices.Count();
             var legacyPlan = legacyByContract[contract.Id].ToList();
@@ -2598,7 +2612,9 @@ public sealed partial class ReportingWorkspace(
                 .ThenBy(item => item.Description, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var commercial = ContractPortfolioRules.CommercialPosition(contract, changesByContract[contract.Id].ToList());
-            var comparisonValue = ContractPortfolioRules.CommittedValue(contract, commercial, chargeSchedule, legacyPlan);
+            if (contract.Framework == FrameworkCode.NonFramework)
+                commercial = commercial with { ContractValueExVat = NonFrameworkContractRules.AnnualCharge(contract, database.NonFrameworkAnnualReviews, today) };
+            var comparisonValue = contract.Framework == FrameworkCode.NonFramework ? commercial.ContractValueExVat : ContractPortfolioRules.CommittedValue(contract, commercial, chargeSchedule, legacyPlan);
             var hasSchedule = ContractPortfolioRules.ScheduledBaseValue(chargeSchedule, legacyPlan) > 0;
             var evidence = EvidenceForContract(database, contract);
             return new ContractProgress(
@@ -2717,6 +2733,7 @@ public sealed partial class ReportingWorkspace(
 
     private static string? ValidateContractFrameworkWindow(RemiDatabase database, ContractEntry entry)
     {
+        if (entry.Framework == FrameworkCode.NonFramework) return null;
         if (entry.StartDate is not { } contractStartDate)
         {
             return null;
@@ -2754,6 +2771,7 @@ public sealed partial class ReportingWorkspace(
         string? workbookName,
         DateTimeOffset now)
     {
+        if (!Frameworks.IsReportable(framework)) throw new InvalidOperationException("Non-framework agreements do not have framework returns.");
         var existing = database.MonthlyReturns.SingleOrDefault(item => item.Framework == framework && item.ReportMonth == reportingMonth);
         if (existing is not null)
         {
@@ -2793,6 +2811,7 @@ public sealed partial class ReportingWorkspace(
         FrameworkCode framework,
         string reportingMonth)
     {
+        if (!Frameworks.IsReportable(framework)) return [];
         var contracts = database.Contracts
             .Where(contract => contract.Framework == framework && contract.ReportMonth == reportingMonth)
             .ToList();

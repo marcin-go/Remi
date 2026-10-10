@@ -52,7 +52,7 @@
 
 @code {
     private static readonly IReadOnlyList<string> Statuses = ["unpaid", "overdue", "unknown", "paid", "assumed", "all"];
-    private static readonly IReadOnlyList<string> FrameworkItems = ["", .. Frameworks.All.Select(item => item.Code.ToString())];
+    private static readonly IReadOnlyList<string> FrameworkItems = ["", .. Frameworks.RegisterCategories.Select(item => item.Code.ToString())];
     private const int PageSize = 20;
     private InvoicePaymentReport? report;
     private string status = "unpaid", search = "", framework = "";

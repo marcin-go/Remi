@@ -9,9 +9,9 @@ namespace Remi.Infrastructure;
 /// Stores the Remi register in SQLite. Every registered record is held in a first-class table;
 /// operational schema changes are applied through additive, numbered migrations.
 /// </summary>
-public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
+public sealed partial class SqliteRemiStore : IRemiStore, IRemiDataResetter
 {
-    internal const int CurrentSchemaVersion = 11;
+    internal const int CurrentSchemaVersion = 12;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly string databasePath;
@@ -325,6 +325,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
             DROP TABLE IF EXISTS mail_template_recipients;
             DROP TABLE IF EXISTS mail_templates;
             DROP TABLE IF EXISTS mail_scheduler_state;
+            DROP TABLE IF EXISTS non_framework_annual_reviews;
+            DROP TABLE IF EXISTS non_framework_contract_terms;
             DROP TABLE IF EXISTS contract_reporting_occurrences;
             DROP TABLE IF EXISTS contract_service_parts;
             DROP TABLE IF EXISTS audit_events;
@@ -350,6 +352,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         new()
         {
             Contracts = await LoadContractsAsync(connection, cancellationToken),
+            NonFrameworkAnnualReviews = await LoadNonFrameworkReviewsAsync(connection, cancellationToken),
             Invoices = await LoadInvoicesAsync(connection, cancellationToken),
             ContractChanges = await LoadContractChangesAsync(connection, cancellationToken),
             InvoiceContractChangeLinks = await LoadInvoiceContractChangeLinksAsync(connection, cancellationToken),
@@ -368,6 +371,7 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
 
     private static async Task<List<ContractRecord>> LoadContractsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
+        var terms = await LoadNonFrameworkTermsAsync(connection, cancellationToken);
         await using var command = CreateCommand(connection, "SELECT id, framework, supplier_reference, customer_name, customer_urn, start_date, end_date, lot_number, service_group, service_group_level_2, service_description, order_channel, digital_marketplace_service_id, total_contract_value_ex_vat, report_month, source_workbook, created_at_utc FROM contracts ORDER BY created_at_utc, id;");
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var contracts = new List<ContractRecord>();
@@ -390,7 +394,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 Number(reader.GetString(13)),
                 reader.GetString(14),
                 reader.GetString(15),
-                Timestamp(reader.GetString(16))));
+                Timestamp(reader.GetString(16)),
+                terms.GetValueOrDefault(Guid.Parse(reader.GetString(0)))));
         }
 
         return contracts;
@@ -734,6 +739,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
     private async Task SaveDatabaseAsync(SqliteConnection connection, SqliteTransaction transaction, RemiDatabase database, CancellationToken cancellationToken)
     {
         await ExecuteAsync(connection, transaction, """
+            DELETE FROM non_framework_annual_reviews;
+            DELETE FROM non_framework_contract_terms;
             DELETE FROM contract_reporting_occurrences;
             DELETE FROM contract_service_parts;
             DELETE FROM audit_events;
@@ -755,6 +762,8 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
         {
             await InsertContractAsync(connection, transaction, contract, cancellationToken);
         }
+
+        await SaveNonFrameworkAsync(connection, transaction, database, cancellationToken);
 
         foreach (var invoice in database.Invoices)
         {
@@ -1536,6 +1545,43 @@ public sealed class SqliteRemiStore : IRemiStore, IRemiDataResetter
                 FROM invoices WHERE payment_date_assumed = 1;
                 """, cancellationToken);
             await RecordMigrationAsync(connection, transaction, 11, "Invoice payment tracking; initial assumed payment dates at invoice date plus 15 days", cancellationToken);
+            transaction.Commit();
+        }
+
+        if (!applied.Contains(12))
+        {
+            if (existingDatabase)
+                await CreateAutomaticMigrationBackupAsync(connection, 12, cancellationToken);
+            using var transaction = connection.BeginTransaction();
+            await ExecuteAsync(connection, transaction, """
+                CREATE TABLE non_framework_contract_terms (
+                    contract_id TEXT PRIMARY KEY REFERENCES contracts(id),
+                    agreement_basis INTEGER NOT NULL CHECK (agreement_basis IN (0, 1, 2)),
+                    agreement_date TEXT NOT NULL,
+                    agreement_notes TEXT NOT NULL,
+                    term_kind INTEGER NOT NULL CHECK (term_kind IN (0, 1, 2)),
+                    initial_annual_charge_ex_vat TEXT NOT NULL,
+                    uses_cpi INTEGER NOT NULL CHECK (uses_cpi IN (0, 1)),
+                    additional_percentage TEXT NOT NULL,
+                    cpi_reference TEXT NOT NULL,
+                    notice_received_date TEXT NULL,
+                    termination_date TEXT NULL
+                );
+                CREATE TABLE non_framework_annual_reviews (
+                    id TEXT PRIMARY KEY,
+                    contract_id TEXT NOT NULL REFERENCES contracts(id),
+                    contract_year INTEGER NOT NULL CHECK (contract_year >= 2),
+                    effective_date TEXT NOT NULL,
+                    previous_annual_charge_ex_vat TEXT NOT NULL,
+                    cpi_percentage TEXT NOT NULL,
+                    additional_percentage TEXT NOT NULL,
+                    annual_charge_ex_vat TEXT NOT NULL,
+                    cpi_reference TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    UNIQUE (contract_id, contract_year)
+                );
+                """, cancellationToken);
+            await RecordMigrationAsync(connection, transaction, 12, "Non-framework agreements and reviewed annual CPI charges", cancellationToken);
             transaction.Commit();
         }
 

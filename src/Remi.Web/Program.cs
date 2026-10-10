@@ -340,6 +340,7 @@ app.MapGet("/reports/card/{frameworkCode:int}/{reportingMonth}", async (
     CancellationToken cancellationToken) =>
 {
     if (!Enum.IsDefined(typeof(Remi.Domain.FrameworkCode), frameworkCode) ||
+        !Remi.Domain.Frameworks.IsReportable((Remi.Domain.FrameworkCode)frameworkCode) ||
         !DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _))
     {
         return Results.NotFound();

@@ -105,7 +105,7 @@ public sealed class InvoicePaymentTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = "ALTER TABLE invoices DROP COLUMN payment_status; ALTER TABLE invoices DROP COLUMN date_paid; ALTER TABLE invoices DROP COLUMN payment_date_assumed; DELETE FROM remi_schema_migrations WHERE version = 11;";
+                command.CommandText = "DROP TABLE non_framework_annual_reviews; DROP TABLE non_framework_contract_terms; ALTER TABLE invoices DROP COLUMN payment_status; ALTER TABLE invoices DROP COLUMN date_paid; ALTER TABLE invoices DROP COLUMN payment_date_assumed; DELETE FROM remi_schema_migrations WHERE version >= 11;";
                 await command.ExecuteNonQueryAsync();
             }
             var upgraded = new SqliteRemiStore(path);

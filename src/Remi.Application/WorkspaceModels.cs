@@ -370,6 +370,7 @@ public sealed record ContractDetailsModel(
     decimal? CommittedValueExVat = null)
 {
     public IReadOnlyList<ScheduledPaymentPosition> PaymentPositions { get; init; } = [];
+    public IReadOnlyList<NonFrameworkAnnualReview> AnnualReviews { get; init; } = [];
 }
 
 /// <summary>

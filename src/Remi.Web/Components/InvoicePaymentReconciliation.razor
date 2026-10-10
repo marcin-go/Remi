@@ -57,7 +57,7 @@
     private string selectedExtension = string.Empty;
     private decimal amount;
     private bool busy;
-    private IReadOnlyList<string> Options => model?.Positions.Where(item => (!item.IsOptionalExtension || ExtensionOptions.Count > 0) && item.ValueExVat > 0
+    private IReadOnlyList<string> Options => model?.Positions.Where(item => !item.IsCancelled && (!item.IsOptionalExtension || ExtensionOptions.Count > 0) && item.ValueExVat > 0
         && (model.Invoice.TotalCostExVat > 0 ? item.OutstandingValueExVat > 0 : item.AllocatedValueExVat > 0)
         && !model.Allocations.Any(allocation => allocation.PositionId == item.PositionId && allocation.Source == item.Source))
         .Select(Key).ToList() ?? [];

@@ -35,6 +35,8 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
             var schedule = schedules[contract.Id].ToList();
             var legacy = legacyPlans[contract.Id].ToList();
             var commercial = ContractPortfolioRules.CommercialPosition(contract, contractChanges);
+            if (contract.Framework == FrameworkCode.NonFramework)
+                commercial = commercial with { ContractValueExVat = NonFrameworkContractRules.AnnualCharge(contract, database.NonFrameworkAnnualReviews, today) };
             var extensions = contractChanges.Where(item => item.Kind == ContractChangeKind.Extension).ToList();
             var optionYears = schedule.Where(item => item.IsOptionalExtension)
                 .Select(item => item.ContractYear).Distinct().Order().ToList();
@@ -53,14 +55,16 @@ public sealed class OperationalHomeWorkspace(IRemiStore store, TimeProvider time
             {
                 AllocatedValueExVat = allocations[(item.PositionId, item.Source)].Sum(allocation => allocation.ValueExVat),
                 IsExtensionCommitted = committedExtensions.Contains((item.PositionId, item.Source)),
+                IsCancelled = contract.Framework == FrameworkCode.NonFramework && NonFrameworkContractRules.EffectiveEnd(contract) is { } end && item.ExpectedInvoiceDate >= end,
             }).ToList();
             positions.AddRange(contractPositions);
             var key = Key(contract.Framework, contract.SupplierReference);
             contracts.Add(new OperationalContract(contract, commercial,
-                ContractPortfolioRules.Lifecycle(contract.StartDate, commercial.EndDate, today),
+                ContractPortfolioRules.ContractLifecycleFor(contract, commercial.EndDate, today),
                 ContractPortfolioRules.Delivery(parts[contract.Id].ToList(), today), optionState, optionYears,
-                extensions, ContractPortfolioRules.CommittedValue(contract, commercial, schedule, legacy),
-                contractsByKey[key].Count() == 1 ? invoices[key].Sum(item => item.TotalCostExVat) : null,
+                extensions, contract.Framework == FrameworkCode.NonFramework ? commercial.ContractValueExVat : ContractPortfolioRules.CommittedValue(contract, commercial, schedule, legacy),
+                contractsByKey[key].Count() == 1 ? invoices[key].Where(item => contract.Framework != FrameworkCode.NonFramework ||
+                    item.InvoiceDate is { } invoiceDate && NonFrameworkContractRules.ContractYear(contract, invoiceDate) == NonFrameworkContractRules.ContractYear(contract, today)).Sum(item => item.TotalCostExVat) : null,
                 contractPositions.Count > 0, contractPositions.Count,
                 contractPositions.Count(item => item.ExpectedInvoiceDate is null)));
         }

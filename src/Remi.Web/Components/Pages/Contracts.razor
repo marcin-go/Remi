@@ -19,7 +19,7 @@ else
             <div>
                 <h1>Contracts</h1>
             </div>
-            <a class="remi-action remi-action--primary" href="@PeriodRoute("contracts/new")">Register</a>
+            <div class="contract-hero-actions"><a class="remi-action" href="/contracts/non-framework/new">Non-framework agreement</a><a class="remi-action remi-action--primary" href="@PeriodRoute("contracts/new")">Register</a></div>
         </header>
 
         <section class="register-workspace register-workspace-full" id="contract-register">
@@ -64,9 +64,11 @@ else
                                 <td><a class="register-reference" href="@ContractRoute(contract.ContractId)">@contract.SupplierReference</a><span>@Frameworks.Get(contract.Framework).DisplayName</span></td>
                                 <td><strong>@contract.CustomerName</strong><span>@(contract.CustomerUrn ?? "URN not recorded")</span></td>
                                 <td class="register-date">@DisplayDate(contract.StartDate)</td>
-                                <td class="register-date">@DisplayDate(contract.EndDate)</td>
+                                <td class="register-date">@(contract.Framework == FrameworkCode.NonFramework && contract.EndDate is null ? "No set end date" : DisplayDate(contract.EndDate))
+                                    @if (operational.TryGetValue(contract.ContractId, out var renewal) && NonFrameworkContractRules.NextNoticeDeadline(renewal.Contract, model!.Portfolio!.AsAtDate) is { } noticeDeadline) { <span>Notice by @DisplayDate(noticeDeadline)</span> }
+                                </td>
                                 <td class="register-status-cell"><span class="@LifecycleStatusClass(contract)"><i aria-hidden="true"></i>@LifecycleStatus(contract)</span>@if (contract.UnconfirmedChangeCount > 0) { <span>@contract.UnconfirmedChangeCount agreement(s) awaiting confirmation</span> }@if (statusFilter.StartsWith("ending", StringComparison.Ordinal) && operational.TryGetValue(contract.ContractId, out var context)) { <span>@HomeRoutes.OptionLabel(context)</span> }</td>
-                                <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong></td>
+                                <td class="register-currency"><strong>@Currency(contract.TotalContractValueExVat)</strong>@if (contract.Framework == FrameworkCode.NonFramework) { <span>Latest reviewed annual charge</span> }</td>
                                 <td><div class="register-progress @(IsOverrun(contract) ? "overrun" : null)" title="@ProgressSummary(contract)"><span><i style="width: @ProgressWidth(contract.CompletionRatio)"></i></span><strong>@Percentage(contract.CompletionRatio)</strong>@if (IsOverrun(contract)) { <span class="visually-hidden">@ProgressSummary(contract)</span> }</div></td>
                             </tr>
                         }
@@ -97,11 +99,11 @@ else
     private static readonly IReadOnlyList<string> FrameworkFilterItems =
     [
         string.Empty,
-        .. Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
+        .. Frameworks.RegisterCategories.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
     ];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];
     private static readonly IReadOnlyList<string> ProgressFilterItems = [string.Empty, "not-started", "in-progress", "complete"];
-    private static readonly IReadOnlyList<string> StatusFilterItems = ["live", "ongoing", "ending-soon", "ending-no-option", "ending-options", "ending-review", "future", "ended", "ended-value", "unknown", "no-schedule", "undated", "extension-review"];
+    private static readonly IReadOnlyList<string> StatusFilterItems = ["renewal-notice", "live", "ongoing", "ending-soon", "ending-no-option", "ending-options", "ending-review", "future", "ended", "ended-value", "unknown", "no-schedule", "undated", "extension-review"];
     private static readonly IReadOnlyList<string> HorizonItems = ["30", "90", "180"];
     private IReadOnlyDictionary<Guid, OperationalContract> operational = new Dictionary<Guid, OperationalContract>();
     private int horizon = 180;
@@ -187,6 +189,7 @@ else
     private static string ProgressFilterLabel(string value) => value switch { "not-started" => "Not started", "in-progress" => "In progress", "complete" => "Complete", _ => "Any progress" };
     private string StatusFilterLabel(string value) => value switch
     {
+        "renewal-notice" => "Rolling notice deadlines",
         "live" => "Live", "ongoing" => "Ongoing", "ending-soon" => $"Ending within {horizon} days", "future" => "Not started", "ended" => "Ended", "unknown" => "Dates need review",
         "ending-no-option" => "Ending · no further extension recorded", "ending-options" => "Ending · extension decisions", "ending-review" => "Ending · options need review",
         "ended-value" => "Ended · value still to invoice", "no-schedule" => "No schedule", "undated" => "Undated schedule", "extension-review" => "Extension associations to review", _ => "All statuses",
@@ -230,7 +233,7 @@ else
             ["progress"] = EmptyToNull(progressFilter), ["status"] = EmptyToNull(statusFilter), ["horizon"] = horizon, ["sort"] = sortColumn,
             ["descending"] = sortDescending, ["page"] = page, ["period"] = ReportingPeriod.SelectedPeriod }));
     private static string? EmptyToNull(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
-    private ContractLifecycle Lifecycle(ContractProgress contract) => ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, ContractPortfolioRules.Today(Clock));
+    private ContractLifecycle Lifecycle(ContractProgress contract) => operational.TryGetValue(contract.ContractId, out var context) ? context.Lifecycle : ContractPortfolioRules.Lifecycle(contract.StartDate, contract.EndDate, ContractPortfolioRules.Today(Clock));
     private static bool HasOutstandingPaymentPositions(ContractProgress contract) => contract.ReportedInvoiceValueExVat < contract.ComparisonValueExVat;
     private string LifecycleStatus(ContractProgress contract) => Lifecycle(contract) switch
     {

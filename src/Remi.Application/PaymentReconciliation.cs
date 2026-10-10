@@ -40,6 +40,7 @@ public sealed partial class ReportingWorkspace
         {
             AllocatedValueExVat = database.InvoicePaymentAllocations.Where(item => item.PositionId == position.PositionId && item.Source == position.Source).Sum(item => item.ValueExVat),
             IsExtensionCommitted = committed.Contains((position.PositionId, position.Source)),
+            IsCancelled = contract.Framework == FrameworkCode.NonFramework && NonFrameworkContractRules.EffectiveEnd(contract) is { } end && position.ExpectedInvoiceDate >= end,
         }).OrderBy(item => item.ExpectedInvoiceDate).ThenBy(item => item.Description).ToList();
     }
 
@@ -64,7 +65,7 @@ public sealed partial class ReportingWorkspace
             var contract = invoice is null ? null : ReconciliationContract(database, invoice);
             var position = contract is null ? null : ReconciliationPositions(database, contract)
                 .SingleOrDefault(item => item.PositionId == positionId && item.Source == source);
-            if (invoice is null || position is null || position.ValueExVat <= 0)
+            if (invoice is null || position is null || position.ValueExVat <= 0 || position.IsCancelled)
                 return new ReturnActionResult(false, "Choose a committed payment position belonging to this invoice's contract.", []);
             var existingChangeLink = database.InvoiceContractChangeLinks.SingleOrDefault(item => item.InvoiceId == invoiceId);
             var selectedExtensionId = extensionId ?? existingChangeLink?.ContractChangeId;

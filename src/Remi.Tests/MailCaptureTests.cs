@@ -141,6 +141,11 @@ public sealed class MailCaptureTests
                     Contract(reportedId, "REPORTED", "Reported Council", new DateTimeOffset(2026, 6, 15, 9, 0, 0, TimeSpan.Zero)),
                     Contract(newId, "NEW-CONTRACT", "New Council", new DateTimeOffset(2026, 7, 20, 9, 0, 0, TimeSpan.Zero)),
                     Contract(lateId, "LATE", "Late Council", new DateTimeOffset(2026, 8, 2, 9, 0, 0, TimeSpan.Zero)),
+                    Contract(Guid.NewGuid(), "NF-PRIVATE", "Private non-framework customer", new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero)) with
+                    {
+                        Framework = FrameworkCode.NonFramework, EndDate = null, ReportMonth = "",
+                        NonFrameworkTerms = new(AgreementBasis.Verbal, new DateOnly(2026, 1, 1), "Verbal agreement", ContractTermKind.AnnualRolling, 1000, true, 4, "December CPI"),
+                    },
                     Contract(ongoingHistoricalId, "G13-ONGOING", "Historical Framework Council", new DateTimeOffset(2026, 5, 10, 9, 0, 0, TimeSpan.Zero)) with
                     {
                         Framework = FrameworkCode.GCloud13,
@@ -189,6 +194,8 @@ public sealed class MailCaptureTests
             Assert.Contains("NEW - Jul 2026 - New Council", plainText, StringComparison.Ordinal);
             Assert.Contains("NOT live yet", plainText, StringComparison.Ordinal);
             Assert.DoesNotContain("Late Council", plainText, StringComparison.Ordinal);
+            Assert.DoesNotContain("Private non-framework customer", plainText, StringComparison.Ordinal);
+            Assert.DoesNotContain("Non-framework", plainText, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("{{reportable_frameworks}}", plainText, StringComparison.Ordinal);
             Assert.DoesNotContain("{{active_contracts}}", plainText, StringComparison.Ordinal);
             var gCloud13Index = plainText.IndexOf("- G-Cloud 13", StringComparison.Ordinal);

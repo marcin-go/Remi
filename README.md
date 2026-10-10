@@ -33,6 +33,18 @@ Fully reconciled positions disappear from **Past expected dates · needs reconci
 
 Schema version 10 adds allocation storage without changing existing register rows or creating matches. Before an upgraded portable build first opens operational data, stop the published instance and create and verify a recoverable backup of its complete `publish\Remi\data` folder, including evidence, reference data and application keys. The migration's additional SQLite backup is not a substitute for that complete backup.
 
+## Non-framework agreements
+
+Choose **Contracts → Non-framework agreement**, or follow the link from contract registration. Register signed, email-confirmed or verbal agreements; verbal agreements require notes describing the parties and terms. Evidence can be attached when available. Customer URN and framework MI fields are optional or omitted.
+
+Choose a fixed term, open-ended term or annual rolling term. Rolling agreements continue automatically from one start-date anniversary to the next. Remi shows the next anniversary and its 90-calendar-day customer notice deadline on the agreement and Home; the Contracts status filter includes rolling notice deadlines. Record both the notice received date and the effective termination date in the agreement editor. Rolling termination must fall on an anniversary with at least 90 days' notice. Clearing both dates withdraws the notice. Future annual positions are cancelled for billing, while their review history is retained; allocated future periods must be reconciled before termination can be recorded.
+
+Record the initial annual charge and, where applicable, the agreed CPI measure/reference period plus X percentage points. Each **Annual renewals and CPI reviews** action records the actual CPI rate and its source/period, compounds the previous reviewed charge by `1 + (CPI + X) / 100`, rounds to pennies, and creates that year's payment position. Reviews must be recorded in order and cover no more than the current or next annual period. Future CPI is not guessed, and future reviewed prices do not replace the current annual charge early. Missing annual prices are marked for review. Agreements without an uplift can record a zero-rate annual review. Original terms and reviewed history are retained, and the original start date/annual charge cannot change once invoices, allocations or reviews exist.
+
+Register these invoices from **Invoices → Register** by selecting the non-framework agreement. They retain payment tracking, 30-day due dates, evidence and schedule reconciliation. Non-framework contracts, reviews and invoices never create framework monthly returns, enter MI exports/reporting cards, or appear in the monthly framework inventory. Portfolio totals show their latest reviewed annual charges separately from framework lifetime contract values.
+
+Schema version 12 adds separate agreement-terms and annual-review tables without changing existing register rows, invoice payment statuses, evidence or application keys. Back up and verify the complete published data folder before the updated portable instance first opens it.
+
 ## Invoice payment tracking
 
 Open a registered invoice and use **Overview → Payment tracking** to record its payment status and **Date paid**. **Mark unpaid / clear date paid** removes an assumed or previously recorded payment date. Payment corrections are audited and do not alter reporting or payment-schedule allocations. New positive invoices start unpaid; invoices whose payment status is unknown remain separate from unpaid invoices.

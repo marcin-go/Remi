@@ -21,7 +21,7 @@ public static class ContractPortfolioRules
     {
         // Recorded agreements already affect the register, including unconfirmed and future-dated
         // agreements. Retain that treatment, with confirmation exposed separately for review.
-        var end = changes.Where(change => change.Kind == ContractChangeKind.Extension)
+        var end = contract.Framework == FrameworkCode.NonFramework ? NonFrameworkContractRules.EffectiveEnd(contract) : changes.Where(change => change.Kind == ContractChangeKind.Extension)
             .Select(change => change.EffectiveEndDate).Append(contract.EndDate).Max();
         var changeValue = changes.Sum(change => change.IncrementalValueExVat);
         return new(end, changeValue, contract.TotalContractValueExVat + changeValue,
@@ -34,6 +34,11 @@ public static class ContractPortfolioRules
         if (start > today) return ContractLifecycle.Future;
         return end < today ? ContractLifecycle.Ended : ContractLifecycle.Live;
     }
+
+    public static ContractLifecycle ContractLifecycleFor(ContractRecord contract, DateOnly? end, DateOnly today) =>
+        contract.NonFrameworkTerms is { TermKind: not ContractTermKind.FixedTerm } && contract.StartDate is { } start && end is null
+            ? start > today ? ContractLifecycle.Future : ContractLifecycle.Live
+            : Lifecycle(contract.StartDate, end, today);
 
     public static bool IsEndingWithin(DateOnly? start, DateOnly? end, DateOnly today, int days) =>
         Lifecycle(start, end, today) == ContractLifecycle.Live && end!.Value.DayNumber - today.DayNumber <= days;

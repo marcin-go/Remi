@@ -101,7 +101,10 @@
                     <div class="invoice-details-grid">
                         <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" @bind:event="oninput" /><span class="floating-label">Invoice or credit note number</span></label>
                         <label class="floating-field floating-field--static"><input required type="date" @bind="invoiceDate" /><span class="floating-label">Invoice or credit note date</span></label>
+                        @if (!IsNonFramework)
+                        {
                         <RemiPicklist Id="invoice-reporting-month-picklist-options" Label="Reporting month" Items="@ReportingMonthOptions" Value="@reportingMonth" ValueChanged="@(value => reportingMonth = value)" ItemLabel="DisplayReportingMonth" Required="true" />
+                        }
                         <label class="floating-field floating-field--static floating-field--currency"><b aria-hidden="true">£</b><input required type="number" step="0.01" @bind="totalCostExVat" /><span class="floating-label">Total cost, ex VAT</span></label>
                     </div>
                     <p class="invoice-field-help">Use a negative total for a credit note.</p>
@@ -151,6 +154,10 @@
                         </div>
                     </section>
                 }
+                else if (IsNonFramework)
+                {
+                    <p class="notice">This invoice is tracked for payment and is excluded from framework reports.</p>
+                }
                 else
                 {
                     <p class="notice warning">An approved invoice template for @Frameworks.Get(SelectedContract.Framework).DisplayName is not available yet, so an invoice cannot be recorded from this form.</p>
@@ -198,7 +205,8 @@
         ? (contracts ?? []).Where(MatchesContractSearch).ToList()
         : contracts ?? [];
     private bool IsValidReportingMonth => DateOnly.TryParseExact($"{reportingMonth}-01", "yyyy-MM-dd", out _);
-    private MiInvoiceIntakeForm? IntakeForm => SelectedContract is { } contract ? MiInvoiceIntakeForms.For(contract.Framework) : null;
+    private bool IsNonFramework => SelectedContract?.Framework == FrameworkCode.NonFramework;
+    private MiInvoiceIntakeForm? IntakeForm => SelectedContract is { } contract && Frameworks.IsReportable(contract.Framework) ? MiInvoiceIntakeForms.For(contract.Framework) : null;
     private IReadOnlyList<string> ServiceGroupOptions => IntakeForm?.ServiceGroupsFor(lotNumber) ?? [];
     private IReadOnlyList<string> ContractChangeOptions => [string.Empty, .. (SelectedContract?.AgreedChanges.Select(change => change.Id.ToString("D")) ?? [])];
     private IReadOnlyList<string> LotOptions => [string.Empty, .. (IntakeForm?.Lots ?? [])];
@@ -207,7 +215,7 @@
     private IReadOnlyList<string> UnitOfMeasurePicklistOptions => [string.Empty, .. (IntakeForm?.UnitOfMeasureOptions ?? [])];
     private decimal totalCostExVat { get => totalCostValue; set { totalCostValue = value; if (!pricePerUnitManuallySet) pricePerUnitExVatValue = InvoiceReportingDefaults.PricePerUnitExVat(value); } }
     private decimal? pricePerUnitExVat { get => pricePerUnitExVatValue; set { pricePerUnitManuallySet = true; pricePerUnitExVatValue = value; } }
-    private bool HasRequiredMiFields => IntakeForm is { IsAvailable: true } form
+    private bool HasRequiredMiFields => IsNonFramework && !string.IsNullOrWhiteSpace(customerName) || IntakeForm is { IsAvailable: true } form
         && !string.IsNullOrWhiteSpace(customerName)
         && !string.IsNullOrWhiteSpace(customerUrn)
         && form.Lots.Contains(lotNumber, StringComparer.Ordinal)
@@ -215,8 +223,8 @@
         && (form.IsVas
             ? form.ServiceGroupLevel2Options.Contains(serviceGroupLevel2, StringComparer.Ordinal) && !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(originalVendor) && !string.IsNullOrWhiteSpace(subcontractorName)
             : !string.IsNullOrWhiteSpace(digitalMarketplaceServiceId) && form.UnitOfMeasureOptions.Contains(unitOfMeasure, StringComparer.Ordinal) && quantity is not null && pricePerUnitExVat is not null);
-    private bool CanRecord => SelectedContract is not null && IsValidReportingMonth && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && totalCostExVat != 0 && HasRequiredMiFields;
-    private bool InvoiceExceedsRecordedValue => SelectedContract is not null && totalCostExVat > SelectedContract.RemainingCommittedValueExVat;
+    private bool CanRecord => SelectedContract is not null && (IsNonFramework || IsValidReportingMonth) && !string.IsNullOrWhiteSpace(invoiceNumber) && invoiceDate is not null && totalCostExVat != 0 && HasRequiredMiFields;
+    private bool InvoiceExceedsRecordedValue => !IsNonFramework && SelectedContract is not null && totalCostExVat > SelectedContract.RemainingCommittedValueExVat;
     private decimal InvoiceOverage => SelectedContract is null ? 0 : Math.Max(0, totalCostExVat - SelectedContract.RemainingCommittedValueExVat);
     private bool HasUnsavedInvoiceChanges => !string.IsNullOrWhiteSpace(invoiceNumber) || invoiceDate is not null || totalCostExVat != 0 || !string.IsNullOrWhiteSpace(customerName) || reportingMonth != initialReportingMonth || clipboardImageCount != 0;
     private string ClipboardEvidenceMessage => clipboardImageCount == 0 ? "Paste images here to retain them as invoice evidence." : $"{clipboardImageCount} image{(clipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";

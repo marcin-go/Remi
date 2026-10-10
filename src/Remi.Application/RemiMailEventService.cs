@@ -302,6 +302,7 @@ public sealed class RemiMailEventService(
             item => item.Name,
             StringComparer.OrdinalIgnoreCase);
         return database.Contracts
+            .Where(contract => Frameworks.IsReportable(contract.Framework))
             .Where(contract => contract.CreatedAtUtc <= asOfUtc)
             .Select(contract => new
             {

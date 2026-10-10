@@ -7,6 +7,7 @@ public enum FrameworkCode
     VerticalApplicationSolutions,
     // Appended to preserve the stored numeric values of the existing SQLite framework codes.
     GCloud15,
+    NonFramework,
 }
 
 public sealed record FrameworkDefinition(
@@ -65,8 +66,13 @@ public static class Frameworks
             null),
     ];
 
-    public static FrameworkDefinition Get(FrameworkCode code) =>
-        All.Single(framework => framework.Code == code);
+    public static readonly FrameworkDefinition NonFramework = new(FrameworkCode.NonFramework,
+        "Non-framework", "Non-framework", "Not reportable", "Operational contract tracking only.", null, null, null);
+
+    public static IReadOnlyList<FrameworkDefinition> RegisterCategories => [.. All, NonFramework];
+    public static bool IsReportable(FrameworkCode code) => All.Any(item => item.Code == code);
+    public static FrameworkDefinition Get(FrameworkCode code) => code == FrameworkCode.NonFramework
+        ? NonFramework : All.Single(framework => framework.Code == code);
 
     public static bool IsGCloud(FrameworkCode code) =>
         code is FrameworkCode.GCloud13 or FrameworkCode.GCloud14 or FrameworkCode.GCloud15;
@@ -76,6 +82,7 @@ public static class Frameworks
 
     public static bool IsOperational(FrameworkCode code, DateOnly date)
     {
+        if (code == FrameworkCode.NonFramework) return true;
         var framework = Get(code);
         return framework.DefaultStartDate is { } startDate
             && framework.DefaultEndDate is { } endDate

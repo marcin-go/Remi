@@ -4,7 +4,7 @@ namespace Remi.Application;
 
 /// <summary>No state implies an option has been exercised or conclusively exhausted.</summary>
 public enum RecordedOptionState { NoOptionRecorded, OptionsRecorded, AssociationNeedsReview }
-public enum PortfolioFilter { All, Live, Future, UnknownDates, Ended, Ending, EndingNoOptionRecorded, EndingOptionsRecorded, EndingOptionsNeedReview, NoSchedule, ExtensionReview, EndedValue, UndatedSchedule }
+public enum PortfolioFilter { All, Live, Future, UnknownDates, Ended, Ending, EndingNoOptionRecorded, EndingOptionsRecorded, EndingOptionsNeedReview, NoSchedule, ExtensionReview, EndedValue, UndatedSchedule, RollingNotice }
 
 public sealed record OperationalContract(
     ContractRecord Contract,
@@ -31,6 +31,8 @@ public sealed record OperationalContract(
         PortfolioFilter.Future => Lifecycle == ContractLifecycle.Future,
         PortfolioFilter.UnknownDates => Lifecycle == ContractLifecycle.Unknown,
         PortfolioFilter.Ended => Lifecycle == ContractLifecycle.Ended,
+        PortfolioFilter.RollingNotice => Lifecycle == ContractLifecycle.Live
+            && NonFrameworkContractRules.NextNoticeDeadline(Contract, today) is { } deadline && deadline <= today.AddDays(endingWithinDays),
         PortfolioFilter.NoSchedule => !HasSchedule,
         PortfolioFilter.ExtensionReview => ExtensionsNeedingAssociation.Count > 0,
         PortfolioFilter.EndedValue => Lifecycle == ContractLifecycle.Ended && RemainingCommittedValueExVat > 0,
@@ -47,12 +49,12 @@ public sealed record OperationalContract(
 public sealed record ScheduledPaymentPosition(
     Guid PositionId, Guid ContractId, string SupplierReference, string CustomerName,
     string Description, DateOnly? ExpectedInvoiceDate, decimal ValueExVat, bool IsOptionalExtension,
-    BillingPositionSource Source, decimal AllocatedValueExVat = 0, bool IsExtensionCommitted = false)
+    BillingPositionSource Source, decimal AllocatedValueExVat = 0, bool IsExtensionCommitted = false, bool IsCancelled = false)
 {
-    public bool IsEligibleForBilling => !IsOptionalExtension || IsExtensionCommitted;
+    public bool IsEligibleForBilling => !IsCancelled && (!IsOptionalExtension || IsExtensionCommitted);
     public decimal OutstandingValueExVat => Math.Max(0, ValueExVat - AllocatedValueExVat);
     public bool IsReconciled => ValueExVat > 0 && AllocatedValueExVat >= ValueExVat;
-    public string ReconciliationState => !IsEligibleForBilling ? "Optional · agreement needed"
+    public string ReconciliationState => IsCancelled ? "Cancelled · contract terminated" : !IsEligibleForBilling ? "Optional · agreement needed"
         : IsReconciled ? "Reconciled" : AllocatedValueExVat > 0 ? "Partially reconciled" : "Needs reconciliation";
 }
 
@@ -75,6 +77,10 @@ public sealed record OperationalHomeModel(
         .Where(item => item.Matches(filter, AsAtDate, EndingWithinDays))
         .OrderBy(item => item.Commercial.EndDate)
         .ThenBy(item => item.Contract.SupplierReference, StringComparer.OrdinalIgnoreCase).ToList();
+
+    public IReadOnlyList<OperationalContract> RollingRenewals => Contracts.Where(item => item.Lifecycle == ContractLifecycle.Live
+        && item.Contract.NonFrameworkTerms is { TermKind: ContractTermKind.AnnualRolling, NoticeReceivedDate: null })
+        .OrderBy(item => NonFrameworkContractRules.NextNoticeDeadline(item.Contract, AsAtDate)).ToList();
 
     public int ContractsWithoutSchedule => Contracts.Count(item => !item.HasSchedule);
     public int FullyDatedSchedules => Contracts.Count(item => item.HasSchedule && item.UndatedPositionCount == 0);

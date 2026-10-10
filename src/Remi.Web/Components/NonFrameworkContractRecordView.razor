@@ -1,0 +1,107 @@
+@inject ReportingWorkspace Workspace
+@inject TimeProvider Clock
+@inject NavigationManager Navigation
+
+@if (details is null) { <p class="loading">Loading agreement…</p> }
+else
+{
+    var contract = details.Contract;
+    var terms = contract.NonFrameworkTerms!;
+    <section class="contract-record non-framework-record">
+        <header class="dashboard-header contract-hero"><div><h1>@contract.SupplierReference</h1><p>@contract.CustomerName · Non-framework · @Lifecycle</p></div><div class="contract-hero-actions"><a class="remi-action" href="/contracts">Back</a><button class="remi-action" @onclick="@(() => editing = !editing)">@(editing ? "Cancel" : "Edit")</button><button class="remi-action" @onclick="ShowDeleteAsync">Delete</button></div></header>
+        <p class="notice">This agreement and its invoices are excluded from framework reports.</p>
+        @if (editing) { <NonFrameworkContractForm Contract="@contract" Saved="SavedAsync" Cancel="@(() => editing = false)" /> }
+        else
+        {
+            <article class="contract-content-card"><header class="contract-card-head"><h2>Agreement and renewal</h2></header><section class="contract-detail-section">
+                <dl class="record-display-grid">
+                    <div><dt>Agreement basis</dt><dd>@BasisLabel(terms.AgreementBasis)</dd></div><div><dt>Agreement date</dt><dd>@Date(terms.AgreementDate)</dd></div>
+                    <div><dt>Term</dt><dd>@TermLabel(terms.TermKind)</dd></div><div><dt>Start date</dt><dd>@Date(contract.StartDate)</dd></div>
+                    <div><dt>End / termination date</dt><dd>@(NonFrameworkContractRules.EffectiveEnd(contract) is { } end ? Date(end) : "No set end date")</dd></div>
+                    <div><dt>Current contract year</dt><dd>@NonFrameworkContractRules.ContractYear(contract, Today)</dd></div>
+                    <div><dt>Next anniversary</dt><dd>@Date(NonFrameworkContractRules.NextAnniversary(contract, Today))</dd></div>
+                    @if (terms.TermKind == ContractTermKind.AnnualRolling)
+                    {
+                        <div><dt>Notice deadline (90 days)</dt><dd>@Date(NonFrameworkContractRules.NextNoticeDeadline(contract, Today))</dd></div>
+                        <div><dt>Notice received</dt><dd>@Date(terms.NoticeReceivedDate)</dd></div>
+                    }
+                    <div><dt>Latest reviewed annual charge</dt><dd>@Money(NonFrameworkContractRules.AnnualCharge(contract, details.AnnualReviews, Today)) ex VAT</dd></div>
+                    <div><dt>Annual price rule</dt><dd>@(terms.UsesCpi ? $"CPI + {terms.AdditionalPercentage:0.##}% · {terms.CpiReference}" : "No annual uplift")</dd></div>
+                </dl>
+                <h3>Agreement notes</h3><p class="agreement-notes">@(string.IsNullOrWhiteSpace(terms.AgreementNotes) ? "Not recorded" : terms.AgreementNotes)</p>
+                @if (NonFrameworkContractRules.NextNoticeDeadline(contract, Today) is { } deadline && deadline < Today)
+                { <p class="notice warning">The notice deadline for the next anniversary has passed. A new notice must target a later eligible anniversary; the agreement continues to roll annually.</p> }
+            </section></article>
+            <article class="contract-content-card"><header class="contract-card-head"><div><h2>Annual renewals and CPI reviews</h2><p>Dates follow the original start-date anniversary. Annual rolling terms continue automatically unless a valid termination notice is recorded. Review prices to create the next annual payment position.</p></div></header>
+                <section class="contract-detail-section">
+                    @if (NextReviewDate is { } effective)
+                    {
+                        <h3>Review year @NextReviewYear · @Date(effective)</h3>
+                        @if (effective <= Today) { <p class="notice warning">This annual charge needs review. The latest reviewed charge is shown until the new price is recorded.</p> }
+                        <div class="invoice-details-grid">
+                            @if (terms.UsesCpi)
+                            {
+                                <label class="floating-field floating-field--static"><input aria-label="CPI rate for annual review" type="number" step="0.01" @bind="cpiRate" /><span class="floating-label">Actual CPI rate (%)</span></label>
+                                <label class="floating-field"><input aria-label="CPI source and period" placeholder=" " @bind="reviewReference" /><span class="floating-label">CPI source and reference period</span></label>
+                            }
+                        </div>
+                        <p>Previous annual charge @Money(PreviousCharge). Additional rate @terms.AdditionalPercentage.ToString("0.##")%. New annual charge: <strong>@(PreviewCharge is { } price ? Money(price) : "Enter a CPI rate") ex VAT</strong>.</p>
+                        <button class="remi-action remi-action--primary" disabled="@(busy || PreviewCharge is not > 0 || terms.UsesCpi && string.IsNullOrWhiteSpace(reviewReference))" @onclick="ReviewAsync">Record annual review</button>
+                    }
+                    else { <p class="muted">No further annual review is available within the current or next annual period.</p> }
+                    @if (result is not null) { <p class="notice @(result.Succeeded ? "success" : "error")" role="status">@result.Message</p> }
+                    <div class="register-table-scroll"><table class="register-table"><thead><tr><th>Year</th><th>Effective date</th><th>Previous charge</th><th>CPI + X%</th><th>Annual charge ex VAT</th><th>CPI reference</th></tr></thead><tbody>
+                        <tr><td>1</td><td>@Date(contract.StartDate)</td><td>—</td><td>Initial agreement</td><td>@Money(terms.InitialAnnualChargeExVat)</td><td>—</td></tr>
+                        @foreach (var review in details.AnnualReviews) { <tr><td>@review.ContractYear</td><td>@Date(review.EffectiveDate)</td><td>@Money(review.PreviousAnnualChargeExVat)</td><td>@review.CpiPercentage.ToString("0.##")% + @review.AdditionalPercentage.ToString("0.##")%</td><td>@Money(review.AnnualChargeExVat)</td><td>@review.CpiReference</td></tr> }
+                    </tbody></table></div>
+                </section>
+            </article>
+            <article class="contract-content-card"><header class="contract-card-head"><h2>Payment schedule</h2></header><div class="register-table-scroll"><table class="register-table"><thead><tr><th>Year</th><th>Expected invoice date</th><th>Annual charge ex VAT</th><th>Invoice reconciliation</th></tr></thead><tbody>@foreach (var position in details.PaymentPositions) { <tr><td>@details.ChargeSchedule.Single(item => item.Id == position.PositionId).ContractYear</td><td>@Date(position.ExpectedInvoiceDate)</td><td>@Money(position.ValueExVat)</td><td>@position.ReconciliationState</td></tr> }</tbody></table></div></article>
+            <article class="contract-content-card"><header class="contract-card-head"><h2>Invoices</h2><a class="remi-action" href="/invoices/new">Register invoice</a></header><div class="register-table-scroll"><table class="register-table"><thead><tr><th>Invoice</th><th>Invoice date</th><th>Due date</th><th>Payment status</th><th>Date paid</th><th>Ex VAT</th></tr></thead><tbody>@foreach (var invoice in details.Invoices) { <tr><td><a class="register-reference" href="@($"/invoices/{invoice.Id}")">@invoice.InvoiceNumber</a></td><td>@Date(invoice.InvoiceDate)</td><td>@Date(invoice.DueDate)</td><td>@(invoice.IsOverdue(Today) ? "Unpaid · overdue" : invoice.PaymentStatus.ToString())</td><td>@Date(invoice.DatePaid)</td><td>@Money(invoice.TotalCostExVat)</td></tr> }@if (details.Invoices.Count == 0) { <tr><td colspan="6" class="register-empty">No invoices registered.</td></tr> }</tbody></table></div></article>
+            <article class="contract-content-card"><header class="contract-card-head"><h2>Supporting documents</h2></header><EvidenceGallery Documents="@details.Evidence" /><ClipboardImageEvidence @ref="documents"><section class="contract-detail-section"><p>Attach agreement emails, notes or signed documents when available.</p><button class="remi-action" disabled="@busy" @onclick="SaveDocumentsAsync">Save documents</button></section></ClipboardImageEvidence></article>
+            <article class="contract-content-card"><header class="contract-card-head"><h2>History</h2></header><section class="contract-history-list">@foreach (var item in history) { <article><time>@item.OccurredAtUtc.LocalDateTime.ToString("dd MMM yyyy, HH:mm")</time><div><strong>@item.Summary</strong>@if (!string.IsNullOrEmpty(item.Reason)) { <span>@item.Reason</span> }</div></article> }</section></article>
+        }
+        @if (impact is not null) { <DeletionConfirmationDialog Title="@($"Delete agreement {contract.SupplierReference}?")" Description="This permanently deletes the agreement." Impact="@impact" RetainedMessage="The audit history and shared documents are retained." ConfirmLabel="Delete agreement" Working="@busy" ErrorMessage="@(result is { Succeeded: false } ? result.Message : null)" OnCancel="@(() => impact = null)" OnConfirm="DeleteAsync" /> }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid ContractId { get; set; }
+    private ContractDetailsModel? details;
+    private IReadOnlyList<AuditEventSummary> history = [];
+    private bool editing, busy;
+    private decimal? cpiRate;
+    private string reviewReference = "";
+    private ReturnActionResult? result;
+    private DeletionImpact? impact;
+    private ClipboardImageEvidence? documents;
+    private DateOnly Today => ContractPortfolioRules.Today(Clock);
+    private ContractLifecycle Lifecycle => ContractPortfolioRules.ContractLifecycleFor(details!.Contract, NonFrameworkContractRules.EffectiveEnd(details.Contract), Today);
+    private int NextReviewYear => details!.AnnualReviews.Count == 0 ? 2 : details.AnnualReviews.Max(item => item.ContractYear) + 1;
+    private DateOnly? NextReviewDate => details?.Contract.StartDate is { } start && NextReviewYear <= NonFrameworkContractRules.ContractYear(details.Contract, Today) + 1
+        && start.Year + NextReviewYear - 1 <= 9999 && (NonFrameworkContractRules.EffectiveEnd(details.Contract) is not { } end || start.AddYears(NextReviewYear - 1) < end) ? start.AddYears(NextReviewYear - 1) : null;
+    private decimal PreviousCharge => details!.AnnualReviews.LastOrDefault()?.AnnualChargeExVat ?? details.Contract.NonFrameworkTerms!.InitialAnnualChargeExVat;
+    private decimal? PreviewCharge { get { try { return !details!.Contract.NonFrameworkTerms!.UsesCpi || cpiRate is not null ? NonFrameworkContractRules.CalculateUplift(PreviousCharge, details.Contract.NonFrameworkTerms.UsesCpi ? cpiRate!.Value : 0, details.Contract.NonFrameworkTerms.AdditionalPercentage) : null; } catch (OverflowException) { return null; } } }
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    private async Task LoadAsync() { details = await Workspace.GetContractDetailsAsync(ContractId); history = await Workspace.GetContractAuditEventsAsync(ContractId); }
+    private async Task SavedAsync(Guid id) { editing = false; await LoadAsync(); }
+    private async Task ReviewAsync()
+    {
+        if (busy) return; busy = true;
+        try { result = await Workspace.RecordNonFrameworkAnnualReviewAsync(ContractId, NextReviewYear, cpiRate ?? 0, reviewReference); if (result.Succeeded) { cpiRate = null; reviewReference = ""; await LoadAsync(); } }
+        finally { busy = false; }
+    }
+    private async Task SaveDocumentsAsync()
+    {
+        if (busy) return; busy = true;
+        try { await documents!.ArchiveAsync("contract", ContractId); await LoadAsync(); result = new(true, "Documents saved.", []); }
+        catch (Exception exception) { result = new(false, $"Documents could not be saved: {exception.Message}", []); }
+        finally { busy = false; }
+    }
+    private async Task ShowDeleteAsync() { result = null; impact = await Workspace.GetContractDeletionImpactAsync(ContractId); }
+    private async Task DeleteAsync() { if (busy) return; busy = true; try { result = await Workspace.DeleteContractAsync(ContractId); if (result.Succeeded) { impact = null; Navigation.NavigateTo("/contracts"); } } finally { busy = false; } }
+    private static string Date(DateOnly? date) => date?.ToString("dd MMM yyyy") ?? "Not recorded";
+    private static string Money(decimal value) => value.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+    private static string BasisLabel(AgreementBasis value) => value switch { AgreementBasis.SignedDocument => "Signed document", AgreementBasis.EmailConfirmation => "Email confirmation", _ => "Verbal agreement" };
+    private static string TermLabel(ContractTermKind value) => value switch { ContractTermKind.FixedTerm => "Fixed term", ContractTermKind.OpenEnded => "Open-ended", _ => "Annual rolling · 90-day notice" };
+}

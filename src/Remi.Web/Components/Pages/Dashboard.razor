@@ -37,6 +37,19 @@ else
             <a href="@ContractList("extension-review")">@Portfolio.ContractsNeedingExtensionAssociation extension associations to review</a>
             <a href="@ContractList("unknown")">@Count(PortfolioFilter.UnknownDates) contracts with dates to review</a>
         </div>
+        @if (Portfolio.RollingRenewals.Count > 0)
+        {
+            <article class="home-section">
+                <header class="dashboard-section-heading"><div><h2>Rolling renewals and notice deadlines</h2><p>Non-framework agreements renew annually. The customer notice deadline is 90 days before the anniversary.</p></div><a class="remi-action" href="/contracts?status=renewal-notice">Review notice deadlines</a></header>
+                <div class="home-table-scroll" tabindex="0" role="region" aria-label="Rolling renewal deadlines"><table class="home-table"><thead><tr><th>Contract / customer</th><th>Next anniversary</th><th>Notice deadline</th></tr></thead><tbody>
+                @foreach (var item in Portfolio.RollingRenewals.Take(5))
+                {
+                    var deadline = NonFrameworkContractRules.NextNoticeDeadline(item.Contract, Portfolio.AsAtDate);
+                    <tr><td><a class="register-reference" href="@($"/contracts/{item.Contract.Id}")">@item.Contract.SupplierReference</a><span>@item.Contract.CustomerName</span></td><td>@NonFrameworkContractRules.NextAnniversary(item.Contract, Portfolio.AsAtDate)?.ToString("dd MMM yyyy")</td><td>@deadline?.ToString("dd MMM yyyy")@if (deadline < Portfolio.AsAtDate) { <span class="home-warning">Deadline passed · next renewal committed</span> }</td></tr>
+                }
+                </tbody></table></div>
+            </article>
+        }
         <div class="home-working-sections">
             <article class="home-section">
                 <header class="dashboard-section-heading"><div><h2>Contract endings</h2><p>Live contracts ending within @Horizon days, earliest first.</p></div><a class="remi-action remi-action--section" href="@ContractList("ending-soon")">View contracts</a></header>
@@ -75,7 +88,8 @@ else
         </div>
         <p class="home-billing-note">Remi records accounting invoices; it does not issue them or establish whether an unregistered invoice exists elsewhere. Optional charges are excluded from dated forecasts until their agreements are associated.</p>
         <div class="home-coverage home-secondary-facts">
-            <span>Live contract value <strong>@Currency(Portfolio.MatchingContracts(PortfolioFilter.Live).Sum(item => item.Commercial.ContractValueExVat))</strong> ex VAT</span>
+            <span>Live framework contract value <strong>@Currency(Portfolio.MatchingContracts(PortfolioFilter.Live).Where(item => Frameworks.IsReportable(item.Contract.Framework)).Sum(item => item.Commercial.ContractValueExVat))</strong> ex VAT</span>
+            @if (Portfolio.Contracts.Any(item => item.Contract.Framework == FrameworkCode.NonFramework)) { <span>Non-framework latest reviewed annual charges <strong>@Currency(Portfolio.MatchingContracts(PortfolioFilter.Live).Where(item => item.Contract.Framework == FrameworkCode.NonFramework).Sum(item => item.Commercial.ContractValueExVat))</strong> ex VAT</span> }
             <a href="@ContractList("future")">@Count(PortfolioFilter.Future) contracts not started</a>
             <a href="@ContractList("ended-value")">@Count(PortfolioFilter.EndedValue) ended contracts with @Currency(Portfolio.MatchingContracts(PortfolioFilter.EndedValue).Sum(item => item.RemainingCommittedValueExVat ?? 0)) still to invoice against recorded committed value</a>
             @if (Portfolio.AmbiguousInvoiceMatches > 0) { <span>@Portfolio.AmbiguousInvoiceMatches ambiguous contract matches excluded from invoice balances</span> }

@@ -1,0 +1,10 @@
+@page "/contracts/non-framework/new"
+@inject NavigationManager Navigation
+
+<PageTitle>Remi · Register non-framework agreement</PageTitle>
+<section class="register-page">
+    <header class="dashboard-header"><div><h1>Register non-framework agreement</h1><p>Operational tracking for agreements outside a framework.</p></div><a class="remi-action" href="/contracts/new">Register framework contract</a></header>
+    <NonFrameworkContractForm Saved="Registered" />
+</section>
+
+@code { private void Registered(Guid id) => Navigation.NavigateTo($"/contracts/{id}"); }

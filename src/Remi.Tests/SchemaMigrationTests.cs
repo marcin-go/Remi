@@ -37,7 +37,7 @@ public sealed class SchemaMigrationTests
             await using (var connection = await OpenAsync(path))
             await using (var command = connection.CreateCommand())
             {
-                command.CommandText = "DROP TABLE invoice_payment_allocations; ALTER TABLE invoices DROP COLUMN payment_status; ALTER TABLE invoices DROP COLUMN date_paid; ALTER TABLE invoices DROP COLUMN payment_date_assumed; DELETE FROM remi_schema_migrations WHERE version >= 10;";
+                command.CommandText = "DROP TABLE non_framework_annual_reviews; DROP TABLE non_framework_contract_terms; DROP TABLE invoice_payment_allocations; ALTER TABLE invoices DROP COLUMN payment_status; ALTER TABLE invoices DROP COLUMN date_paid; ALTER TABLE invoices DROP COLUMN payment_date_assumed; DELETE FROM remi_schema_migrations WHERE version >= 10;";
                 await command.ExecuteNonQueryAsync();
             }
             var upgraded = new SqliteRemiStore(path);
@@ -285,7 +285,7 @@ public sealed class SchemaMigrationTests
                     versions.Add(reader.GetInt32(0));
                 }
             }
-            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], versions);
+            Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], versions);
             Assert.True(await ColumnExistsAsync(verification, "charge_schedule_items", "contract_service_part_id"));
             Assert.True(await ColumnExistsAsync(verification, "mail_templates", "body_template"));
             Assert.True(await ColumnExistsAsync(verification, "digital_marketplace_services", "framework"));

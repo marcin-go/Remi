@@ -45,7 +45,8 @@ public sealed record ContractRecord(
     decimal TotalContractValueExVat,
     string ReportMonth,
     string SourceWorkbook,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    NonFrameworkContractTerms? NonFrameworkTerms = null);
 
 public enum InvoicePaymentStatus { Unknown, Unpaid, Paid }
 
@@ -242,6 +243,7 @@ public sealed record AuditEvent(
 
 public sealed class RemiDatabase
 {
+    public List<NonFrameworkAnnualReview> NonFrameworkAnnualReviews { get; init; } = [];
     public List<ContractRecord> Contracts { get; init; } = [];
 
     public List<InvoiceRecord> Invoices { get; init; } = [];

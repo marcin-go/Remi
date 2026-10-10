@@ -34,7 +34,7 @@ else
 
         <section class="contract-summary-grid" aria-label="Invoice summary">
             <div class="contract-summary-item"><span>Total cost, ex VAT</span><strong>@Currency(details.Invoice.TotalCostExVat)</strong><small>@(IsCreditNote ? "Credit note" : "Invoice")</small></div>
-            <div class="contract-summary-item"><span>Reporting month</span><strong>@DisplayPeriod(details.Invoice.ReportMonth)</strong><small>@Frameworks.Get(InvoiceFramework).DisplayName</small></div>
+            <div class="contract-summary-item"><span>@(IsNonFramework ? "Reporting" : "Reporting month")</span><strong>@(IsNonFramework ? "Not reportable" : DisplayPeriod(details.Invoice.ReportMonth))</strong><small>@Frameworks.Get(InvoiceFramework).DisplayName</small></div>
             <div class="contract-summary-item"><span>Supporting evidence</span><strong>@details.Evidence.Count</strong><small>file@(details.Evidence.Count == 1 ? string.Empty : "s") archived</small></div>
             <div class="contract-summary-item"><span>Invoice date</span><strong>@Display(details.Invoice.InvoiceDate)</strong><small>@(details.Contract is null ? "Contract link required" : details.Contract.SupplierReference)</small></div>
         </section>
@@ -61,12 +61,17 @@ else
                             <div class="panel-heading invoice-overview-header"><h2>Invoice overview</h2><div class="invoice-overview-actions"><button class="button secondary" @onclick="ToggleEditor">Cancel</button><button class="button primary" disabled="@(!CanSave || saving)" @onclick="SaveAsync">@(saving ? "Saving…" : "Save")</button></div></div>
                             <div class="invoice-details-grid record-edit-fields">
                                 <label class="floating-field floating-field--static"><input readonly value="@Frameworks.Get(InvoiceFramework).DisplayName" /><span class="floating-label">Framework</span></label>
+                                @if (!IsNonFramework)
+                                {
                                 <label class="floating-field"><input required placeholder=" " @bind="reportMonth" /><span class="floating-label">Reporting month</span></label>
+                                }
                                 <label class="floating-field"><input required placeholder=" " @bind="supplierReference" /><span class="floating-label">Supplier reference</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="customerName" /><span class="floating-label">Customer</span></label>
-                                <label class="floating-field"><input required placeholder=" " @bind="customerUrn" /><span class="floating-label">Customer URN</span></label>
+                                <label class="floating-field"><input required="@(!IsNonFramework)" placeholder=" " @bind="customerUrn" /><span class="floating-label">@(IsNonFramework ? "Customer URN (optional)" : "Customer URN")</span></label>
                                 <label class="floating-field floating-field--static"><input type="date" @bind="invoiceDate" /><span class="floating-label">Invoice date</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="invoiceNumber" /><span class="floating-label">Invoice or credit note number</span></label>
+                                @if (!IsNonFramework)
+                                {
                                 <label class="floating-field"><input required placeholder=" " @bind="lotNumber" /><span class="floating-label">Lot</span></label>
                                 <label class="floating-field"><input required placeholder=" " @bind="serviceGroup" /><span class="floating-label">Service group / level 1</span></label>
                                 @if (IsVas)
@@ -80,6 +85,7 @@ else
                                 else
                                 {
                                 <label class="floating-field"><input placeholder=" " @bind="marketplaceServiceId" /><span class="floating-label">Digital Marketplace service ID</span></label>
+                                }
                                 }
                                 <label class="floating-field"><input placeholder=" " @bind="unitOfMeasure" /><span class="floating-label">Unit of measure</span></label>
                                 <label class="floating-field"><input type="number" step="0.01" @bind="quantity" /><span class="floating-label">Quantity</span></label>
@@ -98,7 +104,7 @@ else
                             <section class="contract-detail-section">
                                 <h3>Invoice and parties</h3>
                                 <dl class="record-display-grid">
-                                    <div><dt>Framework</dt><dd>@Frameworks.Get(InvoiceFramework).DisplayName</dd></div><div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div>
+                                    <div><dt>Framework</dt><dd>@Frameworks.Get(InvoiceFramework).DisplayName</dd></div>@if (!IsNonFramework) { <div><dt>Reporting month</dt><dd>@DisplayPeriod(details.Invoice.ReportMonth)</dd></div> }
                                     <div><dt>Supplier reference</dt><dd>@details.Invoice.SupplierReference</dd></div><div><dt>Customer</dt><dd>@details.Invoice.CustomerName</dd></div>
                                     <div><dt>Customer URN</dt><dd class="@NotRecordedClass(details.Invoice.CustomerUrn)">@Display(details.Invoice.CustomerUrn)</dd></div><div><dt>Invoice date</dt><dd>@Display(details.Invoice.InvoiceDate)</dd></div>
                                     <div><dt>Invoice number</dt><dd>@details.Invoice.InvoiceNumber</dd></div>
@@ -111,6 +117,8 @@ else
                                     <div><dt>Quantity</dt><dd class="@NotRecordedClass(details.Invoice.Quantity)">@Display(details.Invoice.Quantity)</dd></div><div><dt>Price per unit, ex VAT</dt><dd class="@NotRecordedClass(details.Invoice.PricePerUnitExVat)">@DisplayCurrency(details.Invoice.PricePerUnitExVat)</dd></div>
                                 </dl>
                             </section>
+                            @if (!IsNonFramework)
+                            {
                             <section class="contract-detail-section">
                                 <h3>Service classification</h3>
                                 <dl class="record-display-grid">
@@ -127,6 +135,7 @@ else
                                     }
                                 </dl>
                             </section>
+                            }
                         </article>
                         <aside class="contract-side-card">
                             <section><h2>Record completeness</h2><ul class="contract-check-list"><li class="@(HasCoreDetails ? "complete" : "incomplete")"><i>@StatusMark(HasCoreDetails)</i><span>Core invoice fields recorded</span></li><li class="@(details.Contract is not null ? "complete" : "incomplete")"><i>@StatusMark(details.Contract is not null)</i><span>@(details.Contract is null ? "Matching contract not found" : "Matching contract linked")</span></li><li class="@(details.Evidence.Count != 0 ? "complete" : "incomplete")"><i>@StatusMark(details.Evidence.Count != 0)</i><span>@(details.Evidence.Count == 0 ? "Supporting evidence not attached" : "Supporting evidence attached")</span></li></ul></section>
@@ -187,12 +196,13 @@ else
     private bool IsCreditNote => details?.Invoice.TotalCostExVat < 0;
     private FrameworkCode InvoiceFramework => details!.Contract?.Framework ?? details.Invoice.Framework;
     private bool HasCoreDetails => details is not null && !string.IsNullOrWhiteSpace(details.Invoice.InvoiceNumber) && details.Invoice.InvoiceDate is not null && details.Invoice.TotalCostExVat != 0;
+    private bool IsNonFramework => InvoiceFramework == FrameworkCode.NonFramework;
     private bool IsVas => InvoiceFramework == FrameworkCode.VerticalApplicationSolutions;
-    private bool HasRequiredMiFields => !string.IsNullOrWhiteSpace(customerUrn) && !string.IsNullOrWhiteSpace(lotNumber)
+    private bool HasRequiredMiFields => IsNonFramework || !string.IsNullOrWhiteSpace(customerUrn) && !string.IsNullOrWhiteSpace(lotNumber)
         && (IsVas
             ? !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(serviceGroupLevel2) && !string.IsNullOrWhiteSpace(serviceDescription) && !string.IsNullOrWhiteSpace(originalVendor) && !string.IsNullOrWhiteSpace(subcontractorName)
             : !string.IsNullOrWhiteSpace(serviceGroup) && !string.IsNullOrWhiteSpace(marketplaceServiceId) && !string.IsNullOrWhiteSpace(unitOfMeasure) && quantity is not null && pricePerUnitExVat is not null);
-    private bool CanSave => details is not null && IsValidReportingMonth(reportMonth) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0 && HasRequiredMiFields;
+    private bool CanSave => details is not null && (IsNonFramework || IsValidReportingMonth(reportMonth)) && !string.IsNullOrWhiteSpace(supplierReference) && !string.IsNullOrWhiteSpace(customerName) && !string.IsNullOrWhiteSpace(invoiceNumber) && totalCostExVat != 0 && HasRequiredMiFields;
     private string InvoiceClipboardEvidenceMessage => invoiceClipboardImageCount == 0 ? "Paste images here to add them to this invoice's evidence." : $"{invoiceClipboardImageCount} image{(invoiceClipboardImageCount == 1 ? string.Empty : "s")} ready to add as evidence.";
 
     protected override void OnInitialized() => ReportingPeriod.Changed += ReportingPeriodChanged;

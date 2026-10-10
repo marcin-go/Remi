@@ -1519,3 +1519,9 @@ main { min-width: 0; }
 .payment-tracking-controls .floating-field { min-width: 180px; }
 .payment-report-summary { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 1rem 1.25rem; }
 .payment-report-summary strong { display: block; }
+
+.non-framework-form { padding: 1.25rem; }
+.non-framework-form textarea { min-height: 6rem; }
+.non-framework-form > .floating-field { margin: 1rem 0; }
+.non-framework-record > .contract-content-card { margin-top: 1rem; }
+.non-framework-record .agreement-notes { white-space: pre-wrap; }

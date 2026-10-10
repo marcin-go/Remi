@@ -177,7 +177,7 @@ public sealed partial class RegisterComponentTests
         var groups = contracts.FindAll("#contract-framework-filter-options .picklist-option-group");
         Assert.Equal(["Live", "Historical"], groups.Select(group => group.GetAttribute("aria-label")).ToList());
         Assert.Equal(
-            ["G-Cloud 14", "G-Cloud 15", "Vertical Application Solutions"],
+            ["G-Cloud 14", "G-Cloud 15", "Non-framework", "Vertical Application Solutions"],
             groups[0].QuerySelectorAll("[role='option']").Select(option => option.TextContent.Trim()).ToList());
         Assert.Equal(
             ["G-Cloud 13"],
@@ -197,7 +197,7 @@ public sealed partial class RegisterComponentTests
         contracts.Find("button[role='combobox'][aria-label='Contract status']").Click();
 
         Assert.Equal(
-            ["Live", "Ongoing", "Ending within 180 days", "Ending · no further extension recorded", "Ending · extension decisions", "Ending · options need review", "Not started", "Ended", "Ended · value still to invoice", "Dates need review", "No schedule", "Undated schedule", "Extension associations to review"],
+            ["Rolling notice deadlines", "Live", "Ongoing", "Ending within 180 days", "Ending · no further extension recorded", "Ending · extension decisions", "Ending · options need review", "Not started", "Ended", "Ended · value still to invoice", "Dates need review", "No schedule", "Undated schedule", "Extension associations to review"],
             contracts.FindAll("#contract-status-filter-options [role='option']").Select(option => option.TextContent.Trim()).ToList());
     }
 

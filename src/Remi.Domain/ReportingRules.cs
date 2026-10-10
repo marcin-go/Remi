@@ -30,6 +30,12 @@ public static class ReportingRules
                 findings.Add(Error("MissingCustomerName", $"{contract.SupplierReference}: a customer organisation name is required.", "Contract", contract.Id));
             }
 
+            if (contract.Framework == FrameworkCode.NonFramework)
+            {
+                if (NonFrameworkContractRules.Validate(contract) is { } error)
+                    findings.Add(Error("InvalidNonFrameworkContract", $"{contract.SupplierReference}: {error}", "Contract", contract.Id));
+                continue;
+            }
             Require(contract, contract.CustomerUrn, "MissingContractCustomerUrn", "customer unique reference number (URN)", findings);
 
             if (contract.StartDate is null)
@@ -158,13 +164,15 @@ public static class ReportingRules
     {
         Require(invoice, invoice.SupplierReference, "MissingInvoiceSupplierReference", "supplier reference number", findings);
         Require(invoice, invoice.CustomerName, "MissingInvoiceCustomerName", "customer organisation name", findings);
-        Require(invoice, invoice.CustomerUrn, "MissingInvoiceCustomerUrn", "customer URN", findings);
+        if (invoice.Framework != FrameworkCode.NonFramework)
+            Require(invoice, invoice.CustomerUrn, "MissingInvoiceCustomerUrn", "customer URN", findings);
         if (invoice.InvoiceDate is null)
         {
             findings.Add(Error("MissingInvoiceDate", $"{invoice.SupplierReference}, invoice {invoice.InvoiceNumber}: a customer invoice or credit note date is required.", "Invoice", invoice.Id));
         }
 
         Require(invoice, invoice.InvoiceNumber, "MissingInvoiceNumber", "customer invoice or credit note number", findings);
+        if (invoice.Framework == FrameworkCode.NonFramework) return;
         Require(invoice, invoice.LotNumber, "MissingInvoiceLot", "lot number", findings);
 
         if (invoice.Framework == FrameworkCode.VerticalApplicationSolutions)

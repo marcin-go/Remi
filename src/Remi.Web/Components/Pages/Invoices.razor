@@ -108,7 +108,7 @@ else
     private static readonly IReadOnlyList<string> FrameworkFilterItems =
     [
         string.Empty,
-        .. Frameworks.All.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
+        .. Frameworks.RegisterCategories.OrderBy(item => item.IsHistorical).ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase).Select(item => item.Code.ToString()),
     ];
     private static readonly IReadOnlyList<string> ContractMatchFilterItems = [string.Empty, "matched", "unmatched"];
     private static readonly IReadOnlyList<string> DocumentFilterItems = [string.Empty, "available", "missing"];

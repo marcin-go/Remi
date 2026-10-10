@@ -1,0 +1,96 @@
+@inject ReportingWorkspace Workspace
+@inject TimeProvider Clock
+
+<ClipboardImageEvidence @ref="evidence" LayoutClass="invoice-edit-evidence-layout">
+    <section class="contract-edit-panel non-framework-form">
+        <header class="panel-heading"><div><h2>@(Contract is null ? "Register non-framework agreement" : "Edit agreement")</h2><p>Track the agreement and its annual charges. Framework reporting fields are not required.</p></div></header>
+        <div class="invoice-details-grid record-edit-fields">
+            <label class="floating-field"><input aria-label="Contract reference" placeholder=" " @bind="reference" /><span class="floating-label">Contract reference</span></label>
+            <label class="floating-field"><input aria-label="Customer name" placeholder=" " @bind="customer" /><span class="floating-label">Customer name</span></label>
+            <label class="floating-field"><input aria-label="Customer URN (optional)" placeholder=" " @bind="urn" /><span class="floating-label">Customer URN (optional)</span></label>
+            <RemiPicklist Id="non-framework-agreement-basis" Label="Agreement basis" Items="@BasisItems" Value="@basis" ValueChanged="@(value => basis = value)" ItemLabel="BasisLabel" />
+            <label class="floating-field floating-field--static"><input aria-label="Agreement date" type="date" @bind="agreementDate" /><span class="floating-label">Agreement date</span></label>
+            <label class="floating-field floating-field--static"><input aria-label="Contract start date" type="date" @bind="start" /><span class="floating-label">Contract start date / anniversary anchor</span></label>
+            <RemiPicklist Id="non-framework-term" Label="Contract term" Items="@TermItems" Value="@term" ValueChanged="SetTerm" ItemLabel="TermLabel" />
+            @if (term == "FixedTerm")
+            {
+                <label class="floating-field floating-field--static"><input aria-label="Contract end date" type="date" @bind="end" /><span class="floating-label">Contract end date</span></label>
+            }
+            <label class="floating-field floating-field--static"><input aria-label="Initial annual charge ex VAT" type="number" step="0.01" @bind="annualCharge" /><span class="floating-label">Initial annual charge, ex VAT (£)</span></label>
+        </div>
+        <label class="floating-field"><textarea aria-label="Agreement notes" placeholder=" " @bind="notes"></textarea><span class="floating-label">Agreement notes (required for verbal agreements)</span></label>
+        @if (term == "AnnualRolling") { <p class="notice">Renews annually on the start-date anniversary. The customer must give notice at least 90 calendar days before an anniversary to terminate on that date.</p> }
+        <section class="contract-detail-section"><h3>Annual price increases</h3>
+            <label class="check-line"><input aria-label="Use CPI annual increases" type="checkbox" @bind="usesCpi" /> CPI + additional percentage each anniversary</label>
+            @if (usesCpi)
+            {
+                <div class="invoice-details-grid">
+                    <label class="floating-field floating-field--static"><input aria-label="Additional percentage" type="number" step="0.01" @bind="additional" /><span class="floating-label">Additional percentage points (X%)</span></label>
+                    <label class="floating-field"><input aria-label="CPI reference" placeholder=" " @bind="cpiReference" /><span class="floating-label">Agreed CPI measure and reference period</span></label>
+                </div>
+                <p class="muted">At each review, enter the actual CPI rate. The charge compounds from the previous reviewed annual charge and is rounded to pennies.</p>
+            }
+        </section>
+        @if (Contract is not null)
+        {
+            <section class="contract-detail-section"><h3>Termination notice</h3>
+                <div class="invoice-details-grid">
+                    <label class="floating-field floating-field--static"><input aria-label="Notice received date" type="date" @bind="notice" /><span class="floating-label">Notice received date</span></label>
+                    <label class="floating-field floating-field--static"><input aria-label="Termination date" type="date" @bind="termination" /><span class="floating-label">Effective termination date</span></label>
+                </div>
+                <p class="muted">For rolling agreements, the termination date must be an anniversary with at least 90 days' notice. Clear both dates if a notice is withdrawn.</p>
+            </section>
+        }
+        <div class="invoice-overview-actions"><button class="remi-action remi-action--primary" disabled="@(busy || agreementDate is null || start is null || string.IsNullOrWhiteSpace(reference) || string.IsNullOrWhiteSpace(customer) || annualCharge <= 0)" @onclick="SaveAsync">@(busy ? "Saving…" : "Save agreement")</button>@if (Contract is not null) { <button class="remi-action" disabled="@busy" @onclick="Cancel">Cancel</button> }</div>
+        @if (result is not null) { <p class="notice @(result.Succeeded ? "success" : "error")" role="status">@result.Message</p> }
+    </section>
+</ClipboardImageEvidence>
+
+@code {
+    [Parameter] public ContractRecord? Contract { get; set; }
+    [Parameter] public EventCallback<Guid> Saved { get; set; }
+    [Parameter] public EventCallback Cancel { get; set; }
+    private static readonly IReadOnlyList<string> BasisItems = ["SignedDocument", "EmailConfirmation", "Verbal"];
+    private static readonly IReadOnlyList<string> TermItems = ["FixedTerm", "OpenEnded", "AnnualRolling"];
+    private ContractRecord? loaded;
+    private bool initialized, busy, usesCpi = true;
+    private string reference = "", customer = "", urn = "", notes = "", cpiReference = "", basis = "Verbal", term = "AnnualRolling";
+    private decimal annualCharge, additional;
+    private DateOnly? start, end, agreementDate, notice, termination;
+    private Guid? savedId;
+    private ClipboardImageEvidence? evidence;
+    private ReturnActionResult? result;
+    protected override void OnParametersSet()
+    {
+        if (initialized && loaded == Contract) return;
+        initialized = true; loaded = Contract;
+        if (Contract is null) { agreementDate = ContractPortfolioRules.Today(Clock); return; }
+        var terms = Contract.NonFrameworkTerms!;
+        reference = Contract.SupplierReference; customer = Contract.CustomerName; urn = Contract.CustomerUrn ?? "";
+        start = Contract.StartDate; end = Contract.EndDate; basis = terms.AgreementBasis.ToString(); agreementDate = terms.AgreementDate;
+        notes = terms.AgreementNotes; term = terms.TermKind.ToString(); annualCharge = terms.InitialAnnualChargeExVat;
+        usesCpi = terms.UsesCpi; additional = terms.AdditionalPercentage; cpiReference = terms.CpiReference;
+        notice = terms.NoticeReceivedDate; termination = terms.TerminationDate;
+    }
+    private void SetTerm(string value) { term = value; if (term != "FixedTerm") end = null; }
+    private async Task SaveAsync()
+    {
+        if (busy || agreementDate is null) return;
+        busy = true;
+        try
+        {
+            await evidence!.PrepareAsync();
+            var terms = new NonFrameworkContractTerms(Enum.Parse<AgreementBasis>(basis), agreementDate.Value, notes,
+                Enum.Parse<ContractTermKind>(term), annualCharge, usesCpi, usesCpi ? additional : 0, usesCpi ? cpiReference : "", notice, termination);
+            result = await Workspace.SaveNonFrameworkContractAsync(new(reference, customer, urn, start, end, terms), Contract?.Id ?? savedId);
+            if (!result.Succeeded || result.EntityId is not { } id) return;
+            savedId = id;
+            await evidence.ArchiveAsync("contract", id);
+            await Saved.InvokeAsync(id);
+        }
+        catch (Exception exception) { result = new(false, savedId is null ? $"The agreement could not be saved: {exception.Message}" : $"The agreement was saved, but its documents could not be saved. Retry to finish: {exception.Message}", []); }
+        finally { busy = false; }
+    }
+    private static string BasisLabel(string value) => value switch { "SignedDocument" => "Signed document", "EmailConfirmation" => "Email confirmation", _ => "Verbal agreement" };
+    private static string TermLabel(string value) => value switch { "FixedTerm" => "Fixed term", "OpenEnded" => "Open-ended", _ => "Annual rolling · 90-day notice" };
+}

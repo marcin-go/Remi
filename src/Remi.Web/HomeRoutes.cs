@@ -23,6 +23,7 @@ public static class HomeRoutes
 
     public static PortfolioFilter Filter(string? status) => status switch
     {
+        "renewal-notice" => PortfolioFilter.RollingNotice,
         "live" => PortfolioFilter.Live, "future" => PortfolioFilter.Future, "unknown" => PortfolioFilter.UnknownDates,
         "ended" => PortfolioFilter.Ended, "ending-soon" => PortfolioFilter.Ending,
         "ending-no-option" => PortfolioFilter.EndingNoOptionRecorded, "ending-options" => PortfolioFilter.EndingOptionsRecorded,
